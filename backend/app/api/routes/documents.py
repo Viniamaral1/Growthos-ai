@@ -1,0 +1,209 @@
+from pathlib import Path
+from typing import Annotated
+from uuid import uuid4
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.database.session import get_db
+from app.models.company import Company
+from app.models.document import Document
+from app.schemas.document import DocumentResponse
+
+
+router = APIRouter(
+    prefix="/documents",
+    tags=["Documents"],
+)
+
+
+DatabaseSession = Annotated[
+    Session,
+    Depends(get_db),
+]
+
+
+UPLOAD_DIRECTORY = Path("uploads")
+UPLOAD_DIRECTORY.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+}
+
+
+@router.post(
+    "/upload",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_document(
+    company_id: Annotated[int, Form()],
+    file: Annotated[UploadFile, File()],
+    database: DatabaseSession,
+) -> Document:
+    """
+    Upload and save a PDF belonging to a company.
+    """
+
+    company = database.get(
+        Company,
+        company_id,
+    )
+
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Company not found.",
+        )
+
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only PDF documents are currently supported.",
+        )
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file must have a filename.",
+        )
+
+    file_contents = await file.read()
+
+    if not file_contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file is empty.",
+        )
+
+    if len(file_contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="The file exceeds the maximum size of 10 MB.",
+        )
+
+    original_filename = Path(file.filename).name
+    file_extension = Path(original_filename).suffix.lower()
+
+    if file_extension != ".pdf":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="The uploaded file must use the .pdf extension.",
+        )
+
+    stored_filename = f"{uuid4().hex}.pdf"
+    saved_file_path = UPLOAD_DIRECTORY / stored_filename
+
+    try:
+        saved_file_path.write_bytes(
+            file_contents,
+        )
+
+        document = Document(
+            company_id=company_id,
+            original_filename=original_filename,
+            stored_filename=stored_filename,
+            file_path=str(saved_file_path),
+            content_type=file.content_type,
+            file_size=len(file_contents),
+            processing_status="uploaded",
+        )
+
+        database.add(document)
+        database.commit()
+        database.refresh(document)
+
+        return document
+
+    except OSError as error:
+        database.rollback()
+
+        if saved_file_path.exists():
+            saved_file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The document could not be saved.",
+        ) from error
+
+    except Exception:
+        database.rollback()
+
+        if saved_file_path.exists():
+            saved_file_path.unlink()
+
+        raise
+
+    finally:
+        await file.close()
+
+
+@router.get(
+    "",
+    response_model=list[DocumentResponse],
+)
+def list_documents(
+    database: DatabaseSession,
+    company_id: int | None = None,
+) -> list[Document]:
+    """
+    Return uploaded documents.
+
+    Optionally filter documents using a company ID.
+    """
+
+    statement = select(Document).order_by(
+        Document.uploaded_at.desc()
+    )
+
+    if company_id is not None:
+        statement = statement.where(
+            Document.company_id == company_id
+        )
+
+    documents = database.scalars(
+        statement
+    ).all()
+
+    return list(documents)
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentResponse,
+)
+def get_document(
+    document_id: int,
+    database: DatabaseSession,
+) -> Document:
+    """
+    Return one document using its ID.
+    """
+
+    document = database.get(
+        Document,
+        document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return document

@@ -2,9 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.companies import router as companies_router
+from app.api.routes.documents import router as documents_router
 from app.api.routes.health import router as health_router
 from app.database.session import Base, engine
 from app.models.company import Company
+from app.models.document import Document
 
 
 def create_app() -> FastAPI:
@@ -22,7 +24,7 @@ def create_app() -> FastAPI:
             "An AI platform that learns from company information "
             "and generates grounded marketing campaigns."
         ),
-        version="0.2.0",
+        version="0.3.0",
     )
 
     application.add_middleware(
@@ -43,6 +45,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         companies_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        documents_router,
         prefix="/api/v1",
     )
 
