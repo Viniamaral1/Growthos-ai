@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.answers import (
+    router as answers_router,
+)
 from app.api.routes.companies import (
     router as companies_router,
 )
@@ -39,7 +42,7 @@ def create_app() -> FastAPI:
             "An AI platform that learns from company information "
             "and generates grounded marketing campaigns."
         ),
-        version="0.5.0",
+        version="0.6.0",
     )
 
     application.add_middleware(
@@ -70,6 +73,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         search_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        answers_router,
         prefix="/api/v1",
     )
 
