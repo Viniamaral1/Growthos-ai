@@ -10,6 +10,9 @@ from app.api.routes.documents import (
 from app.api.routes.health import (
     router as health_router,
 )
+from app.api.routes.search import (
+    router as search_router,
+)
 from app.database.session import (
     Base,
     engine,
@@ -36,7 +39,7 @@ def create_app() -> FastAPI:
             "An AI platform that learns from company information "
             "and generates grounded marketing campaigns."
         ),
-        version="0.4.0",
+        version="0.5.0",
     )
 
     application.add_middleware(
@@ -62,6 +65,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         documents_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        search_router,
         prefix="/api/v1",
     )
 

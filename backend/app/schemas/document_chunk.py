@@ -18,4 +18,5 @@ class DocumentChunkResponse(BaseModel):
     page_number: int | None
     text: str
     character_count: int
+    embedding_model: str | None
     created_at: datetime

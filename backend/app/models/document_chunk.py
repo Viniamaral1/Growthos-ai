@@ -1,6 +1,12 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.session import Base
@@ -53,6 +59,16 @@ class DocumentChunk(Base):
     character_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
+    )
+
+    embedding_json: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    embedding_model: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -25,6 +26,10 @@ from app.schemas.document import (
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
+)
+from app.services.embedding_service import (
+    EMBEDDING_MODEL_NAME,
+    create_embeddings,
 )
 from app.services.pdf_extractor import (
     PDFExtractionError,
@@ -90,17 +95,13 @@ async def upload_document(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=(
-                "Only PDF documents are currently supported."
-            ),
+            detail="Only PDF documents are currently supported.",
         )
 
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "The uploaded file must have a filename."
-            ),
+            detail="The uploaded file must have a filename.",
         )
 
     file_contents = await file.read()
@@ -114,9 +115,7 @@ async def upload_document(
     if len(file_contents) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                "The file exceeds the maximum size of 10 MB."
-            ),
+            detail="The file exceeds the maximum size of 10 MB.",
         )
 
     original_filename = Path(
@@ -130,14 +129,10 @@ async def upload_document(
     if file_extension != ".pdf":
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=(
-                "The uploaded file must use the .pdf extension."
-            ),
+            detail="The uploaded file must use the .pdf extension.",
         )
 
-    stored_filename = (
-        f"{uuid4().hex}.pdf"
-    )
+    stored_filename = f"{uuid4().hex}.pdf"
 
     saved_file_path = (
         UPLOAD_DIRECTORY
@@ -166,7 +161,6 @@ async def upload_document(
         database.add(
             document
         )
-
         database.commit()
         database.refresh(
             document
@@ -181,12 +175,8 @@ async def upload_document(
             saved_file_path.unlink()
 
         raise HTTPException(
-            status_code=(
-                status.HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            detail=(
-                "The document could not be saved."
-            ),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The document could not be saved.",
         ) from error
 
     except Exception:
@@ -210,7 +200,7 @@ def process_document(
     database: DatabaseSession,
 ) -> Document:
     """
-    Extract text from a PDF and create searchable chunks.
+    Extract, chunk and embed a PDF document.
     """
 
     document = database.get(
@@ -224,34 +214,37 @@ def process_document(
             detail="Document not found.",
         )
 
-    document.processing_status = (
-        "processing"
-    )
-
+    document.processing_status = "processing"
     document.processing_error = None
-
     database.commit()
 
     try:
-        extraction_result = (
-            extract_pdf_text(
-                document.file_path
-            )
+        extraction_result = extract_pdf_text(
+            document.file_path
         )
 
-        generated_chunks = (
-            create_document_chunks(
-                extracted_text=(
-                    extraction_result.text
-                ),
-                chunk_size=1000,
-                overlap=200,
-            )
+        generated_chunks = create_document_chunks(
+            extracted_text=extraction_result.text,
+            chunk_size=1000,
+            overlap=200,
         )
 
         if not generated_chunks:
             raise PDFExtractionError(
                 "No usable text chunks could be created."
+            )
+
+        chunk_embeddings = create_embeddings(
+            chunk.text
+            for chunk in generated_chunks
+        )
+
+        if len(chunk_embeddings) != len(
+            generated_chunks
+        ):
+            raise RuntimeError(
+                "The number of generated embeddings "
+                "does not match the number of chunks."
             )
 
         database.execute(
@@ -263,23 +256,29 @@ def process_document(
             )
         )
 
-        for generated_chunk in generated_chunks:
+        for generated_chunk, embedding in zip(
+            generated_chunks,
+            chunk_embeddings,
+            strict=True,
+        ):
             database.add(
                 DocumentChunk(
-                    document_id=(
-                        document.id
-                    ),
+                    document_id=document.id,
                     chunk_index=(
                         generated_chunk.chunk_index
                     ),
                     page_number=(
                         generated_chunk.page_number
                     ),
-                    text=(
-                        generated_chunk.text
-                    ),
+                    text=generated_chunk.text,
                     character_count=(
                         generated_chunk.character_count
+                    ),
+                    embedding_json=json.dumps(
+                        embedding
+                    ),
+                    embedding_model=(
+                        EMBEDDING_MODEL_NAME
                     ),
                 )
             )
@@ -287,25 +286,16 @@ def process_document(
         document.extracted_text = (
             extraction_result.text
         )
-
         document.page_count = (
             extraction_result.page_count
         )
-
         document.character_count = (
             extraction_result.character_count
         )
-
-        document.processing_status = (
-            "processed"
-        )
-
+        document.processing_status = "processed"
         document.processing_error = None
-
-        document.processed_at = (
-            datetime.now(
-                timezone.utc
-            )
+        document.processed_at = datetime.now(
+            timezone.utc
         )
 
         database.commit()
@@ -324,32 +314,23 @@ def process_document(
         )
 
         if document is not None:
-            document.processing_status = (
-                "failed"
-            )
-
+            document.processing_status = "failed"
             document.processing_error = str(
                 error
             )
-
-            document.processed_at = (
-                datetime.now(
-                    timezone.utc
-                )
+            document.processed_at = datetime.now(
+                timezone.utc
             )
-
             database.commit()
 
         raise HTTPException(
-            status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
-            ),
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(
                 error
             ),
         ) from error
 
-    except Exception:
+    except Exception as error:
         database.rollback()
 
         document = database.get(
@@ -358,30 +339,27 @@ def process_document(
         )
 
         if document is not None:
-            document.processing_status = (
-                "failed"
-            )
-
+            document.processing_status = "failed"
             document.processing_error = (
                 "An unexpected processing error occurred."
             )
-
-            document.processed_at = (
-                datetime.now(
-                    timezone.utc
-                )
+            document.processed_at = datetime.now(
+                timezone.utc
             )
-
             database.commit()
 
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "The document could not be embedded. "
+                f"Reason: {error}"
+            ),
+        ) from error
 
 
 @router.get(
     "",
-    response_model=list[
-        DocumentResponse
-    ],
+    response_model=list[DocumentResponse],
 )
 def list_documents(
     database: DatabaseSession,
@@ -389,8 +367,6 @@ def list_documents(
 ) -> list[Document]:
     """
     Return uploaded documents.
-
-    Optionally filter documents by company ID.
     """
 
     statement = select(
@@ -463,10 +439,7 @@ def get_document_text(
             detail="Document not found.",
         )
 
-    if (
-        document.processing_status
-        != "processed"
-    ):
+    if document.processing_status != "processed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
