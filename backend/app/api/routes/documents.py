@@ -12,19 +12,26 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.company import Company
 from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
 from app.schemas.document import (
     DocumentResponse,
     DocumentTextResponse,
 )
+from app.schemas.document_chunk import (
+    DocumentChunkResponse,
+)
 from app.services.pdf_extractor import (
     PDFExtractionError,
     extract_pdf_text,
+)
+from app.services.text_chunker import (
+    create_document_chunks,
 )
 
 
@@ -41,6 +48,7 @@ DatabaseSession = Annotated[
 
 
 UPLOAD_DIRECTORY = Path("uploads")
+
 UPLOAD_DIRECTORY.mkdir(
     parents=True,
     exist_ok=True,
@@ -82,13 +90,17 @@ async def upload_document(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF documents are currently supported.",
+            detail=(
+                "Only PDF documents are currently supported."
+            ),
         )
 
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The uploaded file must have a filename.",
+            detail=(
+                "The uploaded file must have a filename."
+            ),
         )
 
     file_contents = await file.read()
@@ -102,39 +114,63 @@ async def upload_document(
     if len(file_contents) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="The file exceeds the maximum size of 10 MB.",
+            detail=(
+                "The file exceeds the maximum size of 10 MB."
+            ),
         )
 
-    original_filename = Path(file.filename).name
-    file_extension = Path(original_filename).suffix.lower()
+    original_filename = Path(
+        file.filename
+    ).name
+
+    file_extension = Path(
+        original_filename
+    ).suffix.lower()
 
     if file_extension != ".pdf":
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="The uploaded file must use the .pdf extension.",
+            detail=(
+                "The uploaded file must use the .pdf extension."
+            ),
         )
 
-    stored_filename = f"{uuid4().hex}.pdf"
-    saved_file_path = UPLOAD_DIRECTORY / stored_filename
+    stored_filename = (
+        f"{uuid4().hex}.pdf"
+    )
+
+    saved_file_path = (
+        UPLOAD_DIRECTORY
+        / stored_filename
+    )
 
     try:
         saved_file_path.write_bytes(
-            file_contents,
+            file_contents
         )
 
         document = Document(
             company_id=company_id,
             original_filename=original_filename,
             stored_filename=stored_filename,
-            file_path=str(saved_file_path),
+            file_path=str(
+                saved_file_path
+            ),
             content_type=file.content_type,
-            file_size=len(file_contents),
+            file_size=len(
+                file_contents
+            ),
             processing_status="uploaded",
         )
 
-        database.add(document)
+        database.add(
+            document
+        )
+
         database.commit()
-        database.refresh(document)
+        database.refresh(
+            document
+        )
 
         return document
 
@@ -145,8 +181,12 @@ async def upload_document(
             saved_file_path.unlink()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The document could not be saved.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The document could not be saved."
+            ),
         ) from error
 
     except Exception:
@@ -170,7 +210,7 @@ def process_document(
     database: DatabaseSession,
 ) -> Document:
     """
-    Extract and store text from an uploaded PDF.
+    Extract text from a PDF and create searchable chunks.
     """
 
     document = database.get(
@@ -184,50 +224,164 @@ def process_document(
             detail="Document not found.",
         )
 
-    document.processing_status = "processing"
+    document.processing_status = (
+        "processing"
+    )
+
     document.processing_error = None
+
     database.commit()
 
     try:
-        extraction_result = extract_pdf_text(
-            document.file_path,
+        extraction_result = (
+            extract_pdf_text(
+                document.file_path
+            )
         )
 
-        document.extracted_text = extraction_result.text
-        document.page_count = extraction_result.page_count
+        generated_chunks = (
+            create_document_chunks(
+                extracted_text=(
+                    extraction_result.text
+                ),
+                chunk_size=1000,
+                overlap=200,
+            )
+        )
+
+        if not generated_chunks:
+            raise PDFExtractionError(
+                "No usable text chunks could be created."
+            )
+
+        database.execute(
+            delete(
+                DocumentChunk
+            ).where(
+                DocumentChunk.document_id
+                == document.id
+            )
+        )
+
+        for generated_chunk in generated_chunks:
+            database.add(
+                DocumentChunk(
+                    document_id=(
+                        document.id
+                    ),
+                    chunk_index=(
+                        generated_chunk.chunk_index
+                    ),
+                    page_number=(
+                        generated_chunk.page_number
+                    ),
+                    text=(
+                        generated_chunk.text
+                    ),
+                    character_count=(
+                        generated_chunk.character_count
+                    ),
+                )
+            )
+
+        document.extracted_text = (
+            extraction_result.text
+        )
+
+        document.page_count = (
+            extraction_result.page_count
+        )
+
         document.character_count = (
             extraction_result.character_count
         )
-        document.processing_status = "processed"
+
+        document.processing_status = (
+            "processed"
+        )
+
         document.processing_error = None
-        document.processed_at = datetime.now(
-            timezone.utc
+
+        document.processed_at = (
+            datetime.now(
+                timezone.utc
+            )
         )
 
         database.commit()
-        database.refresh(document)
+        database.refresh(
+            document
+        )
 
         return document
 
     except PDFExtractionError as error:
-        document.processing_status = "failed"
-        document.processing_error = str(error)
-        document.processed_at = datetime.now(
-            timezone.utc
+        database.rollback()
+
+        document = database.get(
+            Document,
+            document_id,
         )
 
-        database.commit()
-        database.refresh(document)
+        if document is not None:
+            document.processing_status = (
+                "failed"
+            )
+
+            document.processing_error = str(
+                error
+            )
+
+            document.processed_at = (
+                datetime.now(
+                    timezone.utc
+                )
+            )
+
+            database.commit()
 
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(error),
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            detail=str(
+                error
+            ),
         ) from error
+
+    except Exception:
+        database.rollback()
+
+        document = database.get(
+            Document,
+            document_id,
+        )
+
+        if document is not None:
+            document.processing_status = (
+                "failed"
+            )
+
+            document.processing_error = (
+                "An unexpected processing error occurred."
+            )
+
+            document.processed_at = (
+                datetime.now(
+                    timezone.utc
+                )
+            )
+
+            database.commit()
+
+        raise
 
 
 @router.get(
     "",
-    response_model=list[DocumentResponse],
+    response_model=list[
+        DocumentResponse
+    ],
 )
 def list_documents(
     database: DatabaseSession,
@@ -239,20 +393,25 @@ def list_documents(
     Optionally filter documents by company ID.
     """
 
-    statement = select(Document).order_by(
+    statement = select(
+        Document
+    ).order_by(
         Document.uploaded_at.desc()
     )
 
     if company_id is not None:
         statement = statement.where(
-            Document.company_id == company_id
+            Document.company_id
+            == company_id
         )
 
     documents = database.scalars(
         statement
     ).all()
 
-    return list(documents)
+    return list(
+        documents
+    )
 
 
 @router.get(
@@ -304,7 +463,10 @@ def get_document_text(
             detail="Document not found.",
         )
 
-    if document.processing_status != "processed":
+    if (
+        document.processing_status
+        != "processed"
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -314,3 +476,50 @@ def get_document_text(
         )
 
     return document
+
+
+@router.get(
+    "/{document_id}/chunks",
+    response_model=list[
+        DocumentChunkResponse
+    ],
+)
+def get_document_chunks(
+    document_id: int,
+    database: DatabaseSession,
+) -> list[DocumentChunk]:
+    """
+    Return all chunks belonging to one document.
+    """
+
+    document = database.get(
+        Document,
+        document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    statement = (
+        select(
+            DocumentChunk
+        )
+        .where(
+            DocumentChunk.document_id
+            == document_id
+        )
+        .order_by(
+            DocumentChunk.chunk_index
+        )
+    )
+
+    chunks = database.scalars(
+        statement
+    ).all()
+
+    return list(
+        chunks
+    )
