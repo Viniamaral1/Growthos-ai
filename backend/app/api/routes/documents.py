@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -17,7 +18,14 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.company import Company
 from app.models.document import Document
-from app.schemas.document import DocumentResponse
+from app.schemas.document import (
+    DocumentResponse,
+    DocumentTextResponse,
+)
+from app.services.pdf_extractor import (
+    PDFExtractionError,
+    extract_pdf_text,
+)
 
 
 router = APIRouter(
@@ -153,6 +161,70 @@ async def upload_document(
         await file.close()
 
 
+@router.post(
+    "/{document_id}/process",
+    response_model=DocumentResponse,
+)
+def process_document(
+    document_id: int,
+    database: DatabaseSession,
+) -> Document:
+    """
+    Extract and store text from an uploaded PDF.
+    """
+
+    document = database.get(
+        Document,
+        document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    document.processing_status = "processing"
+    document.processing_error = None
+    database.commit()
+
+    try:
+        extraction_result = extract_pdf_text(
+            document.file_path,
+        )
+
+        document.extracted_text = extraction_result.text
+        document.page_count = extraction_result.page_count
+        document.character_count = (
+            extraction_result.character_count
+        )
+        document.processing_status = "processed"
+        document.processing_error = None
+        document.processed_at = datetime.now(
+            timezone.utc
+        )
+
+        database.commit()
+        database.refresh(document)
+
+        return document
+
+    except PDFExtractionError as error:
+        document.processing_status = "failed"
+        document.processing_error = str(error)
+        document.processed_at = datetime.now(
+            timezone.utc
+        )
+
+        database.commit()
+        database.refresh(document)
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
 @router.get(
     "",
     response_model=list[DocumentResponse],
@@ -164,7 +236,7 @@ def list_documents(
     """
     Return uploaded documents.
 
-    Optionally filter documents using a company ID.
+    Optionally filter documents by company ID.
     """
 
     statement = select(Document).order_by(
@@ -204,6 +276,41 @@ def get_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found.",
+        )
+
+    return document
+
+
+@router.get(
+    "/{document_id}/text",
+    response_model=DocumentTextResponse,
+)
+def get_document_text(
+    document_id: int,
+    database: DatabaseSession,
+) -> Document:
+    """
+    Return extracted text for a processed document.
+    """
+
+    document = database.get(
+        Document,
+        document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    if document.processing_status != "processed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Document text is not available because "
+                "the document has not been processed successfully."
+            ),
         )
 
     return document
