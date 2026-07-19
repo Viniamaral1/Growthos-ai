@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.routes.marketing import (
+    router as marketing_router,
+)
 
 from app.api.routes.answers import (
     router as answers_router,
@@ -79,6 +82,10 @@ def create_app() -> FastAPI:
     application.include_router(
         answers_router,
         prefix="/api/v1",
+    )
+    application.include_router(
+    marketing_router,
+    prefix="/api/v1",
     )
 
     return application
