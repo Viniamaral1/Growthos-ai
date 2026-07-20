@@ -31,15 +31,23 @@ class MarketingContentRequest(BaseModel):
         examples=[1],
     )
 
-    platform: MarketingPlatform
+    document_id: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "When provided, retrieval is limited to this document. "
+            "When omitted, all processed company documents are searched."
+        ),
+    )
 
+    platform: MarketingPlatform
     objective: MarketingObjective
 
     campaign_brief: str = Field(
         min_length=5,
         max_length=1000,
         examples=[
-            "Promote the company's AI document assistant to small UK businesses."
+            "Create a LinkedIn post based on this document."
         ],
     )
 
@@ -54,15 +62,15 @@ class MarketingContentRequest(BaseModel):
     )
 
     number_of_variants: int = Field(
-        default=3,
+        default=1,
         ge=1,
-        le=5,
+        le=1,
     )
 
     retrieval_limit: int = Field(
-        default=6,
+        default=3,
         ge=1,
-        le=10,
+        le=6,
     )
 
     minimum_score: float = Field(
@@ -78,6 +86,7 @@ class MarketingSource(BaseModel):
     """
 
     source_id: str
+    document_id: int
     document_name: str
     page_number: int | None
     similarity_score: float
@@ -103,6 +112,8 @@ class MarketingContentResponse(BaseModel):
     """
 
     company_id: int
+    document_id: int | None
+    document_name: str | None
     platform: MarketingPlatform
     objective: MarketingObjective
     model: str

@@ -43,6 +43,8 @@ export type AnswerSource = {
 
 export type GroundedAnswer = {
   company_id: number;
+  document_id: number | null;
+  document_name: string | null;
   question: string;
   answer: string;
   model: string;
@@ -79,6 +81,7 @@ export type MarketingVariant = {
 
 export type MarketingSource = {
   source_id: string;
+  document_id: number;
   document_name: string;
   page_number: number | null;
   similarity_score: number;
@@ -88,6 +91,8 @@ export type MarketingSource = {
 
 export type MarketingCampaign = {
   company_id: number;
+  document_id: number | null;
+  document_name: string | null;
   platform: MarketingPlatform;
   objective: MarketingObjective;
   model: string;
@@ -106,8 +111,9 @@ type CreateCompanyPayload = {
 };
 
 
-type MarketingCampaignPayload = {
+export type MarketingCampaignPayload = {
   company_id: number;
+  document_id: number | null;
   platform: MarketingPlatform;
   objective: MarketingObjective;
   campaign_brief: string;
@@ -151,9 +157,7 @@ export async function getCompanies(): Promise<Company[]> {
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
   }
 
   return response.json();
@@ -175,9 +179,25 @@ export async function createCompany(
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function getDocuments(
+  companyId: number,
+): Promise<DocumentRecord[]> {
+  const response = await fetch(
+    `${API_URL}/documents?company_id=${companyId}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
   }
 
   return response.json();
@@ -190,15 +210,8 @@ export async function uploadDocument(
 ): Promise<DocumentRecord> {
   const formData = new FormData();
 
-  formData.append(
-    "company_id",
-    String(companyId),
-  );
-
-  formData.append(
-    "file",
-    file,
-  );
+  formData.append("company_id", String(companyId));
+  formData.append("file", file);
 
   const response = await fetch(
     `${API_URL}/documents/upload`,
@@ -209,9 +222,7 @@ export async function uploadDocument(
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
   }
 
   return response.json();
@@ -229,9 +240,7 @@ export async function processDocument(
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
   }
 
   return response.json();
@@ -241,6 +250,7 @@ export async function processDocument(
 export async function askGroundedQuestion(
   companyId: number,
   question: string,
+  documentId: number | null,
 ): Promise<GroundedAnswer> {
   const response = await fetch(
     `${API_URL}/answers/grounded`,
@@ -251,17 +261,16 @@ export async function askGroundedQuestion(
       },
       body: JSON.stringify({
         company_id: companyId,
+        document_id: documentId,
         question,
-        retrieval_limit: 5,
+        retrieval_limit: 3,
         minimum_score: 0.2,
       }),
     },
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
   }
 
   return response.json();
@@ -283,9 +292,7 @@ export async function generateMarketingCampaign(
   );
 
   if (!response.ok) {
-    throw new Error(
-      await readError(response),
-    );
+    throw new Error(await readError(response));
   }
 
   return response.json();

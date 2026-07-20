@@ -11,18 +11,27 @@ class GroundedAnswerRequest(BaseModel):
         examples=[1],
     )
 
+    document_id: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "When provided, retrieval is limited to this document. "
+            "When omitted, all processed company documents are searched."
+        ),
+    )
+
     question: str = Field(
         min_length=3,
         max_length=1000,
         examples=[
-            "What products and services does this company provide?"
+            "What experience is described in this CV?"
         ],
     )
 
     retrieval_limit: int = Field(
-        default=5,
+        default=3,
         ge=1,
-        le=10,
+        le=6,
     )
 
     minimum_score: float = Field(
@@ -52,6 +61,8 @@ class GroundedAnswerResponse(BaseModel):
     """
 
     company_id: int
+    document_id: int | None
+    document_name: str | None
     question: str
     answer: str
     model: str

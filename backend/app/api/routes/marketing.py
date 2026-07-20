@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Annotated
 
 from fastapi import (
@@ -41,6 +42,16 @@ DatabaseSession = Annotated[
 ]
 
 
+def _normalise_text(value: str) -> str:
+    """Create a stable key for near-duplicate passage removal."""
+
+    return re.sub(
+        r"\s+",
+        " ",
+        value.lower().strip(),
+    )[:700]
+
+
 @router.post(
     "/generate",
     response_model=MarketingContentResponse,
@@ -63,6 +74,30 @@ def generate_marketing_campaign(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Company not found.",
         )
+
+    scoped_document: Document | None = None
+
+    if request.document_id is not None:
+        scoped_document = database.get(
+            Document,
+            request.document_id,
+        )
+
+        if (
+            scoped_document is None
+            or scoped_document.company_id
+            != request.company_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found for this company.",
+            )
+
+        if scoped_document.processing_status != "processed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The selected document is not ready for AI.",
+            )
 
     retrieval_query = " ".join(
         [
@@ -102,6 +137,11 @@ def generate_marketing_campaign(
         )
     )
 
+    if scoped_document is not None:
+        statement = statement.where(
+            Document.id == scoped_document.id
+        )
+
     rows = database.execute(
         statement
     ).all()
@@ -123,7 +163,6 @@ def generate_marketing_campaign(
                 query_embedding,
                 stored_embedding,
             )
-
         except (
             json.JSONDecodeError,
             TypeError,
@@ -136,12 +175,11 @@ def generate_marketing_campaign(
 
         ranked_sources.append(
             {
+                "document_id": document.id,
                 "document_name": (
                     document.original_filename
                 ),
-                "page_number": (
-                    chunk.page_number
-                ),
+                "page_number": chunk.page_number,
                 "text": chunk.text,
                 "similarity_score": round(
                     score,
@@ -157,9 +195,27 @@ def generate_marketing_campaign(
         reverse=True,
     )
 
-    selected_sources = ranked_sources[
-        : request.retrieval_limit
-    ]
+    unique_sources: list[
+        dict[str, object]
+    ] = []
+    seen_passages: set[str] = set()
+
+    for source in ranked_sources:
+        normalised = _normalise_text(
+            str(source["text"])
+        )
+
+        if normalised in seen_passages:
+            continue
+
+        seen_passages.add(normalised)
+        unique_sources.append(source)
+
+        if (
+            len(unique_sources)
+            >= request.retrieval_limit
+        ):
+            break
 
     labelled_sources = [
         {
@@ -167,7 +223,7 @@ def generate_marketing_campaign(
             "source_id": f"S{index}",
         }
         for index, source in enumerate(
-            selected_sources,
+            unique_sources,
             start=1,
         )
     ]
@@ -188,13 +244,10 @@ def generate_marketing_campaign(
                     request.tone
                     or company.brand_tone
                 ),
-                number_of_variants=(
-                    request.number_of_variants
-                ),
+                number_of_variants=1,
                 sources=labelled_sources,
             )
         )
-
     except MarketingGenerationError as error:
         raise HTTPException(
             status_code=(
@@ -207,6 +260,9 @@ def generate_marketing_campaign(
         MarketingSource(
             source_id=str(
                 source["source_id"]
+            ),
+            document_id=int(
+                source["document_id"]
             ),
             document_name=str(
                 source["document_name"]
@@ -229,6 +285,16 @@ def generate_marketing_campaign(
 
     return MarketingContentResponse(
         company_id=request.company_id,
+        document_id=(
+            scoped_document.id
+            if scoped_document is not None
+            else None
+        ),
+        document_name=(
+            scoped_document.original_filename
+            if scoped_document is not None
+            else None
+        ),
         platform=request.platform,
         objective=request.objective,
         model=model_name,
