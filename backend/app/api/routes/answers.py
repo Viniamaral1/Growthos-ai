@@ -10,6 +10,7 @@ from fastapi import (
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from fastapi.responses import StreamingResponse
 
 from app.database.session import get_db
 from app.models.company import Company
@@ -23,6 +24,8 @@ from app.schemas.answer import (
 from app.services.answer_service import (
     AnswerGenerationError,
     generate_grounded_answer,
+    get_ollama_model,
+    stream_grounded_answer,
 )
 from app.services.embedding_service import (
     cosine_similarity_score,
@@ -296,4 +299,152 @@ def create_grounded_answer(
             response_sources
         ),
         sources=response_sources,
+    )
+
+@router.post("/grounded/stream")
+def stream_grounded_response(
+    answer_request: GroundedAnswerRequest,
+    database: DatabaseSession,
+) -> StreamingResponse:
+    """Stream a grounded answer as newline-delimited JSON events."""
+
+    company = database.get(Company, answer_request.company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Company not found.",
+        )
+
+    scoped_document: Document | None = None
+    if answer_request.document_id is not None:
+        scoped_document = database.get(Document, answer_request.document_id)
+        if (
+            scoped_document is None
+            or scoped_document.company_id != answer_request.company_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found for this company.",
+            )
+        if scoped_document.processing_status != "processed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The selected document is not ready for AI.",
+            )
+
+    query_embedding = create_query_embedding(answer_request.question)
+
+    statement = (
+        select(DocumentChunk, Document)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(Document.company_id == answer_request.company_id)
+        .where(Document.processing_status == "processed")
+        .where(DocumentChunk.embedding_json.is_not(None))
+    )
+    if scoped_document is not None:
+        statement = statement.where(Document.id == scoped_document.id)
+
+    ranked_sources: list[dict[str, object]] = []
+    for chunk, document in database.execute(statement).all():
+        if not chunk.embedding_json:
+            continue
+        try:
+            score = cosine_similarity_score(
+                query_embedding,
+                json.loads(chunk.embedding_json),
+            )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if score < answer_request.minimum_score:
+            continue
+        ranked_sources.append({
+            "chunk_id": chunk.id,
+            "document_id": document.id,
+            "document_name": document.original_filename,
+            "page_number": chunk.page_number,
+            "chunk_index": chunk.chunk_index,
+            "text": chunk.text,
+            "similarity_score": round(score, 4),
+        })
+
+    ranked_sources.sort(
+        key=lambda source: float(source["similarity_score"]),
+        reverse=True,
+    )
+
+    unique_sources: list[dict[str, object]] = []
+    seen_passages: set[str] = set()
+    for source in ranked_sources:
+        normalised = _normalise_text(str(source["text"]))
+        if normalised in seen_passages:
+            continue
+        seen_passages.add(normalised)
+        unique_sources.append(source)
+        if len(unique_sources) >= answer_request.retrieval_limit:
+            break
+
+    labelled_sources = [
+        {**source, "source_id": f"S{index}"}
+        for index, source in enumerate(unique_sources, start=1)
+    ]
+
+    response_sources = [
+        AnswerSource(
+            source_id=str(source["source_id"]),
+            chunk_id=int(source["chunk_id"]),
+            document_id=int(source["document_id"]),
+            document_name=str(source["document_name"]),
+            page_number=(
+                int(source["page_number"])
+                if source["page_number"] is not None
+                else None
+            ),
+            similarity_score=float(source["similarity_score"]),
+            text=str(source["text"]),
+        )
+        for source in labelled_sources
+    ]
+
+    metadata = {
+        "type": "metadata",
+        "company_id": answer_request.company_id,
+        "document_id": (
+            scoped_document.id if scoped_document is not None else None
+        ),
+        "document_name": (
+            scoped_document.original_filename
+            if scoped_document is not None
+            else None
+        ),
+        "question": answer_request.question,
+        "model": get_ollama_model(),
+        "source_count": len(response_sources),
+        "sources": [source.model_dump() for source in response_sources],
+    }
+
+    def event_stream():
+        yield json.dumps(metadata) + "\n"
+        try:
+            for content in stream_grounded_answer(
+                answer_request.question,
+                labelled_sources,
+            ):
+                yield json.dumps({
+                    "type": "token",
+                    "content": content,
+                }) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+        except AnswerGenerationError as error:
+            yield json.dumps({
+                "type": "error",
+                "message": str(error),
+            }) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )

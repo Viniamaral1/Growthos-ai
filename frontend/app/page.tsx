@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import {
-  askGroundedQuestion,
+  streamGroundedQuestion,
   createCompany,
   generateMarketingCampaign,
   getCompanies,
@@ -656,7 +656,7 @@ function AssistantView({
             </div>
           )}
 
-          {askingQuestion && (
+          {askingQuestion && !answer && (
             <div className="loading-state">
               <span>◎</span>
               <h2>Retrieving scoped evidence</h2>
@@ -670,8 +670,11 @@ function AssistantView({
             </div>
           )}
 
-          {answer && !askingQuestion && (
-            <div className="answer-result">
+          {answer && (
+            <div className={cx(
+              "answer-result",
+              askingQuestion && "streaming",
+            )}>
               <div className="result-meta">
                 <span className="status-badge">
                   <i />{" "}
@@ -686,11 +689,13 @@ function AssistantView({
                 {answer.answer}
               </div>
 
-              <div className="typing-indicator">
-                <span />
-                <span />
-                <span />
-              </div>
+              {askingQuestion && (
+                <div className="typing-indicator active">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              )}
 
               <div className="source-heading">
                 <h3>Evidence sources</h3>
@@ -1566,16 +1571,44 @@ export default function Home() {
     clearFeedback();
 
     try {
-      const result =
-        await askGroundedQuestion(
-          selectedCompanyId,
-          question.trim(),
-          useAllDocuments
-            ? null
-            : activeDocumentId,
-        );
+      let streamedAnswer = "";
 
-      setAnswer(result);
+      await streamGroundedQuestion(
+        selectedCompanyId,
+        question.trim(),
+        useAllDocuments
+          ? null
+          : activeDocumentId,
+        (event) => {
+          if (event.type === "metadata") {
+            setAnswer({
+              company_id: event.company_id,
+              document_id: event.document_id,
+              document_name: event.document_name,
+              question: event.question,
+              answer: "",
+              model: event.model,
+              source_count: event.source_count,
+              sources: event.sources,
+            });
+            return;
+          }
+
+          if (event.type === "token") {
+            streamedAnswer += event.content;
+            setAnswer((current) =>
+              current
+                ? { ...current, answer: streamedAnswer }
+                : current,
+            );
+            return;
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        },
+      );
     } catch (requestError) {
       setError(
         requestError instanceof Error

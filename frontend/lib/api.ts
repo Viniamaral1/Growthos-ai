@@ -297,3 +297,65 @@ export async function generateMarketingCampaign(
 
   return response.json();
 }
+
+export type GroundedAnswerStreamEvent =
+  | ({ type: "metadata" } & Omit<GroundedAnswer, "answer">)
+  | { type: "token"; content: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
+
+export async function streamGroundedQuestion(
+  companyId: number,
+  question: string,
+  documentId: number | null,
+  onEvent: (event: GroundedAnswerStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/answers/grounded/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        document_id: documentId,
+        question,
+        retrieval_limit: 3,
+        minimum_score: 0.2,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming is not supported by this browser.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      onEvent(JSON.parse(line) as GroundedAnswerStreamEvent);
+    }
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    onEvent(JSON.parse(buffer) as GroundedAnswerStreamEvent);
+  }
+}
