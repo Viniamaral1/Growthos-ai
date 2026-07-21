@@ -1,6 +1,12 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import (
+    DateTime,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.session import Base
@@ -8,7 +14,10 @@ from app.database.session import Base
 
 class Company(Base):
     """
-    Database table containing company profiles.
+    A GrowthOS business workspace.
+
+    The table keeps its original ``companies`` name so existing
+    documents, retrieval, marketing, and company IDs remain compatible.
     """
 
     __tablename__ = "companies"
@@ -49,8 +58,72 @@ class Company(Base):
         nullable=False,
     )
 
+    # Business Workspace fields
+    business_idea: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    problem_statement: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    proposed_solution: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    country: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
+
+    region: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    city: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    business_model: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    launch_budget: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2),
+        nullable=True,
+    )
+
+    budget_currency: Mapped[str | None] = mapped_column(
+        String(3),
+        nullable=True,
+    )
+
+    primary_goal: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    development_stage: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
