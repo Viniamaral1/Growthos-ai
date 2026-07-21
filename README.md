@@ -92,15 +92,18 @@ Each generated variant can include:
 
 ## Screenshots
 
-> Add your screenshots to `docs/images/` using the filenames below.
 
 ### Dashboard
 
 ![GrowthOS AI dashboard](docs/images/dashboard.png)
 
-### Grounded answer
+### Knowledge Base
 
-![Grounded answer with citations](docs/images/grounded-answer.png)
+![GrowthOS AI knowledge base](docs/images/knowledge.png)
+
+### AI Assistant
+
+![GrowthOS AI assistant with grounded answer and citations](docs/images/assistant.png)
 
 ### Marketing Studio
 
