@@ -7,6 +7,9 @@ from app.api.routes.answers import (
 from app.api.routes.companies import (
     router as companies_router,
 )
+from app.api.routes.business_plans import (
+    router as business_plans_router,
+)
 from app.api.routes.documents import (
     router as documents_router,
 )
@@ -53,7 +56,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="1.2.0",
+        version="1.3.0",
     )
 
     application.add_middleware(
@@ -74,6 +77,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         companies_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        business_plans_router,
         prefix="/api/v1",
     )
 
@@ -110,6 +118,6 @@ def root() -> dict[str, str]:
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "documentation": "/docs",
     }
