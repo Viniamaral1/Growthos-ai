@@ -541,12 +541,12 @@ GrowthOS AI demonstrates:
 
 ## Author
 
-**Vinicius Amaral**
+**Vinicius R. do Amaral**
 
 AI and Machine Learning Engineer focused on building practical, end-to-end AI products.
 
 - GitHub: https://github.com/Viniamaral1
-- LinkedIn: add your LinkedIn profile
+- LinkedIn: https://www.linkedin.com/in/vini-do-amaral-35149841/
 - Portfolio: add your portfolio link
 
 ---
