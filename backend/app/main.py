@@ -1,8 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes.marketing import (
-    router as marketing_router,
-)
 
 from app.api.routes.answers import (
     router as answers_router,
@@ -10,11 +7,17 @@ from app.api.routes.answers import (
 from app.api.routes.companies import (
     router as companies_router,
 )
+from app.api.routes.business_plans import (
+    router as business_plans_router,
+)
 from app.api.routes.documents import (
     router as documents_router,
 )
 from app.api.routes.health import (
     router as health_router,
+)
+from app.api.routes.marketing import (
+    router as marketing_router,
 )
 from app.api.routes.search import (
     router as search_router,
@@ -22,6 +25,9 @@ from app.api.routes.search import (
 from app.database.session import (
     Base,
     engine,
+)
+from app.database.workspace_migration import (
+    migrate_company_to_workspace,
 )
 from app.models.company import Company
 from app.models.document import Document
@@ -31,21 +37,26 @@ from app.models.document_chunk import (
 
 
 def create_app() -> FastAPI:
-    """
-    Create and configure the FastAPI application.
-    """
+    """Create and configure the FastAPI application."""
 
+    # Create missing tables first, then add the new nullable workspace
+    # columns to existing SQLite installations.
     Base.metadata.create_all(
         bind=engine,
+    )
+
+    migrate_company_to_workspace(
+        engine
     )
 
     application = FastAPI(
         title="GrowthOS AI API",
         description=(
-            "An AI platform that learns from company information "
-            "and generates grounded marketing campaigns."
+            "An AI Business Co-Founder platform combining "
+            "business workspaces, company knowledge, grounded "
+            "answers, and evidence-based marketing."
         ),
-        version="0.6.0",
+        version="1.3.0",
     )
 
     application.add_middleware(
@@ -70,6 +81,11 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(
+        business_plans_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
         documents_router,
         prefix="/api/v1",
     )
@@ -83,9 +99,10 @@ def create_app() -> FastAPI:
         answers_router,
         prefix="/api/v1",
     )
+
     application.include_router(
-    marketing_router,
-    prefix="/api/v1",
+        marketing_router,
+        prefix="/api/v1",
     )
 
     return application
@@ -96,12 +113,11 @@ app = create_app()
 
 @app.get("/")
 def root() -> dict[str, str]:
-    """
-    Return basic API information.
-    """
+    """Return basic API information."""
 
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
+        "version": "1.3.0",
         "documentation": "/docs",
     }

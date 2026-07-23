@@ -1,14 +1,13 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import pymupdf
+from app.services.extractors.base import ExtractionError
+from app.services.extractors.pdf import PDFExtractor
 
 
 @dataclass
 class PDFExtractionResult:
-    """
-    Structured result returned after extracting a PDF.
-    """
+    """Backward-compatible PDF extraction result."""
 
     text: str
     page_count: int
@@ -16,74 +15,21 @@ class PDFExtractionResult:
 
 
 class PDFExtractionError(Exception):
-    """
-    Raised when text cannot be extracted from a PDF.
-    """
+    """Backward-compatible PDF extraction exception."""
 
 
 def extract_pdf_text(
     file_path: str | Path,
 ) -> PDFExtractionResult:
-    """
-    Extract readable text from every page of a PDF.
-
-    Args:
-        file_path:
-            Location of the PDF on the server.
-
-    Returns:
-        PDFExtractionResult containing text and document statistics.
-
-    Raises:
-        PDFExtractionError:
-            When the file does not exist, cannot be opened,
-            or contains no extractable text.
-    """
-
-    path = Path(file_path)
-
-    if not path.exists():
-        raise PDFExtractionError(
-            "The stored PDF file could not be found."
-        )
+    """Extract PDF text through the universal extractor layer."""
 
     try:
-        with pymupdf.open(path) as pdf_document:
-            page_texts: list[str] = []
+        result = PDFExtractor().extract(file_path)
+    except ExtractionError as error:
+        raise PDFExtractionError(str(error)) from error
 
-            for page_number, page in enumerate(
-                pdf_document,
-                start=1,
-            ):
-                extracted_page_text = page.get_text(
-                    "text",
-                    sort=True,
-                ).strip()
-
-                if extracted_page_text:
-                    page_texts.append(
-                        f"--- Page {page_number} ---\n"
-                        f"{extracted_page_text}"
-                    )
-
-            complete_text = "\n\n".join(page_texts).strip()
-
-            if not complete_text:
-                raise PDFExtractionError(
-                    "No selectable text was found in the PDF. "
-                    "The document may be scanned and require OCR."
-                )
-
-            return PDFExtractionResult(
-                text=complete_text,
-                page_count=pdf_document.page_count,
-                character_count=len(complete_text),
-            )
-
-    except PDFExtractionError:
-        raise
-
-    except Exception as error:
-        raise PDFExtractionError(
-            "The PDF could not be opened or processed."
-        ) from error
+    return PDFExtractionResult(
+        text=result.text,
+        page_count=result.page_count or 0,
+        character_count=result.character_count,
+    )

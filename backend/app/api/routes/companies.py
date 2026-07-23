@@ -1,17 +1,26 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.company import Company
-from app.schemas.company import CompanyCreate, CompanyResponse
+from app.schemas.company import (
+    CompanyCreate,
+    CompanyResponse,
+    CompanyUpdate,
+)
 
 
 router = APIRouter(
     prefix="/companies",
-    tags=["Companies"],
+    tags=["Business Workspaces"],
 )
 
 
@@ -30,9 +39,7 @@ def create_company(
     company_data: CompanyCreate,
     database: DatabaseSession,
 ) -> Company:
-    """
-    Create and save a company profile.
-    """
+    """Create and save a complete business workspace."""
 
     company = Company(
         name=company_data.name,
@@ -45,6 +52,17 @@ def create_company(
         target_audience=company_data.target_audience,
         brand_tone=company_data.brand_tone,
         product_description=company_data.product_description,
+        business_idea=company_data.business_idea,
+        problem_statement=company_data.problem_statement,
+        proposed_solution=company_data.proposed_solution,
+        country=company_data.country,
+        region=company_data.region,
+        city=company_data.city,
+        business_model=company_data.business_model,
+        launch_budget=company_data.launch_budget,
+        budget_currency=company_data.budget_currency,
+        primary_goal=company_data.primary_goal,
+        development_stage=company_data.development_stage,
     )
 
     database.add(company)
@@ -61,15 +79,16 @@ def create_company(
 def list_companies(
     database: DatabaseSession,
 ) -> list[Company]:
-    """
-    Return all saved companies.
-    """
+    """Return all saved business workspaces."""
 
     statement = select(Company).order_by(
-        Company.created_at.desc()
+        Company.updated_at.desc(),
+        Company.created_at.desc(),
     )
 
-    companies = database.scalars(statement).all()
+    companies = database.scalars(
+        statement
+    ).all()
 
     return list(companies)
 
@@ -82,9 +101,7 @@ def get_company(
     company_id: int,
     database: DatabaseSession,
 ) -> Company:
-    """
-    Return one company by ID.
-    """
+    """Return one business workspace by ID."""
 
     company = database.get(
         Company,
@@ -94,7 +111,55 @@ def get_company(
     if company is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Company not found.",
+            detail="Business workspace not found.",
         )
+
+    return company
+
+
+@router.patch(
+    "/{company_id}",
+    response_model=CompanyResponse,
+)
+def update_company(
+    company_id: int,
+    company_data: CompanyUpdate,
+    database: DatabaseSession,
+) -> Company:
+    """Update selected business-workspace fields."""
+
+    company = database.get(
+        Company,
+        company_id,
+    )
+
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business workspace not found.",
+        )
+
+    update_values = company_data.model_dump(
+        exclude_unset=True,
+    )
+
+    if "website" in update_values:
+        website = update_values["website"]
+        update_values["website"] = (
+            str(website)
+            if website
+            else None
+        )
+
+    for field_name, value in update_values.items():
+        setattr(
+            company,
+            field_name,
+            value,
+        )
+
+    database.add(company)
+    database.commit()
+    database.refresh(company)
 
     return company
