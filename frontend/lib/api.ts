@@ -3,6 +3,15 @@ const API_URL =
   "http://127.0.0.1:8000/api/v1";
 
 
+export type DevelopmentStage =
+  | "idea"
+  | "validation"
+  | "pre_launch"
+  | "launched"
+  | "growing"
+  | "established";
+
+
 export type Company = {
   id: number;
   name: string;
@@ -11,7 +20,19 @@ export type Company = {
   target_audience: string;
   brand_tone: string;
   product_description: string;
+  business_idea: string | null;
+  problem_statement: string | null;
+  proposed_solution: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  business_model: string | null;
+  launch_budget: string | number | null;
+  budget_currency: string | null;
+  primary_goal: string | null;
+  development_stage: DevelopmentStage | null;
   created_at: string;
+  updated_at: string;
 };
 
 
@@ -101,13 +122,72 @@ export type MarketingCampaign = {
 };
 
 
-type CreateCompanyPayload = {
+export type CustomerSegment = {
+  name: string;
+  description: string;
+  needs: string[];
+  recommended_message: string;
+};
+
+
+export type RoadmapPhase = {
+  period: string;
+  objective: string;
+  actions: string[];
+  success_measure: string;
+};
+
+
+export type BusinessPlanContent = {
+  executive_summary: string;
+  opportunity: string;
+  target_market: string;
+  customer_segments: CustomerSegment[];
+  value_proposition: string;
+  business_model_recommendations: string[];
+  go_to_market_strategy: string[];
+  marketing_strategy: string[];
+  swot: {
+    strengths: string[];
+    weaknesses: string[];
+    opportunities: string[];
+    threats: string[];
+  };
+  key_risks: string[];
+  research_priorities: string[];
+  ninety_day_roadmap: RoadmapPhase[];
+  next_actions: string[];
+  assumptions_and_limitations: string[];
+};
+
+
+export type BusinessPlan = {
+  company_id: number;
+  company_name: string;
+  model: string;
+  generated_at: string;
+  plan: BusinessPlanContent;
+};
+
+
+export type CreateCompanyPayload = {
   name: string;
   website: string | null;
   industry: string;
   target_audience: string;
   brand_tone: string;
   product_description: string;
+  business_idea: string | null;
+  problem_statement: string | null;
+  proposed_solution: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  business_model: string | null;
+  launch_budget: number | null;
+  budget_currency: string | null;
+  primary_goal: string | null;
+  development_stage: DevelopmentStage | null;
 };
 
 
@@ -136,15 +216,52 @@ async function readError(
       data !== null &&
       "detail" in data
     ) {
-      return String(
-        (data as { detail: unknown }).detail,
-      );
-    }
-  } catch {
-    // Ignore malformed error bodies.
-  }
+      const detail = (
+        data as { detail: unknown }
+      ).detail;
 
-  return `Request failed with status ${response.status}.`;
+      if (typeof detail === "string") {
+        return detail;
+      }
+
+      if (Array.isArray(detail)) {
+        return detail
+          .map((item) => {
+            if (
+              typeof item === "object" &&
+              item !== null
+            ) {
+              const errorItem = item as {
+                msg?: unknown;
+                loc?: unknown;
+              };
+
+              const location = Array.isArray(
+                errorItem.loc,
+              )
+                ? errorItem.loc.join(" → ")
+                : "request";
+
+              const message =
+                typeof errorItem.msg === "string"
+                  ? errorItem.msg
+                  : JSON.stringify(item);
+
+              return `${location}: ${message}`;
+            }
+
+            return String(item);
+          })
+          .join("\n");
+      }
+
+      return JSON.stringify(detail);
+    }
+
+    return JSON.stringify(data);
+  } catch {
+    return `Request failed with status ${response.status}.`;
+  }
 }
 
 
@@ -358,4 +475,45 @@ export async function streamGroundedQuestion(
   if (buffer.trim()) {
     onEvent(JSON.parse(buffer) as GroundedAnswerStreamEvent);
   }
+}
+
+
+
+export async function getBusinessPlan(
+  companyId: number,
+): Promise<BusinessPlan | null> {
+  const response = await fetch(
+    `${API_URL}/business-plans/${companyId}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function generateBusinessPlan(
+  companyId: number,
+): Promise<BusinessPlan> {
+  const response = await fetch(
+    `${API_URL}/business-plans/${companyId}/generate`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
 }

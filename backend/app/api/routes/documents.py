@@ -31,9 +31,10 @@ from app.services.embedding_service import (
     EMBEDDING_MODEL_NAME,
     create_embeddings,
 )
-from app.services.pdf_extractor import (
-    PDFExtractionError,
-    extract_pdf_text,
+from app.services.extractors import (
+    ExtractionError,
+    UnsupportedFileTypeError,
+    get_extractor,
 )
 from app.services.text_chunker import (
     create_document_chunks,
@@ -62,9 +63,6 @@ UPLOAD_DIRECTORY.mkdir(
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-ALLOWED_CONTENT_TYPES = {
-    "application/pdf",
-}
 
 
 @router.post(
@@ -78,7 +76,7 @@ async def upload_document(
     database: DatabaseSession,
 ) -> Document:
     """
-    Upload and save a PDF belonging to a company.
+    Upload and save a supported business asset.
     """
 
     company = database.get(
@@ -90,12 +88,6 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Company not found.",
-        )
-
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF documents are currently supported.",
         )
 
     if not file.filename:
@@ -126,13 +118,20 @@ async def upload_document(
         original_filename
     ).suffix.lower()
 
-    if file_extension != ".pdf":
+    try:
+        get_extractor(
+            original_filename,
+            file.content_type,
+        )
+    except UnsupportedFileTypeError as error:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="The uploaded file must use the .pdf extension.",
-        )
+            detail=str(error),
+        ) from error
 
-    stored_filename = f"{uuid4().hex}.pdf"
+    stored_filename = (
+        f"{uuid4().hex}{file_extension}"
+    )
 
     saved_file_path = (
         UPLOAD_DIRECTORY
@@ -200,7 +199,7 @@ def process_document(
     database: DatabaseSession,
 ) -> Document:
     """
-    Extract, chunk and embed a PDF document.
+    Extract, chunk and embed a supported business asset.
     """
 
     document = database.get(
@@ -219,7 +218,12 @@ def process_document(
     database.commit()
 
     try:
-        extraction_result = extract_pdf_text(
+        extractor = get_extractor(
+            document.original_filename,
+            document.content_type,
+        )
+
+        extraction_result = extractor.extract(
             document.file_path
         )
 
@@ -230,7 +234,7 @@ def process_document(
         )
 
         if not generated_chunks:
-            raise PDFExtractionError(
+            raise ExtractionError(
                 "No usable text chunks could be created."
             )
 
@@ -305,7 +309,7 @@ def process_document(
 
         return document
 
-    except PDFExtractionError as error:
+    except (ExtractionError, UnsupportedFileTypeError) as error:
         database.rollback()
 
         document = database.get(
