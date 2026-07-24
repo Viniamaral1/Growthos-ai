@@ -3,6 +3,8 @@
 import CofounderChat from "@/app/components/CofounderChat";
 import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
 import ResearchEngine from "@/app/components/ResearchEngine";
+import StartupStatus from "@/app/components/StartupStatus";
+import Toast from "@/app/components/Toast";
 
 import {
   useEffect,
@@ -213,6 +215,7 @@ function ScopeSelector({
 
       <label>
         <input
+          id="scope-one-document"
           type="radio"
           name="scope"
           checked={!useAllDocuments}
@@ -227,6 +230,7 @@ function ScopeSelector({
 
       <label>
         <input
+          id="scope-all-documents"
           type="radio"
           name="scope"
           checked={useAllDocuments}
@@ -240,6 +244,8 @@ function ScopeSelector({
 
       {!useAllDocuments && (
         <select
+          id="scope-document"
+          name="scope-document"
           className="field"
           value={activeDocumentId ?? ""}
           onChange={(event) =>
@@ -403,6 +409,7 @@ function KnowledgeView({
           >
             <input
               id="document-file"
+              name="document-file"
               type="file"
               accept=".pdf,.docx,.doc,.txt,.rtf,.xlsx,.xls,.csv,.pptx,.ppt,.png,.jpg,.jpeg"
               onChange={(event) =>
@@ -2437,6 +2444,10 @@ export default function Home() {
 
   const [loadingCompanies, setLoadingCompanies] =
     useState(true);
+  const [startupFailed, setStartupFailed] =
+    useState(false);
+  const [startupAttempt, setStartupAttempt] =
+    useState(0);
   const [loadingDocuments, setLoadingDocuments] =
     useState(false);
   const [creatingCompany, setCreatingCompany] =
@@ -2580,41 +2591,79 @@ export default function Home() {
   }, [uiStateRestored, view]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadCompanies() {
-      try {
-        const data = await getCompanies();
-        setCompanies(data);
+      setLoadingCompanies(true);
+      setStartupFailed(false);
 
-        if (data.length > 0) {
-          setSelectedCompanyId((current) => {
-            if (
-              current !== null &&
-              data.some(
-                (company) =>
-                  company.id === current,
-              )
-            ) {
-              return current;
-            }
+      let lastError: unknown = null;
 
-            return data[0].id;
-          });
-        } else {
-          setSelectedCompanyId(null);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const data = await getCompanies();
+
+          if (cancelled) {
+            return;
+          }
+
+          setCompanies(data);
+
+          if (data.length > 0) {
+            setSelectedCompanyId((current) => {
+              if (
+                current !== null &&
+                data.some(
+                  (company) =>
+                    company.id === current,
+                )
+              ) {
+                return current;
+              }
+
+              return data[0].id;
+            });
+          } else {
+            setSelectedCompanyId(null);
+          }
+
+          setLoadingCompanies(false);
+          setStartupFailed(false);
+          return;
+        } catch (requestError) {
+          lastError = requestError;
+
+          if (attempt < 3) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(
+                resolve,
+                500 * (attempt + 1),
+              );
+            });
+          }
         }
-      } catch (requestError) {
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Companies could not be loaded.",
-        );
-      } finally {
-        setLoadingCompanies(false);
       }
+
+      if (cancelled) {
+        return;
+      }
+
+      setLoadingCompanies(false);
+      setStartupFailed(true);
+
+      setError(
+        lastError instanceof Error
+          ? lastError.message
+          : "Companies could not be loaded.",
+      );
     }
 
     void loadCompanies();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [startupAttempt]);
 
   useEffect(() => {
     async function loadDocuments() {
@@ -3221,6 +3270,33 @@ async function handleGenerateBusinessPlan(
     );
   }
 
+  if (!uiStateRestored || loadingCompanies) {
+    return (
+      <StartupStatus
+        failed={false}
+        onRetry={() => {
+          setStartupAttempt(
+            (current) => current + 1,
+          );
+        }}
+      />
+    );
+  }
+
+  if (startupFailed) {
+    return (
+      <StartupStatus
+        failed
+        onRetry={() => {
+          clearFeedback();
+          setStartupAttempt(
+            (current) => current + 1,
+          );
+        }}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
       <aside
@@ -3309,6 +3385,8 @@ async function handleGenerateBusinessPlan(
             <label>
               <span>Active workspace</span>
               <select
+                id="active-workspace"
+                name="active-workspace"
                 value={selectedCompanyId ?? ""}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -3343,21 +3421,11 @@ async function handleGenerateBusinessPlan(
 
         <div className="workspace">
           {(message || error) && (
-            <div
-              className={cx(
-                "notice",
-                error ? "error" : "success",
-              )}
-            >
-              <span>{error ? "!" : "✓"}</span>
-              <p>{error || message}</p>
-              <button
-                type="button"
-                onClick={clearFeedback}
-              >
-                ×
-              </button>
-            </div>
+            <Toast
+              kind={error ? "error" : "success"}
+              message={error || message}
+              onClose={clearFeedback}
+            />
           )}
 
           {loadingDocuments &&

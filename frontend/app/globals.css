@@ -3787,3 +3787,345 @@ button:disabled { cursor: not-allowed; opacity: .48; }
     width: 100%;
   }
 }
+
+/* GrowthOS v1.7.3 Startup and Toast UX */
+
+.growthos-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10000;
+  display: grid;
+  width: min(390px, calc(100vw - 32px));
+  grid-template-columns: 38px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(17, 31, 50, .98),
+      rgba(8, 18, 31, .98)
+    );
+  padding: 12px;
+  box-shadow:
+    0 20px 58px rgba(0, 0, 0, .36),
+    inset 0 1px 0 rgba(255, 255, 255, .025);
+  opacity: 0;
+  transform: translate3d(18px, 8px, 0)
+    scale(.98);
+  transition:
+    opacity .2s ease,
+    transform .2s ease;
+}
+
+.growthos-toast.visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0)
+    scale(1);
+}
+
+.growthos-toast > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.growthos-toast-success > span {
+  border: 1px solid rgba(66, 211, 154, .22);
+  background: rgba(66, 211, 154, .09);
+  color: var(--emerald);
+}
+
+.growthos-toast-error > span {
+  border: 1px solid rgba(251, 113, 133, .22);
+  background: rgba(251, 113, 133, .09);
+  color: var(--red);
+}
+
+.growthos-toast strong,
+.growthos-toast p {
+  display: block;
+}
+
+.growthos-toast strong {
+  padding-top: 2px;
+  font-size: 9px;
+}
+
+.growthos-toast p {
+  margin: 5px 0 0;
+  color: var(--text-soft, #c7d0dc);
+  font-size: 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.growthos-toast > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #71839a;
+  font-size: 15px;
+}
+
+.growthos-toast > button:hover {
+  background: rgba(255, 255, 255, .04);
+  color: var(--text);
+}
+
+.growthos-toast > i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  transform-origin: left;
+  animation: growthos-toast-time 4.5s linear forwards;
+}
+
+.growthos-toast-success > i {
+  background: linear-gradient(
+    90deg,
+    var(--emerald),
+    transparent
+  );
+}
+
+.growthos-toast-error > i {
+  background: linear-gradient(
+    90deg,
+    var(--red),
+    transparent
+  );
+  animation-duration: 7s;
+}
+
+.startup-status-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background:
+    radial-gradient(
+      circle at 50% 28%,
+      rgba(59, 214, 208, .10),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 80% 80%,
+      rgba(155, 135, 245, .08),
+      transparent 28%
+    ),
+    var(--bg);
+  padding: 24px;
+  color: var(--text);
+}
+
+.startup-status-screen > section {
+  width: min(480px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: rgba(13, 26, 43, .88);
+  padding: 30px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .30);
+  text-align: center;
+  backdrop-filter: blur(20px);
+}
+
+.startup-status-logo {
+  display: grid;
+  width: 68px;
+  height: 68px;
+  margin: 0 auto;
+  place-items: center;
+  border: 1px solid rgba(59, 214, 208, .24);
+  border-radius: 21px;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(59, 214, 208, .15),
+      rgba(155, 135, 245, .14)
+    );
+  color: var(--cyan);
+  font-size: 26px;
+  animation: startup-logo-pulse 1.5s ease-in-out infinite;
+}
+
+.startup-status-screen section > span {
+  display: block;
+  margin-top: 17px;
+  color: var(--cyan);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+
+.startup-status-screen h1 {
+  margin: 8px 0 0;
+  font-size: 23px;
+}
+
+.startup-status-screen p {
+  max-width: 390px;
+  margin: 10px auto 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.startup-status-progress {
+  overflow: hidden;
+  height: 5px;
+  margin-top: 23px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .08);
+}
+
+.startup-status-progress i {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--cyan),
+    var(--violet),
+    transparent
+  );
+  animation: startup-progress 1.4s ease-in-out infinite;
+}
+
+.startup-status-steps {
+  display: flex;
+  margin-top: 17px;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.startup-status-steps > div {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(148, 163, 184, .07);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .012);
+  padding: 8px 10px;
+}
+
+.startup-status-steps b {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  background: rgba(66, 211, 154, .08);
+  color: var(--emerald);
+  font-size: 8px;
+}
+
+.startup-status-steps b.waiting {
+  background: rgba(59, 214, 208, .07);
+  color: var(--cyan);
+  animation: startup-dot-pulse 1s ease-in-out infinite;
+}
+
+.startup-status-steps span {
+  color: var(--text-soft, #c7d0dc);
+  font-size: 8px;
+}
+
+.startup-status-screen section > button {
+  margin-top: 21px;
+  border: 1px solid rgba(59, 214, 208, .28);
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    #48ddd7,
+    #28bbb5
+  );
+  padding: 10px 14px;
+  color: #031315;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+@keyframes growthos-toast-time {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes startup-logo-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 214, 208, .02);
+  }
+
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0 10px rgba(59, 214, 208, .035);
+  }
+}
+
+@keyframes startup-progress {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes startup-dot-pulse {
+  0%,
+  100% {
+    opacity: .38;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .growthos-toast {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .startup-status-screen > section {
+    padding: 24px 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .growthos-toast,
+  .growthos-toast > i,
+  .startup-status-logo,
+  .startup-status-progress i,
+  .startup-status-steps b.waiting {
+    animation: none;
+    transition: none;
+  }
+}
