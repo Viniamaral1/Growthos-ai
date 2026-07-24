@@ -1,11 +1,25 @@
 "use client";
 
+import CofounderChat from "@/app/components/CofounderChat";
+import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
+import ResearchEngine from "@/app/components/ResearchEngine";
+
 import {
   useEffect,
   useMemo,
   useState,
   type FormEvent,
 } from "react";
+
+import {
+  readStoredBoolean,
+  readStoredNumber,
+  readStoredString,
+  uiStorageKeys,
+  writeStoredBoolean,
+  writeStoredNumber,
+  writeStoredString,
+} from "@/lib/ui-storage";
 
 import {
   streamGroundedQuestion,
@@ -34,7 +48,9 @@ type View =
   | "assistant"
   | "marketing"
   | "companies"
-  | "plan";
+  | "plan"
+  | "cofounder"
+  | "research";
 
 type CompanyForm = {
   name: string;
@@ -131,9 +147,11 @@ const navItems: Array<{
   label: string;
   icon: string;
 }> = [
-  { id: "overview", label: "Overview", icon: "◫" },
+  { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
+  { id: "cofounder", label: "AI Co-Founder", icon: "◉" },
+  { id: "research", label: "Research Engine", icon: "⌕" },
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
   { id: "companies", label: "Workspaces", icon: "▦" },
@@ -241,311 +259,6 @@ function ScopeSelector({
         </select>
       )}
     </section>
-  );
-}
-
-function OverviewView({
-  selectedCompany,
-  documents,
-  activeDocument,
-  businessPlan,
-  onOpenView,
-}: {
-  selectedCompany: Company | null;
-  documents: DocumentRecord[];
-  activeDocument: DocumentRecord | null;
-  businessPlan: BusinessPlan | null;
-  onOpenView: (view: View) => void;
-}) {
-  const processedDocuments = documents.filter(
-    (document) =>
-      document.processing_status === "processed",
-  );
-
-  const pageCount = processedDocuments.reduce(
-    (total, document) =>
-      total + (document.page_count ?? 0),
-    0,
-  );
-
-  const profileChecks = selectedCompany
-    ? [
-        selectedCompany.business_idea,
-        selectedCompany.problem_statement,
-        selectedCompany.proposed_solution,
-        selectedCompany.target_audience,
-        selectedCompany.country,
-        selectedCompany.business_model,
-        selectedCompany.primary_goal,
-      ]
-    : [];
-
-  const completedProfileChecks = profileChecks.filter(
-    (value) =>
-      value !== null &&
-      String(value).trim().length > 0,
-  ).length;
-
-  const profileScore =
-    profileChecks.length > 0
-      ? Math.round(
-          (completedProfileChecks /
-            profileChecks.length) *
-            45,
-        )
-      : 0;
-
-  const knowledgeScore = Math.min(
-    processedDocuments.length * 10,
-    30,
-  );
-
-  const planScore = businessPlan ? 25 : 0;
-
-  const healthScore = Math.min(
-    profileScore + knowledgeScore + planScore,
-    100,
-  );
-
-  const researchTasks = [
-    !selectedCompany?.business_idea &&
-      "Define the business idea clearly.",
-    !selectedCompany?.target_audience &&
-      "Describe the primary customer segment.",
-    !selectedCompany?.country &&
-      "Select the first target country or market.",
-    processedDocuments.length === 0 &&
-      "Upload the first evidence document.",
-    !businessPlan &&
-      "Generate the first AI business plan.",
-    processedDocuments.length < 2 &&
-      "Add independent market or customer evidence.",
-  ].filter(Boolean) as string[];
-
-  const timeline = [
-    selectedCompany && {
-      title: "Workspace established",
-      detail: `${selectedCompany.name} · ${selectedCompany.industry}`,
-      date: selectedCompany.created_at,
-    },
-    processedDocuments[0] && {
-      title: "Knowledge indexed",
-      detail: processedDocuments[0].original_filename,
-      date:
-        processedDocuments[0].processed_at ??
-        processedDocuments[0].uploaded_at,
-    },
-    businessPlan && {
-      title: "Strategic plan generated",
-      detail: `Generated with ${businessPlan.model}`,
-      date: businessPlan.generated_at,
-    },
-  ].filter(Boolean) as Array<{
-    title: string;
-    detail: string;
-    date: string;
-  }>;
-
-  return (
-    <>
-      <PageHeading
-        eyebrow="Founder command centre"
-        title={
-          selectedCompany
-            ? `Welcome to ${selectedCompany.name}`
-            : "Welcome to GrowthOS AI"
-        }
-        description="Track business readiness, missing evidence, strategic decisions, and the knowledge powering your AI co-founder."
-      />
-
-      <section className="stat-grid">
-        <article className="stat-card">
-          <span className="stat-icon cyan">▤</span>
-          <div>
-            <small>Intelligence assets</small>
-            <strong>{processedDocuments.length}</strong>
-            <p>
-              {activeDocument
-                ? `Active: ${activeDocument.original_filename}`
-                : "No active asset selected."}
-            </p>
-          </div>
-        </article>
-
-        <article className="stat-card">
-          <span className="stat-icon violet">▦</span>
-          <div>
-            <small>Indexed pages</small>
-            <strong>{pageCount}</strong>
-            <p>Ready for semantic retrieval.</p>
-          </div>
-        </article>
-
-        <article className="stat-card">
-          <span className="stat-icon emerald">↗</span>
-          <div>
-            <small>Business health</small>
-            <strong>{healthScore}%</strong>
-            <p>
-              Profile, evidence, and strategy readiness.
-            </p>
-          </div>
-        </article>
-      </section>
-
-      <section className="founder-grid">
-        <article className="health-card">
-          <div className="health-card-heading">
-            <div>
-              <small>Business Health</small>
-              <h2>{healthScore}% ready</h2>
-              <p>
-                A transparent readiness score based on completed
-                workspace details, indexed evidence, and a saved
-                business plan—not invented market data.
-              </p>
-            </div>
-            <div
-              className="health-ring"
-              style={{
-                background: `conic-gradient(
-                  var(--cyan) ${healthScore}%,
-                  rgba(148,163,184,.10) 0
-                )`,
-              }}
-            >
-              <span>{healthScore}</span>
-            </div>
-          </div>
-
-          <div className="health-breakdown">
-            <div>
-              <span>Workspace clarity</span>
-              <strong>{profileScore}/45</strong>
-            </div>
-            <div>
-              <span>Knowledge evidence</span>
-              <strong>{knowledgeScore}/30</strong>
-            </div>
-            <div>
-              <span>Strategy plan</span>
-              <strong>{planScore}/25</strong>
-            </div>
-          </div>
-        </article>
-
-        <article className="research-card">
-          <div className="panel-heading">
-            <span className="panel-icon amber">?</span>
-            <div>
-              <h2>Research tasks</h2>
-              <p>Evidence GrowthOS still needs.</p>
-            </div>
-          </div>
-
-          <div className="research-task-list">
-            {researchTasks.length === 0 ? (
-              <div className="research-complete">
-                <span>✓</span>
-                <p>
-                  The core foundation is complete. Add structured
-                  datasets next to deepen the analysis.
-                </p>
-              </div>
-            ) : (
-              researchTasks.slice(0, 5).map((task) => (
-                <div key={task}>
-                  <span />
-                  <p>{task}</p>
-                </div>
-              ))
-            )}
-          </div>
-        </article>
-      </section>
-
-      <section className="hero-card intelligence-hero">
-        <div>
-          <span className="status-badge">
-            <i /> Local-first intelligence workspace
-          </span>
-          <h2>
-            Turn business assets into evidence, strategy, and
-            decisions.
-          </h2>
-          <p>
-            The Business Intelligence Hub starts with PDFs today
-            and is architected for Word, Excel, CSV, PowerPoint,
-            and image intelligence in upcoming releases.
-          </p>
-          <div className="button-row">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => onOpenView("knowledge")}
-            >
-              Open Intelligence Hub <span>→</span>
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => onOpenView("plan")}
-            >
-              Review business plan
-            </button>
-          </div>
-        </div>
-
-        <div className="pipeline">
-          {[
-            "Business assets",
-            "Universal extraction",
-            "Semantic indexing",
-            "Grounded intelligence",
-            "Founder decisions",
-          ].map((step, index) => (
-            <div key={step}>
-              <span>{index + 1}</span>
-              <p>{step}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel decision-timeline">
-        <div className="panel-heading">
-          <span className="panel-icon violet">◷</span>
-          <div>
-            <h2>Decision timeline</h2>
-            <p>
-              A first view of how the workspace is becoming more
-              informed over time.
-            </p>
-          </div>
-        </div>
-
-        {timeline.length === 0 ? (
-          <div className="empty-library">
-            Create a workspace to begin the decision timeline.
-          </div>
-        ) : (
-          <div className="timeline-list">
-            {timeline.map((item, index) => (
-              <article key={`${item.title}-${item.date}`}>
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <time>
-                  {new Date(item.date).toLocaleDateString()}
-                </time>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-    </>
   );
 }
 
@@ -2743,6 +2456,128 @@ export default function Home() {
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [uiStateRestored, setUiStateRestored] =
+    useState(false);
+
+  useEffect(() => {
+    const storedView = readStoredString(
+      uiStorageKeys.activeView,
+    ) as View | null;
+
+    const validViews: View[] = [
+      "overview",
+      "knowledge",
+      "assistant",
+      "marketing",
+      "companies",
+      "plan",
+      "cofounder",
+      "research",
+    ];
+
+    if (
+      storedView !== null &&
+      validViews.includes(storedView)
+    ) {
+      setView(storedView);
+    }
+
+    setSelectedCompanyId(
+      readStoredNumber(
+        uiStorageKeys.activeWorkspace,
+      ),
+    );
+
+    setActiveDocumentId(
+      readStoredNumber(
+        uiStorageKeys.activeDocument,
+      ),
+    );
+
+    setUseAllDocuments(
+      readStoredBoolean(
+        uiStorageKeys.useAllDocuments,
+        false,
+      ),
+    );
+
+    setUiStateRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!uiStateRestored) {
+      return;
+    }
+
+    writeStoredString(
+      uiStorageKeys.activeView,
+      view,
+    );
+  }, [uiStateRestored, view]);
+
+  useEffect(() => {
+    if (!uiStateRestored) {
+      return;
+    }
+
+    writeStoredNumber(
+      uiStorageKeys.activeWorkspace,
+      selectedCompanyId,
+    );
+  }, [selectedCompanyId, uiStateRestored]);
+
+  useEffect(() => {
+    if (!uiStateRestored) {
+      return;
+    }
+
+    writeStoredNumber(
+      uiStorageKeys.activeDocument,
+      activeDocumentId,
+    );
+  }, [activeDocumentId, uiStateRestored]);
+
+  useEffect(() => {
+    if (!uiStateRestored) {
+      return;
+    }
+
+    writeStoredBoolean(
+      uiStorageKeys.useAllDocuments,
+      useAllDocuments,
+    );
+  }, [uiStateRestored, useAllDocuments]);
+
+  useEffect(() => {
+    if (!uiStateRestored) {
+      return;
+    }
+
+    const scrollKey =
+      uiStorageKeys.scrollPosition(view);
+
+    const savedPosition =
+      readStoredNumber(scrollKey) ?? 0;
+
+    const restoreFrame =
+      window.requestAnimationFrame(() => {
+        window.scrollTo({
+          top: savedPosition,
+          behavior: "auto",
+        });
+      });
+
+    return () => {
+      window.cancelAnimationFrame(
+        restoreFrame,
+      );
+
+      writeStoredNumber(
+        scrollKey,
+        window.scrollY,
+      );
+    };
+  }, [uiStateRestored, view]);
 
   useEffect(() => {
     async function loadCompanies() {
@@ -2751,9 +2586,21 @@ export default function Home() {
         setCompanies(data);
 
         if (data.length > 0) {
-          setSelectedCompanyId(
-            (current) => current ?? data[0].id,
-          );
+          setSelectedCompanyId((current) => {
+            if (
+              current !== null &&
+              data.some(
+                (company) =>
+                  company.id === current,
+              )
+            ) {
+              return current;
+            }
+
+            return data[0].id;
+          });
+        } else {
+          setSelectedCompanyId(null);
         }
       } catch (requestError) {
         setError(
@@ -3277,6 +3124,40 @@ async function handleGenerateBusinessPlan(
         onScopeChange={setUseAllDocuments}
       />
     );
+  } else if (view === "cofounder") {
+    activeView = (
+      <CofounderChat
+        company={selectedCompany}
+        documents={documents}
+        activeDocumentId={activeDocumentId}
+        useAllDocuments={useAllDocuments}
+        onDocumentChange={setActiveDocumentId}
+        onScopeChange={setUseAllDocuments}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
+  } else if (view === "research") {
+    activeView = (
+      <ResearchEngine
+        company={selectedCompany}
+        documents={documents}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
   } else if (view === "marketing") {
     activeView = (
       <MarketingView
@@ -3326,12 +3207,16 @@ async function handleGenerateBusinessPlan(
     );
   } else {
     activeView = (
-      <OverviewView
-        selectedCompany={selectedCompany}
+      <IntelligenceDashboard
+        company={selectedCompany}
         documents={documents}
         activeDocument={activeDocument}
         businessPlan={businessPlan}
         onOpenView={openView}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
       />
     );
   }
