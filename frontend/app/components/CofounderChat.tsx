@@ -821,6 +821,9 @@ export default function CofounderChat({
                     }}
                   >
                     <input
+                      id={`conversation-title-${conversation.id}`}
+                      name={`conversation-title-${conversation.id}`}
+                      autoComplete="off"
                       autoFocus
                       value={renameValue}
                       onChange={(event) =>
@@ -905,6 +908,8 @@ export default function CofounderChat({
           <div className="cofounder-scope-controls">
             <label>
               <input
+                id="cofounder-search-all"
+                name="cofounder-search-all"
                 type="checkbox"
                 checked={useAllDocuments}
                 onChange={(event) =>
@@ -918,6 +923,8 @@ export default function CofounderChat({
 
             {!useAllDocuments && (
               <select
+                id="cofounder-document-scope"
+                name="cofounder-document-scope"
                 value={activeDocumentId ?? ""}
                 onChange={(event) =>
                   onDocumentChange(
@@ -1050,6 +1057,9 @@ export default function CofounderChat({
           onSubmit={sendMessage}
         >
           <textarea
+            id="cofounder-message"
+            name="cofounder-message"
+            autoComplete="off"
             value={draft}
             onChange={(event) =>
               setDraft(event.target.value)
@@ -1105,7 +1115,9 @@ export default function CofounderChat({
           border: 1px solid rgba(59, 214, 208, 0.2);
           border-radius: 11px;
           background: rgba(8, 18, 31, 0.94);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+          box-shadow:
+            0 8px 24px rgba(0, 0, 0, 0.24),
+            0 0 0 1px rgba(59, 214, 208, 0.03);
           color: var(--cyan);
           font-size: 16px;
           cursor: pointer;
@@ -1121,8 +1133,10 @@ export default function CofounderChat({
         }
 
         .cofounder-scroll-controls button:disabled {
-          opacity: 0;
+          opacity: 0.34;
+          cursor: default;
           pointer-events: none;
+          filter: saturate(0.5);
         }
 
         .cofounder-retry-row {
