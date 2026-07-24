@@ -170,6 +170,128 @@ export type BusinessPlan = {
 };
 
 
+
+
+
+export type ConversationSummary = {
+  id: number;
+  company_id: number;
+  title: string;
+  document_id: number | null;
+  document_name: string | null;
+  message_count: number;
+  last_message_preview: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+export type ChatMessage = {
+  id: number;
+  conversation_id: number;
+  role: "user" | "assistant";
+  content: string;
+  model: string | null;
+  sources: AnswerSource[];
+  created_at: string;
+};
+
+
+export type ConversationDetail =
+  ConversationSummary & {
+    messages: ChatMessage[];
+  };
+
+
+export type CofounderStreamEvent =
+  | {
+      type: "metadata";
+      conversation_id: number;
+      conversation_title: string;
+      user_message: ChatMessage;
+      sources: AnswerSource[];
+      model: string;
+    }
+  | {
+      type: "token";
+      content: string;
+    }
+  | {
+      type: "done";
+      assistant_message: ChatMessage;
+    }
+  | {
+      type: "error";
+      message: string;
+      assistant_message?: ChatMessage;
+    };
+
+
+
+
+
+export type ResearchPriority =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low";
+
+
+export type ResearchStatus =
+  | "missing"
+  | "planned"
+  | "in_progress"
+  | "validated"
+  | "dismissed";
+
+
+export type ResearchEvidence = {
+  id: number;
+  research_task_id: number;
+  document_id: number | null;
+  document_name: string | null;
+  title: string;
+  summary: string;
+  evidence_type: string;
+  created_at: string;
+};
+
+
+export type ResearchTask = {
+  id: number;
+  company_id: number;
+  task_key: string;
+  title: string;
+  description: string;
+  reason: string;
+  recommended_action: string;
+  evidence_required: string;
+  category: string;
+  priority: ResearchPriority;
+  status: ResearchStatus;
+  confidence_score: number;
+  risk_score: number;
+  source: string;
+  evidence: ResearchEvidence[];
+  created_at: string;
+  updated_at: string;
+};
+
+
+export type ResearchSummary = {
+  company_id: number;
+  total_tasks: number;
+  validated_tasks: number;
+  open_tasks: number;
+  critical_tasks: number;
+  evidence_count: number;
+  research_health_score: number;
+  average_confidence: number;
+  average_risk: number;
+  tasks: ResearchTask[];
+};
+
+
 export type CreateCompanyPayload = {
   name: string;
   website: string | null;
@@ -508,6 +630,266 @@ export async function generateBusinessPlan(
     `${API_URL}/business-plans/${companyId}/generate`,
     {
       method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+
+export async function getConversations(
+  companyId: number,
+): Promise<ConversationSummary[]> {
+  const response = await fetch(
+    `${API_URL}/conversations?company_id=${companyId}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function createConversation(
+  companyId: number,
+  documentId: number | null,
+): Promise<ConversationDetail> {
+  const response = await fetch(
+    `${API_URL}/conversations`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        document_id: documentId,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function getConversation(
+  conversationId: number,
+): Promise<ConversationDetail> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function renameConversation(
+  conversationId: number,
+  title: string,
+): Promise<ConversationSummary> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function deleteConversation(
+  conversationId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+export async function streamCofounderMessage(
+  conversationId: number,
+  content: string,
+  documentId: number | null,
+  useAllDocuments: boolean,
+  onEvent: (event: CofounderStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}/messages/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content,
+        document_id: documentId,
+        use_all_documents: useAllDocuments,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  if (!response.body) {
+    throw new Error(
+      "Streaming is not supported by this browser.",
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+
+    buffer += decoder.decode(
+      value,
+      { stream: !done },
+    );
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      onEvent(
+        JSON.parse(line) as CofounderStreamEvent,
+      );
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (buffer.trim()) {
+    onEvent(
+      JSON.parse(buffer) as CofounderStreamEvent,
+    );
+  }
+}
+
+
+
+export async function getResearchSummary(
+  companyId: number,
+): Promise<ResearchSummary> {
+  const response = await fetch(
+    `${API_URL}/research/${companyId}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function regenerateResearchTasks(
+  companyId: number,
+): Promise<ResearchSummary> {
+  const response = await fetch(
+    `${API_URL}/research/${companyId}/generate`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function updateResearchTask(
+  taskId: number,
+  status: ResearchStatus,
+): Promise<ResearchTask> {
+  const response = await fetch(
+    `${API_URL}/research/tasks/${taskId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function addResearchEvidence(
+  taskId: number,
+  payload: {
+    title: string;
+    summary: string;
+    evidence_type: string;
+    document_id: number | null;
+  },
+): Promise<ResearchTask> {
+  const response = await fetch(
+    `${API_URL}/research/tasks/${taskId}/evidence`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
   );
 
