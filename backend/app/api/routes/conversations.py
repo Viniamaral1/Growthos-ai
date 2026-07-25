@@ -495,6 +495,7 @@ def stream_message(
                 for source in response_sources
             ],
             "model": model_name,
+            "executive_role": payload.executive_role,
         }
 
         yield json.dumps(
@@ -503,21 +504,29 @@ def stream_message(
         ) + "\n"
 
         try:
-            for token in stream_cofounder_reply(
-                company=company,
-                previous_messages=previous_messages,
-                user_message=payload.content.strip(),
-                sources=sources,
-            ):
-                assistant_text += token
+            with SessionLocal() as brain_database:
+                for token in stream_cofounder_reply(
+                    database=brain_database,
+                    company=company,
+                    previous_messages=previous_messages,
+                    user_message=payload.content.strip(),
+                    sources=sources,
+                    document_scope_enabled=(
+                        payload.document_id is not None
+                        or payload.use_all_documents
+                    ),
+                    executive_role=payload.executive_role,
+                    current_conversation_id=conversation.id,
+                ):
+                    assistant_text += token
 
-                yield json.dumps(
-                    {
-                        "type": "token",
-                        "content": token,
-                    },
-                    ensure_ascii=False,
-                ) + "\n"
+                    yield json.dumps(
+                        {
+                            "type": "token",
+                            "content": token,
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
 
             with SessionLocal() as save_database:
                 saved_conversation = save_database.get(

@@ -152,7 +152,7 @@ const navItems: Array<{
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
-  { id: "cofounder", label: "AI Co-Founder", icon: "◉" },
+  { id: "cofounder", label: "Executive Team", icon: "◉" },
   { id: "research", label: "Research Engine", icon: "⌕" },
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },

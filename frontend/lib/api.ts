@@ -3,6 +3,9 @@ const API_URL =
   "http://127.0.0.1:8000/api/v1";
 
 
+export type ExecutiveRole = "ceo" | "cfo" | "cmo";
+
+
 export type DevelopmentStage =
   | "idea"
   | "validation"
@@ -211,6 +214,7 @@ export type CofounderStreamEvent =
       user_message: ChatMessage;
       sources: AnswerSource[];
       model: string;
+      executive_role?: ExecutiveRole;
     }
   | {
       type: "token";
@@ -748,6 +752,7 @@ export async function streamCofounderMessage(
   content: string,
   documentId: number | null,
   useAllDocuments: boolean,
+  executiveRole: ExecutiveRole,
   onEvent: (event: CofounderStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(
@@ -761,6 +766,7 @@ export async function streamCofounderMessage(
         content,
         document_id: documentId,
         use_all_documents: useAllDocuments,
+        executive_role: executiveRole,
       }),
     },
   );

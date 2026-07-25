@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,6 +52,7 @@ class ConversationDetail(ConversationSummary):
 
 
 class ChatMessageCreate(BaseModel):
+    executive_role: Literal["ceo", "cfo", "cmo"] = "ceo"
     content: str = Field(
         min_length=2,
         max_length=6000,
