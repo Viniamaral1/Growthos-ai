@@ -27,6 +27,9 @@ from app.schemas.document import (
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
 )
+from app.schemas.document_classification import (
+    DocumentClassificationResponse,
+)
 from app.services.embedding_service import (
     EMBEDDING_MODEL_NAME,
     create_embeddings,
@@ -38,6 +41,9 @@ from app.services.extractors import (
 )
 from app.services.text_chunker import (
     create_document_chunks,
+)
+from app.services.document_classification_service import (
+    classify_document,
 )
 
 
@@ -188,6 +194,43 @@ async def upload_document(
 
     finally:
         await file.close()
+
+
+
+
+@router.get(
+    "/{document_id}/classification",
+    response_model=DocumentClassificationResponse,
+)
+def get_document_classification(
+    document_id: int,
+    database: DatabaseSession,
+) -> DocumentClassificationResponse:
+    document = database.get(
+        Document,
+        document_id,
+    )
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    if document.processing_status != "processed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Process the document before classification."
+            ),
+        )
+
+    return DocumentClassificationResponse.model_validate(
+        classify_document(
+            database,
+            document,
+        )
+    )
 
 
 @router.post(

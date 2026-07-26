@@ -758,6 +758,7 @@ export async function streamCofounderMessage(
   conversationId: number,
   content: string,
   documentId: number | null,
+  documentIds: number[],
   useAllDocuments: boolean,
   executiveRole: ExecutiveRole,
   onEvent: (event: CofounderStreamEvent) => void,
@@ -773,6 +774,7 @@ export async function streamCofounderMessage(
       body: JSON.stringify({
         content,
         document_id: documentId,
+        document_ids: documentIds,
         use_all_documents: useAllDocuments,
         executive_role: executiveRole,
       }),
@@ -1034,4 +1036,71 @@ export async function deleteDecision(
   if (!response.ok) {
     throw new Error(await readError(response));
   }
+}
+
+
+
+export type ResponseFeedbackRating =
+  | "useful"
+  | "not_useful";
+
+
+export async function submitResponseFeedback(
+  payload: {
+    company_id: number;
+    conversation_id: number;
+    message_id: number;
+    rating: ResponseFeedbackRating;
+    reason?: string | null;
+    note?: string | null;
+  },
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/response-feedback`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+
+export type DocumentClassification = {
+  document_id: number;
+  category:
+    | "strategy"
+    | "finance"
+    | "marketing"
+    | "operations"
+    | "research"
+    | "general";
+  suggested_executive: ExecutiveRole;
+  confidence: number;
+  signals: string[];
+};
+
+
+export async function getDocumentClassification(
+  documentId: number,
+): Promise<DocumentClassification> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/classification`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
 }

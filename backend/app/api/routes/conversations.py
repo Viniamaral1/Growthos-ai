@@ -417,10 +417,23 @@ def stream_message(
 
     document_id = payload.document_id
 
+    selected_document_ids = {
+        item
+        for item in payload.document_ids
+        if item > 0
+    }
+
     if document_id is not None:
+        selected_document_ids.add(
+            document_id
+        )
+
+    for selected_document_id in (
+        selected_document_ids
+    ):
         document = database.get(
             Document,
-            document_id,
+            selected_document_id,
         )
 
         if (
@@ -430,13 +443,18 @@ def stream_message(
         ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found for this workspace.",
+                detail=(
+                    "A selected document was not found "
+                    "for this workspace."
+                ),
             )
 
         if document.processing_status != "processed":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="The selected document is not ready for AI.",
+                detail=(
+                    "A selected document is not ready for AI."
+                ),
             )
 
     previous_messages = list(
@@ -459,6 +477,9 @@ def stream_message(
             company_id=conversation.company_id,
             question=payload.content,
             document_id=document_id,
+            document_ids=sorted(
+                selected_document_ids
+            ),
             use_all_documents=payload.use_all_documents,
         )
     except ValueError as error:
@@ -525,7 +546,7 @@ def stream_message(
         confidence = assess_confidence(
             source_count=len(response_sources),
             document_scope_enabled=(
-                payload.document_id is not None
+                bool(selected_document_ids)
                 or payload.use_all_documents
             ),
         )

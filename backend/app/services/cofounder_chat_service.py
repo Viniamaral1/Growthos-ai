@@ -159,6 +159,7 @@ def retrieve_chat_sources(
     company_id: int,
     question: str,
     document_id: int | None,
+    document_ids: list[int] | None,
     use_all_documents: bool,
     retrieval_limit: int = 2,
     minimum_score: float = 0.18,
@@ -169,6 +170,7 @@ def retrieve_chat_sources(
         question,
         document_scope_enabled=(
             document_id is not None
+            or bool(document_ids)
             or use_all_documents
         ),
     )
@@ -209,9 +211,22 @@ def retrieve_chat_sources(
         )
     )
 
+    selected_document_ids = {
+        item
+        for item in (document_ids or [])
+        if item > 0
+    }
+
     if document_id is not None:
+        selected_document_ids.add(
+            document_id
+        )
+
+    if selected_document_ids:
         statement = statement.where(
-            Document.id == document_id
+            Document.id.in_(
+                selected_document_ids
+            )
         )
 
     rows = database.execute(

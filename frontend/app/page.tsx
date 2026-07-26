@@ -3185,6 +3185,15 @@ async function handleGenerateBusinessPlan(
         useAllDocuments={useAllDocuments}
         onDocumentChange={setActiveDocumentId}
         onScopeChange={setUseAllDocuments}
+        onDocumentReady={(document) => {
+          setDocuments((current) => [
+            document,
+            ...current.filter(
+              (item) => item.id !== document.id,
+            ),
+          ]);
+          setActiveDocumentId(document.id);
+        }}
         onError={(feedback) => {
           setMessage("");
           setError(feedback);

@@ -65,4 +65,8 @@ class ChatMessageCreate(BaseModel):
         default=None,
         gt=0,
     )
+    document_ids: list[int] = Field(
+        default_factory=list,
+        max_length=12,
+    )
     use_all_documents: bool = False

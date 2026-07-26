@@ -4796,3 +4796,84 @@ button.executive-role:not(.active):hover {
   background: rgba(59, 214, 208, .06) !important;
   color: var(--cyan) !important;
 }
+
+
+/* GrowthOS v2.7 Multi-file Smart Workspace */
+
+.smart-attachment-list {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.smart-attachment-card {
+  display: grid;
+  min-width: 0;
+  grid-template-columns:
+    minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(155, 135, 245, .15);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(155, 135, 245, .055),
+      rgba(59, 214, 208, .025)
+    );
+  padding: 8px 9px;
+}
+
+.smart-attachment-card > div {
+  min-width: 0;
+}
+
+.smart-attachment-card strong,
+.smart-attachment-card small,
+.smart-attachment-card em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-attachment-card strong {
+  color: var(--text-soft);
+  font-size: 6px;
+}
+
+.smart-attachment-card small {
+  margin-top: 3px;
+  color: var(--violet);
+  font-size: 5px;
+  text-transform: capitalize;
+}
+
+.smart-attachment-card em {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 5px;
+  font-style: normal;
+}
+
+.smart-attachment-card > button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(148, 163, 184, .045);
+  color: var(--muted);
+}
+
+.smart-attachment-card > button:hover {
+  background: rgba(248, 113, 113, .08);
+  color: #f87171;
+}
+
+@media (max-width: 760px) {
+  .smart-attachment-list {
+    grid-template-columns: 1fr;
+  }
+}

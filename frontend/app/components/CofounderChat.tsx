@@ -21,6 +21,7 @@ import {
   deleteConversation,
   getConversation,
   getConversations,
+  getDocumentClassification,
   renameConversation,
   streamCofounderMessage,
   submitResponseFeedback,
@@ -31,6 +32,7 @@ import {
   type Company,
   type ConversationDetail,
   type ConversationSummary,
+  type DocumentClassification,
   type DocumentRecord,
   type ExecutiveRole,
 } from "@/lib/api";
@@ -730,8 +732,13 @@ export default function CofounderChat({
   const [copiedMessageId, setCopiedMessageId] =
     useState<number | null>(null);
   const [attaching, setAttaching] = useState(false);
-  const [attachedDocument, setAttachedDocument] =
-    useState<DocumentRecord | null>(null);
+  const [attachedDocuments, setAttachedDocuments] =
+    useState<
+      Array<{
+        document: DocumentRecord;
+        classification: DocumentClassification;
+      }>
+    >([]);
   const [retryMenuMessageId, setRetryMenuMessageId] =
     useState<number | null>(null);
   const attachmentInputRef =
@@ -1108,20 +1115,39 @@ function suggestedRoleForFile(
 }
 
 
-async function attachFile(
-  file: File,
+async function attachFiles(
+  files: File[],
 ) {
   if (!company) {
-    onError("Select a workspace before attaching a file.");
+    onError(
+      "Select a workspace before attaching files.",
+    );
+    return;
+  }
+
+  const pdfFiles = files.filter(
+    (file) =>
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf"),
+  );
+
+  if (pdfFiles.length !== files.length) {
+    onError(
+      "This release supports PDF attachments. Unsupported files were skipped.",
+    );
+  }
+
+  if (pdfFiles.length === 0) {
     return;
   }
 
   if (
-    file.type !== "application/pdf" &&
-    !file.name.toLowerCase().endsWith(".pdf")
+    attachedDocuments.length +
+    pdfFiles.length >
+    6
   ) {
     onError(
-      "This release supports PDF attachments. Image, Word, and spreadsheet analysis are planned next.",
+      "Attach up to six PDFs to one conversation.",
     );
     return;
   }
@@ -1129,35 +1155,71 @@ async function attachFile(
   setAttaching(true);
 
   try {
-    const uploaded = await uploadDocument(
-      company.id,
-      file,
-    );
+    const additions: Array<{
+      document: DocumentRecord;
+      classification: DocumentClassification;
+    }> = [];
 
-    const processed = await processDocument(
-      uploaded.id,
-    );
+    for (const file of pdfFiles) {
+      const uploaded = await uploadDocument(
+        company.id,
+        file,
+      );
 
-    const suggestedRole =
-      suggestedRoleForFile(file.name);
+      const processed = await processDocument(
+        uploaded.id,
+      );
 
-    setAttachedDocument(processed);
-    setExecutiveRole(suggestedRole);
-    onDocumentChange(processed.id);
+      const classification =
+        await getDocumentClassification(
+          processed.id,
+        );
+
+      additions.push({
+        document: processed,
+        classification,
+      });
+
+      onDocumentReady(processed);
+    }
+
+    setAttachedDocuments((current) => [
+      ...current,
+      ...additions,
+    ]);
+
+    const strongest = additions
+      .slice()
+      .sort(
+        (left, right) =>
+          right.classification.confidence -
+          left.classification.confidence,
+      )[0];
+
+    if (strongest) {
+      setExecutiveRole(
+        strongest.classification
+          .suggested_executive,
+      );
+    }
+
+    onDocumentChange(null);
     onScopeChange(false);
-    onDocumentReady(processed);
 
     onSuccess(
-      `${file.name} attached and routed to ${suggestedRole.toUpperCase()}.`,
+      `${additions.length} PDF${
+        additions.length === 1 ? "" : "s"
+      } attached and classified.`,
     );
   } catch (error) {
     onError(
       error instanceof Error
         ? error.message
-        : "The attachment could not be processed.",
+        : "The attachments could not be processed.",
     );
   } finally {
     setAttaching(false);
+
     if (attachmentInputRef.current) {
       attachmentInputRef.current.value = "";
     }
@@ -1522,7 +1584,7 @@ async function saveDecisionFromMessage(
     const content =
       typedContent.length >= 2
         ? typedContent
-        : attachedDocument
+        : attachedDocuments.length > 0
           ? (
               "Review the attached document and identify the "
               + "most important findings, risks, and next action."
@@ -1623,9 +1685,13 @@ async function saveDecisionFromMessage(
         useAllDocuments
           ? null
           : (
-              attachedDocument?.id ??
-              activeDocumentId
+              attachedDocuments.length === 1
+                ? attachedDocuments[0].document.id
+                : activeDocumentId
             ),
+        attachedDocuments.map(
+          (item) => item.document.id,
+        ),
         useAllDocuments,
         executiveRole,
         (streamEvent) => {
@@ -2429,11 +2495,12 @@ async function saveDecisionFromMessage(
           }}
           onDrop={(event) => {
             event.preventDefault();
-            const file =
-              event.dataTransfer.files[0];
+            const files = Array.from(
+              event.dataTransfer.files,
+            );
 
-            if (file) {
-              void attachFile(file);
+            if (files.length > 0) {
+              void attachFiles(files);
             }
           }}
         >
@@ -2443,57 +2510,86 @@ async function saveDecisionFromMessage(
             name="cofounder-attachment"
             type="file"
             accept=".pdf,application/pdf"
+            multiple
             hidden
             onChange={(event) => {
               const file =
                 event.target.files?.[0];
 
               if (file) {
-                void attachFile(file);
+                void attachFiles([file]);
               }
             }}
           />
 
-          <div className="smart-attachment-row">
+          
+<div className="smart-attachment-row">
+  <button
+    type="button"
+    className="smart-attachment-button"
+    disabled={sending || attaching}
+    onClick={() =>
+      attachmentInputRef.current?.click()
+    }
+  >
+    {attaching
+      ? "Processing…"
+      : "📎 Attach PDFs"}
+  </button>
+
+  {attachedDocuments.length === 0 && (
+    <small className="smart-attachment-help">
+      Attach up to six PDFs. GrowthOS classifies their contents
+      and selects the best executive.
+    </small>
+  )}
+
+  {attachedDocuments.length > 0 && (
+    <div className="smart-attachment-list">
+      {attachedDocuments.map(
+        ({ document, classification }) => (
+          <article
+            className="smart-attachment-card"
+            key={document.id}
+          >
+            <div>
+              <strong>
+                {document.original_filename}
+              </strong>
+              <small>
+                {classification.category} ·{" "}
+                {classification.confidence}% ·{" "}
+                {classification.suggested_executive.toUpperCase()}
+              </small>
+              <em>
+                {document.page_count
+                  ? `${document.page_count} pages`
+                  : "Processed"}
+              </em>
+            </div>
+
             <button
               type="button"
-              className="smart-attachment-button"
-              disabled={sending || attaching}
+              aria-label={`Remove ${document.original_filename}`}
               onClick={() =>
-                attachmentInputRef.current?.click()
+                setAttachedDocuments(
+                  (current) =>
+                    current.filter(
+                      (item) =>
+                        item.document.id !==
+                        document.id,
+                    ),
+                )
               }
             >
-              {attaching ? "Processing…" : "📎 Attach PDF"}
+              ×
             </button>
-
-            {!attachedDocument && (
-              <small className="smart-attachment-help">
-                Attach a PDF, then type a question or press Send
-                for an automatic document review.
-              </small>
-            )}
-
-            {attachedDocument && (
-              <span className="smart-attachment-chip">
-                <strong>
-                  {attachedDocument.original_filename}
-                </strong>
-                <small>
-                  Routed to {executiveRole.toUpperCase()}
-                </small>
-                <button
-                  type="button"
-                  aria-label="Remove attachment from chat scope"
-                  onClick={() => {
-                    setAttachedDocument(null);
-                    onDocumentChange(null);
-                  }}
-                >
-                  ×
-                </button>
-              </span>
-            )}
-          </div>
+          </article>
+        ),
+      )}
+    </div>
+  )}
+</div>
 
           <textarea
             id="cofounder-message"
@@ -2532,7 +2628,7 @@ async function saveDecisionFromMessage(
               disabled={
                 !sending &&
                 draft.trim().length < 2 &&
-                attachedDocument === null
+                attachedDocuments.length === 0
               }
               onClick={
                 sending
