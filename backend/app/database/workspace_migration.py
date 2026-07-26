@@ -83,3 +83,43 @@ def migrate_chat_message_executive_role(
                 "ADD COLUMN executive_role VARCHAR(40)"
             )
         )
+
+
+
+CHAT_MESSAGE_MEMORY_COLUMNS: dict[str, str] = {
+    "confidence_level": "VARCHAR(20)",
+    "confidence_score": "INTEGER",
+    "confidence_reason": "TEXT",
+}
+
+
+def migrate_chat_message_confidence(
+    engine: Engine,
+) -> None:
+    """Add confidence metadata without deleting chat history."""
+
+    inspector = inspect(engine)
+
+    if "chat_messages" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns(
+            "chat_messages"
+        )
+    }
+
+    with engine.begin() as connection:
+        for column_name, column_type in (
+            CHAT_MESSAGE_MEMORY_COLUMNS.items()
+        ):
+            if column_name in existing_columns:
+                continue
+
+            connection.execute(
+                text(
+                    "ALTER TABLE chat_messages "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+            )

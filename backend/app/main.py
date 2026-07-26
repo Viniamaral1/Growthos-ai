@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="2.3.0",
+        version="2.4.0",
     )
 
     application.add_middleware(

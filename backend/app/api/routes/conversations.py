@@ -33,6 +33,9 @@ from app.services.answer_service import (
     AnswerGenerationError,
     get_ollama_model,
 )
+from app.services.confidence_service import (
+    assess_confidence,
+)
 from app.services.executive_service import (
     route_executive_role,
 )
@@ -73,6 +76,18 @@ def _sources(
     ]
 
 
+def _supported_chat_message_kwargs(
+    **values: object,
+) -> dict[str, object]:
+    """Keep stream saving compatible with a stale ORM class."""
+
+    return {
+        key: value
+        for key, value in values.items()
+        if hasattr(ChatMessage, key)
+    }
+
+
 def _message_response(
     message: ChatMessage,
 ) -> ChatMessageResponse:
@@ -83,6 +98,21 @@ def _message_response(
         content=message.content,
         model=message.model,
         executive_role=getattr(message, "executive_role", None),
+        confidence_level=getattr(
+            message,
+            "confidence_level",
+            None,
+        ),
+        confidence_score=getattr(
+            message,
+            "confidence_score",
+            None,
+        ),
+        confidence_reason=getattr(
+            message,
+            "confidence_reason",
+            None,
+        ),
         sources=_sources(message),
         created_at=message.created_at,
     )
@@ -492,6 +522,14 @@ def stream_message(
             payload.executive_role,
         )
 
+        confidence = assess_confidence(
+            source_count=len(response_sources),
+            document_scope_enabled=(
+                payload.document_id is not None
+                or payload.use_all_documents
+            ),
+        )
+
         metadata = {
             "type": "metadata",
             "conversation_id": conversation.id,
@@ -505,6 +543,9 @@ def stream_message(
             ],
             "model": model_name,
             "executive_role": resolved_executive_role,
+            "confidence_level": confidence.level,
+            "confidence_score": confidence.score,
+            "confidence_reason": confidence.reason,
         }
 
         yield json.dumps(
@@ -544,18 +585,23 @@ def stream_message(
                 )
 
                 assistant_message = ChatMessage(
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=assistant_text.strip(),
-                    model=model_name,
-                    executive_role=resolved_executive_role,
-                    sources_json=json.dumps(
-                        [
-                            source.model_dump(mode="json")
-                            for source in response_sources
-                        ],
-                        ensure_ascii=False,
-                    ),
+                    **_supported_chat_message_kwargs(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=assistant_text.strip(),
+                        model=model_name,
+                        executive_role=resolved_executive_role,
+                        confidence_level=confidence.level,
+                        confidence_score=confidence.score,
+                        confidence_reason=confidence.reason,
+                        sources_json=json.dumps(
+                            [
+                                source.model_dump(mode="json")
+                                for source in response_sources
+                            ],
+                            ensure_ascii=False,
+                        ),
+                    )
                 )
 
                 save_database.add(assistant_message)
@@ -594,15 +640,22 @@ def stream_message(
                 )
 
                 error_message = ChatMessage(
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=(
-                        "I could not complete that reply. "
-                        f"{error_text}"
-                    ),
-                    model=model_name,
-                    executive_role=resolved_executive_role,
-                    sources_json="[]",
+                    **_supported_chat_message_kwargs(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=(
+                            "I could not complete that reply. "
+                            f"{error_text}"
+                        ),
+                        model=model_name,
+                        executive_role=resolved_executive_role,
+                        confidence_level="low",
+                        confidence_score=20,
+                        confidence_reason=(
+                            "The model did not complete the response."
+                        ),
+                        sources_json="[]",
+                    )
                 )
 
                 save_database.add(error_message)

@@ -196,6 +196,9 @@ export type ChatMessage = {
   content: string;
   model: string | null;
   executive_role: ExecutiveRole | null;
+  confidence_level: "high" | "medium" | "low" | null;
+  confidence_score: number | null;
+  confidence_reason: string | null;
   sources: AnswerSource[];
   created_at: string;
 };
@@ -216,6 +219,9 @@ export type CofounderStreamEvent =
       sources: AnswerSource[];
       model: string;
       executive_role?: ExecutiveRole;
+      confidence_level?: "high" | "medium" | "low";
+      confidence_score?: number;
+      confidence_reason?: string;
     }
   | {
       type: "token";

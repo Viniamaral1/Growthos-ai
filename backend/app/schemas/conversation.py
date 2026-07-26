@@ -44,6 +44,9 @@ class ChatMessageResponse(BaseModel):
     content: str
     model: str | None
     executive_role: str | None = None
+    confidence_level: str | None = None
+    confidence_score: int | None = None
+    confidence_reason: str | None = None
     sources: list[AnswerSource]
     created_at: datetime
 

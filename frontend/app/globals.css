@@ -4413,3 +4413,52 @@ button.executive-role:not(.active):hover {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* GrowthOS v2.4 Executive Memory and Confidence Engine */
+
+.message-confidence {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  border: 1px solid rgba(148, 163, 184, .12);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .035);
+  padding: 0 9px;
+  color: var(--muted);
+  cursor: help;
+}
+
+.message-confidence > span {
+  font-size: 8px;
+}
+
+.message-confidence > strong {
+  font-size: 6px;
+  text-transform: capitalize;
+}
+
+.message-confidence > small {
+  font-size: 5px;
+  opacity: .78;
+}
+
+.message-confidence.high {
+  border-color: rgba(66, 211, 154, .18);
+  background: rgba(66, 211, 154, .05);
+  color: var(--emerald);
+}
+
+.message-confidence.medium {
+  border-color: rgba(241, 183, 75, .18);
+  background: rgba(241, 183, 75, .05);
+  color: #f1b74b;
+}
+
+.message-confidence.low {
+  border-color: rgba(248, 113, 113, .16);
+  background: rgba(248, 113, 113, .045);
+  color: #f87171;
+}

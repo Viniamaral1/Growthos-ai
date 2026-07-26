@@ -159,6 +159,32 @@ function MessageBubble({
         <SourceCards sources={message.sources} />
 
         {assistant &&
+          message.confidence_level &&
+          message.confidence_score !== null && (
+            <section
+              className={`message-confidence ${message.confidence_level}`}
+              title={
+                message.confidence_reason ??
+                "Grounding confidence"
+              }
+            >
+              <span>
+                {message.confidence_level === "high"
+                  ? "●"
+                  : message.confidence_level === "medium"
+                    ? "◐"
+                    : "○"}
+              </span>
+              <strong>
+                {message.confidence_level} confidence
+              </strong>
+              <small>
+                {message.confidence_score}/100 grounding
+              </small>
+            </section>
+          )}
+
+        {assistant &&
           !streaming &&
           message.content && (
             <footer className="professional-message-actions">
@@ -1188,6 +1214,18 @@ function prepareRegeneration(
                       return {
                         ...message,
                         model: streamEvent.model,
+                        executive_role:
+                          streamEvent.executive_role ??
+                          message.executive_role,
+                        confidence_level:
+                          streamEvent.confidence_level ??
+                          message.confidence_level,
+                        confidence_score:
+                          streamEvent.confidence_score ??
+                          message.confidence_score,
+                        confidence_reason:
+                          streamEvent.confidence_reason ??
+                          message.confidence_reason,
                         sources: streamEvent.sources,
                       };
                     }
