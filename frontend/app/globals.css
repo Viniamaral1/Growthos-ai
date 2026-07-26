@@ -4668,3 +4668,131 @@ button.executive-role:not(.active):hover {
   border-color: rgba(248, 113, 113, .36) !important;
   background: rgba(248, 113, 113, .12) !important;
 }
+
+
+/* GrowthOS v2.6 Smart Workspace */
+
+.smart-attachment-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.smart-attachment-button {
+  min-height: 30px;
+  border: 1px solid rgba(59, 214, 208, .16);
+  border-radius: 8px;
+  background: rgba(59, 214, 208, .045);
+  padding: 0 10px;
+  color: var(--cyan);
+  font-size: 6px;
+  font-weight: 800;
+}
+
+.smart-attachment-button:disabled {
+  opacity: .5;
+}
+
+.smart-attachment-chip {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+  border: 1px solid rgba(155, 135, 245, .16);
+  border-radius: 9px;
+  background: rgba(155, 135, 245, .045);
+  padding: 6px 8px;
+}
+
+.smart-attachment-chip strong,
+.smart-attachment-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smart-attachment-chip strong {
+  max-width: 250px;
+  color: var(--text-soft);
+  font-size: 6px;
+}
+
+.smart-attachment-chip small {
+  color: var(--violet);
+  font-size: 5px;
+}
+
+.smart-attachment-chip button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cofounder-composer {
+  transition:
+    border-color .15s ease,
+    background .15s ease;
+}
+
+.cofounder-composer:has(input[type="file"]:focus-visible) {
+  border-color: rgba(59, 214, 208, .25);
+}
+
+
+/* GrowthOS v2.6.1 Attachment Send and Retry Options */
+
+.smart-attachment-help {
+  color: var(--muted);
+  font-size: 5px;
+  line-height: 1.4;
+}
+
+.retry-action {
+  position: relative;
+}
+
+.retry-action > button i {
+  margin-left: 3px;
+  color: var(--muted);
+  font-size: 7px;
+  font-style: normal;
+}
+
+.retry-options-menu {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: calc(100% + 7px);
+  display: grid;
+  min-width: 175px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 10px;
+  background: rgba(8, 18, 31, .98);
+  padding: 5px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .34);
+}
+
+.retry-options-menu button {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  border: 0 !important;
+  border-radius: 7px;
+  background: transparent !important;
+  padding: 0 9px;
+  color: var(--text-soft) !important;
+  font-size: 6px;
+  text-align: left;
+}
+
+.retry-options-menu button:hover {
+  background: rgba(59, 214, 208, .06) !important;
+  color: var(--cyan) !important;
+}

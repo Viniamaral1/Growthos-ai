@@ -23,6 +23,9 @@ import {
   getConversations,
   renameConversation,
   streamCofounderMessage,
+  submitResponseFeedback,
+  uploadDocument,
+  processDocument,
   type AnswerSource,
   type ChatMessage,
   type Company,
@@ -82,6 +85,10 @@ function MessageBubble({
   onCopy,
   onRegenerate,
   onSaveDecision,
+  onFeedback,
+  onRetryOption,
+  retryMenuOpen,
+  onToggleRetryMenu,
   executiveName,
   messageExecutiveRole,
 }: {
@@ -90,6 +97,19 @@ function MessageBubble({
   onCopy: (message: ChatMessage) => void;
   onRegenerate?: () => void;
   onSaveDecision?: () => void;
+  onFeedback?: (
+    rating: "useful" | "not_useful",
+  ) => void;
+  onRetryOption?: (
+    option:
+      | "shorter"
+      | "detailed"
+      | "evidence"
+      | "challenge"
+      | "different_executive",
+  ) => void;
+  retryMenuOpen?: boolean;
+  onToggleRetryMenu?: () => void;
   executiveName: string;
   messageExecutiveRole?: ExecutiveRole | null;
 }) {
@@ -211,15 +231,101 @@ function MessageBubble({
                 </button>
               )}
 
+              {onFeedback && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onFeedback("useful")
+                    }
+                    title="This answer was useful"
+                    aria-label="Mark answer useful"
+                  >
+                    <span aria-hidden="true">👍</span>
+                    <strong>Useful</strong>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onFeedback("not_useful")
+                    }
+                    title="This answer needs improvement"
+                    aria-label="Mark answer not useful"
+                  >
+                    <span aria-hidden="true">👎</span>
+                    <strong>Improve</strong>
+                  </button>
+                </>
+              )}
+
               {onRegenerate && (
-                <button
-                  type="button"
-                  onClick={onRegenerate}
-                  title="Prepare the previous prompt again"
-                >
-                  <span aria-hidden="true">↻</span>
-                  <strong>Regenerate</strong>
-                </button>
+                <div className="retry-action">
+                  <button
+                    type="button"
+                    onClick={
+                      onToggleRetryMenu ??
+                      onRegenerate
+                    }
+                    title="Try the answer again"
+                  >
+                    <span aria-hidden="true">↻</span>
+                    <strong>Try Again</strong>
+                    <i aria-hidden="true">⌄</i>
+                  </button>
+
+                  {retryMenuOpen &&
+                    onRetryOption && (
+                      <div className="retry-options-menu">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onRetryOption("shorter")
+                          }
+                        >
+                          Shorter
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onRetryOption("detailed")
+                          }
+                        >
+                          More detailed
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onRetryOption("evidence")
+                          }
+                        >
+                          Use more evidence
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onRetryOption("challenge")
+                          }
+                        >
+                          Challenge recommendation
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onRetryOption(
+                              "different_executive",
+                            )
+                          }
+                        >
+                          Ask another executive
+                        </button>
+                      </div>
+                    )}
+                </div>
               )}
 
               {message.sources.length > 0 && (
@@ -587,6 +693,7 @@ export default function CofounderChat({
   useAllDocuments,
   onDocumentChange,
   onScopeChange,
+  onDocumentReady,
   onError,
   onSuccess,
 }: {
@@ -596,6 +703,7 @@ export default function CofounderChat({
   useAllDocuments: boolean;
   onDocumentChange: (documentId: number | null) => void;
   onScopeChange: (value: boolean) => void;
+  onDocumentReady: (document: DocumentRecord) => void;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }) {
@@ -621,6 +729,13 @@ export default function CofounderChat({
     useState<ExecutiveRole>("ceo");
   const [copiedMessageId, setCopiedMessageId] =
     useState<number | null>(null);
+  const [attaching, setAttaching] = useState(false);
+  const [attachedDocument, setAttachedDocument] =
+    useState<DocumentRecord | null>(null);
+  const [retryMenuMessageId, setRetryMenuMessageId] =
+    useState<number | null>(null);
+  const attachmentInputRef =
+    useRef<HTMLInputElement | null>(null);
 
   const messageScrollRef =
     useRef<HTMLDivElement | null>(null);
@@ -946,6 +1061,171 @@ function prepareRegeneration(
 
 
 
+
+function suggestedRoleForFile(
+  filename: string,
+): ExecutiveRole {
+  const name = filename.toLowerCase();
+
+  if (
+    name.includes("price") ||
+    name.includes("budget") ||
+    name.includes("finance") ||
+    name.includes("revenue") ||
+    name.includes("cost")
+  ) {
+    return "cfo";
+  }
+
+  if (
+    name.includes("campaign") ||
+    name.includes("marketing") ||
+    name.includes("brand") ||
+    name.includes("customer")
+  ) {
+    return "cmo";
+  }
+
+  if (
+    name.includes("research") ||
+    name.includes("interview") ||
+    name.includes("evidence") ||
+    name.includes("survey")
+  ) {
+    return "research";
+  }
+
+  if (
+    name.includes("process") ||
+    name.includes("workflow") ||
+    name.includes("sop") ||
+    name.includes("operations")
+  ) {
+    return "coo";
+  }
+
+  return "ceo";
+}
+
+
+async function attachFile(
+  file: File,
+) {
+  if (!company) {
+    onError("Select a workspace before attaching a file.");
+    return;
+  }
+
+  if (
+    file.type !== "application/pdf" &&
+    !file.name.toLowerCase().endsWith(".pdf")
+  ) {
+    onError(
+      "This release supports PDF attachments. Image, Word, and spreadsheet analysis are planned next.",
+    );
+    return;
+  }
+
+  setAttaching(true);
+
+  try {
+    const uploaded = await uploadDocument(
+      company.id,
+      file,
+    );
+
+    const processed = await processDocument(
+      uploaded.id,
+    );
+
+    const suggestedRole =
+      suggestedRoleForFile(file.name);
+
+    setAttachedDocument(processed);
+    setExecutiveRole(suggestedRole);
+    onDocumentChange(processed.id);
+    onScopeChange(false);
+    onDocumentReady(processed);
+
+    onSuccess(
+      `${file.name} attached and routed to ${suggestedRole.toUpperCase()}.`,
+    );
+  } catch (error) {
+    onError(
+      error instanceof Error
+        ? error.message
+        : "The attachment could not be processed.",
+    );
+  } finally {
+    setAttaching(false);
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = "";
+    }
+  }
+}
+
+
+async function rateMessage(
+  message: ChatMessage,
+  rating: "useful" | "not_useful",
+) {
+  if (
+    !company ||
+    !activeConversation ||
+    message.id <= 0
+  ) {
+    onError(
+      "Wait for the response to finish before rating it.",
+    );
+    return;
+  }
+
+  try {
+    await submitResponseFeedback({
+      company_id: company.id,
+      conversation_id: activeConversation.id,
+      message_id: message.id,
+      rating,
+      reason:
+        rating === "not_useful"
+          ? "requested_improvement"
+          : null,
+    });
+
+    if (rating === "not_useful") {
+      const previousUser =
+        activeConversation.messages
+          .slice(
+            0,
+            activeConversation.messages.findIndex(
+              (item) => item.id === message.id,
+            ),
+          )
+          .reverse()
+          .find((item) => item.role === "user");
+
+      if (previousUser) {
+        setDraft(
+          `${previousUser.content}\n\nTry again with clearer reasoning, stronger evidence, and a more practical next action.`,
+        );
+      }
+    }
+
+    onSuccess(
+      rating === "useful"
+        ? "Feedback saved."
+        : "Feedback saved. An improved retry is ready in the composer.",
+    );
+  } catch (error) {
+    onError(
+      error instanceof Error
+        ? error.message
+        : "Feedback could not be saved.",
+    );
+  }
+}
+
+
 function stopGenerating() {
   streamAbortControllerRef.current?.abort();
   streamAbortControllerRef.current = null;
@@ -1167,6 +1447,67 @@ async function saveDecisionFromMessage(
     }
   }
 
+  function prepareRetryOption(
+    message: ChatMessage,
+    option:
+      | "shorter"
+      | "detailed"
+      | "evidence"
+      | "challenge"
+      | "different_executive",
+  ) {
+    if (!activeConversation) {
+      return;
+    }
+
+    const messageIndex =
+      activeConversation.messages.findIndex(
+        (item) => item.id === message.id,
+      );
+
+    const previousUser =
+      activeConversation.messages
+        .slice(0, messageIndex)
+        .reverse()
+        .find((item) => item.role === "user");
+
+    if (!previousUser) {
+      onError(
+        "The original question could not be found.",
+      );
+      return;
+    }
+
+    const instructions = {
+      shorter:
+        "Answer again in a shorter, more direct format.",
+      detailed:
+        "Answer again with more detail, reasoning, and implementation steps.",
+      evidence:
+        "Answer again using the available attached document and retrieved evidence more explicitly. Separate evidence from assumptions.",
+      challenge:
+        "Challenge the previous recommendation. Identify weaknesses, risks, and a stronger alternative.",
+      different_executive:
+        "Answer again from a different executive perspective. Explain which executive is best suited and why.",
+    };
+
+    setDraft(
+      `${previousUser.content}\n\n${instructions[option]}`,
+    );
+
+    if (option === "different_executive") {
+      setExecutiveRole("auto");
+    }
+
+    setRetryMenuMessageId(null);
+    setFailedMessage(null);
+
+    onSuccess(
+      "Retry instructions are ready. Review and send.",
+    );
+  }
+
+
   async function sendMessage(
     event: FormEvent<HTMLFormElement>,
   ) {
@@ -1176,10 +1517,22 @@ async function saveDecisionFromMessage(
       return;
     }
 
-    const content = draft.trim();
+    const typedContent = draft.trim();
+
+    const content =
+      typedContent.length >= 2
+        ? typedContent
+        : attachedDocument
+          ? (
+              "Review the attached document and identify the "
+              + "most important findings, risks, and next action."
+            )
+          : "";
 
     if (content.length < 2) {
-      onError("Enter a longer message.");
+      onError(
+        "Enter a message or attach a PDF.",
+      );
       return;
     }
 
@@ -1269,7 +1622,10 @@ async function saveDecisionFromMessage(
         content,
         useAllDocuments
           ? null
-          : activeDocumentId,
+          : (
+              attachedDocument?.id ??
+              activeDocumentId
+            ),
         useAllDocuments,
         executiveRole,
         (streamEvent) => {
@@ -1948,6 +2304,41 @@ async function saveDecisionFromMessage(
                       ? resolvedExecutiveRole.toUpperCase()
                       : executiveIdentity.name
                   }
+                  retryMenuOpen={
+                    retryMenuMessageId === message.id
+                  }
+                  onToggleRetryMenu={
+                    message.role === "assistant" &&
+                    !sending
+                      ? () =>
+                          setRetryMenuMessageId(
+                            (current) =>
+                              current === message.id
+                                ? null
+                                : message.id,
+                          )
+                      : undefined
+                  }
+                  onRetryOption={
+                    message.role === "assistant" &&
+                    !sending
+                      ? (option) =>
+                          prepareRetryOption(
+                            message,
+                            option,
+                          )
+                      : undefined
+                  }
+                  onFeedback={
+                    message.role === "assistant" &&
+                    !sending
+                      ? (rating) =>
+                          void rateMessage(
+                            message,
+                            rating,
+                          )
+                      : undefined
+                  }
                   onSaveDecision={
                     message.role === "assistant" &&
                     !sending
@@ -2033,7 +2424,77 @@ async function saveDecisionFromMessage(
         <form
           className="cofounder-composer"
           onSubmit={sendMessage}
+          onDragOver={(event) => {
+            event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file =
+              event.dataTransfer.files[0];
+
+            if (file) {
+              void attachFile(file);
+            }
+          }}
         >
+          <input
+            ref={attachmentInputRef}
+            id="cofounder-attachment"
+            name="cofounder-attachment"
+            type="file"
+            accept=".pdf,application/pdf"
+            hidden
+            onChange={(event) => {
+              const file =
+                event.target.files?.[0];
+
+              if (file) {
+                void attachFile(file);
+              }
+            }}
+          />
+
+          <div className="smart-attachment-row">
+            <button
+              type="button"
+              className="smart-attachment-button"
+              disabled={sending || attaching}
+              onClick={() =>
+                attachmentInputRef.current?.click()
+              }
+            >
+              {attaching ? "Processing…" : "📎 Attach PDF"}
+            </button>
+
+            {!attachedDocument && (
+              <small className="smart-attachment-help">
+                Attach a PDF, then type a question or press Send
+                for an automatic document review.
+              </small>
+            )}
+
+            {attachedDocument && (
+              <span className="smart-attachment-chip">
+                <strong>
+                  {attachedDocument.original_filename}
+                </strong>
+                <small>
+                  Routed to {executiveRole.toUpperCase()}
+                </small>
+                <button
+                  type="button"
+                  aria-label="Remove attachment from chat scope"
+                  onClick={() => {
+                    setAttachedDocument(null);
+                    onDocumentChange(null);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+          </div>
+
           <textarea
             id="cofounder-message"
             name="cofounder-message"
@@ -2070,7 +2531,8 @@ async function saveDecisionFromMessage(
               }
               disabled={
                 !sending &&
-                draft.trim().length < 2
+                draft.trim().length < 2 &&
+                attachedDocument === null
               }
               onClick={
                 sending
