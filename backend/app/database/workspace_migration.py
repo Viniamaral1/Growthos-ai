@@ -53,3 +53,33 @@ def migrate_company_to_workspace(engine: Engine) -> None:
                 "WHERE updated_at IS NULL"
             )
         )
+
+
+
+def migrate_chat_message_executive_role(
+    engine: Engine,
+) -> None:
+    """Add executive identity without deleting existing chat history."""
+
+    inspector = inspect(engine)
+
+    if "chat_messages" not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns(
+            "chat_messages"
+        )
+    }
+
+    if "executive_role" in existing_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE chat_messages "
+                "ADD COLUMN executive_role VARCHAR(40)"
+            )
+        )

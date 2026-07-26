@@ -81,12 +81,14 @@ function MessageBubble({
   onCopy,
   onRegenerate,
   executiveName,
+  messageExecutiveRole,
 }: {
   message: ChatMessage;
   streaming?: boolean;
   onCopy: (message: ChatMessage) => void;
   onRegenerate?: () => void;
   executiveName: string;
+  messageExecutiveRole?: ExecutiveRole | null;
 }) {
   const assistant = message.role === "assistant";
 
@@ -103,7 +105,19 @@ function MessageBubble({
           <strong>
             {message.role === "user"
               ? "You"
-              : `GrowthOS ${executiveName}`}
+              : `GrowthOS ${
+                  messageExecutiveRole
+                    ? {
+                        auto: "CEO",
+                        ceo: "CEO",
+                        cfo: "CFO",
+                        cmo: "CMO",
+                        coo: "COO",
+                        research: "Research Lead",
+                        board: "Decision Room",
+                      }[messageExecutiveRole]
+                    : executiveName
+                }`}
           </strong>
 
           <small>
@@ -562,6 +576,8 @@ export default function CofounderChat({
   const [conversationSearch, setConversationSearch] =
     useState("");
   const [executiveRole, setExecutiveRole] =
+    useState<ExecutiveRole>("auto");
+  const [resolvedExecutiveRole, setResolvedExecutiveRole] =
     useState<ExecutiveRole>("ceo");
   const [copiedMessageId, setCopiedMessageId] =
     useState<number | null>(null);
@@ -580,6 +596,7 @@ export default function CofounderChat({
     useState<string | null>(null);
   const onErrorRef = useRef(onError);
   const shouldAutoScrollRef = useRef(true);
+  const userInterruptedScrollRef = useRef(false);
   const copyTimerRef = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -615,7 +632,15 @@ export default function CofounderChat({
     );
   }, [conversationSearch, conversations]);
 
+
 const executiveIdentity = {
+  auto: {
+    name: "Auto",
+    title: "Executive Router",
+    icon: "✦",
+    description:
+      "GrowthOS selects the best executive for each question",
+  },
   ceo: {
     name: "CEO",
     title: "Chief Executive Officer",
@@ -637,8 +662,28 @@ const executiveIdentity = {
     description:
       "Positioning, customers, campaigns, and growth",
   },
+  coo: {
+    name: "COO",
+    title: "Chief Operating Officer",
+    icon: "⚙",
+    description:
+      "Execution, workflows, owners, and delivery",
+  },
+  research: {
+    name: "Research Lead",
+    title: "Research Lead",
+    icon: "⌕",
+    description:
+      "Evidence, assumptions, confidence, and validation",
+  },
+  board: {
+    name: "Decision Room",
+    title: "Executive Decision Room",
+    icon: "◇",
+    description:
+      "CEO, CFO, and CMO perspectives with one board decision",
+  },
 }[executiveRole];
-
 
 
   useEffect(() => {
@@ -720,11 +765,29 @@ const executiveIdentity = {
     const distanceFromBottom =
       maximumScroll - container.scrollTop;
 
+    const nearBottom =
+      distanceFromBottom < 110;
+
     setCanScrollUp(container.scrollTop > 90);
     setCanScrollDown(distanceFromBottom > 90);
 
-    shouldAutoScrollRef.current =
-      distanceFromBottom < 110;
+    if (nearBottom) {
+      shouldAutoScrollRef.current = true;
+      userInterruptedScrollRef.current = false;
+    } else if (sending) {
+      shouldAutoScrollRef.current = false;
+      userInterruptedScrollRef.current = true;
+    }
+  }
+
+
+  function pauseAutoScroll() {
+    if (!sending) {
+      return;
+    }
+
+    shouldAutoScrollRef.current = false;
+    userInterruptedScrollRef.current = true;
   }
 
 
@@ -744,6 +807,7 @@ const executiveIdentity = {
     }
 
     shouldAutoScrollRef.current = true;
+    userInterruptedScrollRef.current = false;
 
     container.scrollTo({
       top: container.scrollHeight,
@@ -753,13 +817,17 @@ const executiveIdentity = {
 
 
   useEffect(() => {
+    const container = messageScrollRef.current;
+
     if (
       sending &&
-      shouldAutoScrollRef.current
+      shouldAutoScrollRef.current &&
+      !userInterruptedScrollRef.current &&
+      container
     ) {
-      bottomRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "auto",
       });
     }
 
@@ -881,6 +949,7 @@ function prepareRegeneration(
       );
       setActiveConversation(detail);
       shouldAutoScrollRef.current = true;
+      userInterruptedScrollRef.current = false;
 
       window.requestAnimationFrame(() => {
         jumpToLatestMessage();
@@ -1039,6 +1108,7 @@ function prepareRegeneration(
     }
 
     shouldAutoScrollRef.current = true;
+    userInterruptedScrollRef.current = false;
     setSending(true);
     setFailedMessage(null);
     setDraft("");
@@ -1089,6 +1159,12 @@ function prepareRegeneration(
         executiveRole,
         (streamEvent) => {
           if (streamEvent.type === "metadata") {
+            if (streamEvent.executive_role) {
+              setResolvedExecutiveRole(
+                streamEvent.executive_role,
+              );
+            }
+
             setActiveConversation((current) => {
               if (!current) {
                 return current;
@@ -1472,6 +1548,7 @@ function prepareRegeneration(
 
       <div className="cofounder-chat-panel">
 
+
 <section className="executive-team-selector">
   <div className="executive-team-intro">
     <span className="executive-team-mark">
@@ -1481,34 +1558,68 @@ function prepareRegeneration(
     <div>
       <small>GrowthOS Executive Team</small>
       <strong>
-        Select a leadership perspective
+        Automatic routing or a chosen leadership perspective
       </strong>
     </div>
+
+    {executiveRole === "auto" && (
+      <span className="executive-router-status">
+        Routed to {resolvedExecutiveRole.toUpperCase()}
+      </span>
+    )}
   </div>
 
   <div className="executive-role-grid">
     {(
       [
         {
+          role: "auto",
+          icon: "✦",
+          name: "Auto",
+          description:
+            "Routes each question to the best executive",
+        },
+        {
           role: "ceo",
           icon: "◆",
           name: "CEO",
           description:
-            "Strategy, priorities, and company-wide decisions",
+            "Strategy and company-wide decisions",
         },
         {
           role: "cfo",
           icon: "$",
           name: "CFO",
           description:
-            "Pricing, runway, margins, and financial risk",
+            "Pricing, runway, margins, and risk",
         },
         {
           role: "cmo",
           icon: "↗",
           name: "CMO",
           description:
-            "Positioning, customers, campaigns, and growth",
+            "Positioning, customers, and growth",
+        },
+        {
+          role: "coo",
+          icon: "⚙",
+          name: "COO",
+          description:
+            "Execution, workflows, owners, and delivery",
+        },
+        {
+          role: "research",
+          icon: "⌕",
+          name: "Research Lead",
+          description:
+            "Evidence, assumptions, confidence, and validation",
+        },
+        {
+          role: "board",
+          icon: "◇",
+          name: "Decision Room",
+          description:
+            "CEO, CFO, and CMO board synthesis",
         },
       ] as const
     ).map((executive) => {
@@ -1521,64 +1632,29 @@ function prepareRegeneration(
           className={[
             "executive-role",
             active ? "active" : "",
+            executive.role === "board"
+              ? "decision-room"
+              : "",
           ]
             .filter(Boolean)
             .join(" ")}
           aria-pressed={active}
           key={executive.role}
           onClick={() =>
-            setExecutiveRole(
-              executive.role,
-            )
+            setExecutiveRole(executive.role)
           }
         >
           <span>{executive.icon}</span>
 
           <div>
             <strong>{executive.name}</strong>
-            <small>
-              {executive.description}
-            </small>
+            <small>{executive.description}</small>
           </div>
 
-          <i>
-            {active ? "Active" : "Open"}
-          </i>
+          <i>{active ? "Active" : "Open"}</i>
         </button>
       );
     })}
-
-    {[
-      {
-        icon: "⚙",
-        name: "COO",
-        description:
-          "Operations and execution",
-      },
-      {
-        icon: "⌕",
-        name: "Research",
-        description:
-          "Evidence and validation",
-      },
-    ].map((executive) => (
-      <div
-        className="executive-role locked"
-        key={executive.name}
-        aria-label={`${executive.name} coming soon`}
-      >
-        <span>{executive.icon}</span>
-
-        <div>
-          <strong>{executive.name}</strong>
-          <small>
-            {executive.description}
-          </small>
-        </div>
-
-        <i>Coming soon</i>
-      </div>
-    ))}
   </div>
 </section>
 
@@ -1647,6 +1723,9 @@ function prepareRegeneration(
           className="cofounder-message-scroll"
           ref={messageScrollRef}
           onScroll={updateScrollControls}
+          onWheel={pauseAutoScroll}
+          onTouchMove={pauseAutoScroll}
+          onPointerDown={pauseAutoScroll}
         >
           {loadingConversation ? (
             <div className="cofounder-message-skeletons">
@@ -1702,8 +1781,13 @@ function prepareRegeneration(
                         1 &&
                     message.role === "assistant"
                   }
+                  messageExecutiveRole={
+                    message.executive_role
+                  }
                   executiveName={
-                    executiveIdentity.name
+                    executiveRole === "auto"
+                      ? resolvedExecutiveRole.toUpperCase()
+                      : executiveIdentity.name
                   }
                   onCopy={(selectedMessage) => {
                     void copyMessage(
@@ -1758,7 +1842,13 @@ function prepareRegeneration(
           <button
             type="button"
             onClick={jumpToLatestMessage}
-            disabled={!canScrollDown}
+            disabled={
+              !canScrollDown &&
+              !(
+                sending &&
+                userInterruptedScrollRef.current
+              )
+            }
             aria-label="Jump to latest message"
             title="Go to latest message"
           >

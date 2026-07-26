@@ -43,6 +43,7 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     model: str | None
+    executive_role: str | None = None
     sources: list[AnswerSource]
     created_at: datetime
 
@@ -52,7 +53,7 @@ class ConversationDetail(ConversationSummary):
 
 
 class ChatMessageCreate(BaseModel):
-    executive_role: Literal["ceo", "cfo", "cmo"] = "ceo"
+    executive_role: Literal["auto", "ceo", "cfo", "cmo", "coo", "research", "board"] = "auto"
     content: str = Field(
         min_length=2,
         max_length=6000,

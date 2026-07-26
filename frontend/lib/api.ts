@@ -3,7 +3,7 @@ const API_URL =
   "http://127.0.0.1:8000/api/v1";
 
 
-export type ExecutiveRole = "ceo" | "cfo" | "cmo";
+export type ExecutiveRole = "auto" | "ceo" | "cfo" | "cmo" | "coo" | "research" | "board";
 
 
 export type DevelopmentStage =
@@ -195,6 +195,7 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   model: string | null;
+  executive_role: ExecutiveRole | null;
   sources: AnswerSource[];
   created_at: string;
 };

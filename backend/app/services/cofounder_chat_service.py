@@ -16,6 +16,7 @@ from app.services.smart_context_service import (
 from app.services.executive_service import (
     ExecutiveRole,
     get_executive_profile,
+    route_executive_role,
 )
 from app.models.company import Company
 from app.models.conversation import Conversation
@@ -382,8 +383,13 @@ def _request_body(
 ) -> dict[str, object]:
     """Build a bounded prompt suitable for a local 4B model."""
 
+    resolved_role = route_executive_role(
+        user_message,
+        executive_role,
+    )
+
     executive = get_executive_profile(
-        executive_role
+        resolved_role
     )
 
     context_plan = plan_context(
@@ -412,6 +418,10 @@ def _request_body(
 You operate inside one shared GrowthOS Business Brain. Use the
 selected workspace memory and documentary evidence below rather
 than giving generic business advice.
+
+EXECUTIVE ROUTING
+Requested role: {executive_role}
+Resolved role: {resolved_role}
 
 SMART CONTEXT PLAN
 {context_plan.summary()}
@@ -470,7 +480,7 @@ def stream_cofounder_reply(
     user_message: str,
     sources: list[dict[str, object]],
     document_scope_enabled: bool,
-    executive_role: ExecutiveRole = "ceo",
+    executive_role: ExecutiveRole = "auto",
     current_conversation_id: int | None = None,
 ) -> Iterator[str]:
     """

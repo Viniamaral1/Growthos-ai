@@ -33,6 +33,9 @@ from app.services.answer_service import (
     AnswerGenerationError,
     get_ollama_model,
 )
+from app.services.executive_service import (
+    route_executive_role,
+)
 from app.services.cofounder_chat_service import (
     create_conversation_title,
     retrieve_chat_sources,
@@ -79,6 +82,7 @@ def _message_response(
         role=message.role,
         content=message.content,
         model=message.model,
+        executive_role=getattr(message, "executive_role", None),
         sources=_sources(message),
         created_at=message.created_at,
     )
@@ -483,6 +487,11 @@ def stream_message(
         assistant_text = ""
         model_name = get_ollama_model()
 
+        resolved_executive_role = route_executive_role(
+            payload.content.strip(),
+            payload.executive_role,
+        )
+
         metadata = {
             "type": "metadata",
             "conversation_id": conversation.id,
@@ -495,7 +504,7 @@ def stream_message(
                 for source in response_sources
             ],
             "model": model_name,
-            "executive_role": payload.executive_role,
+            "executive_role": resolved_executive_role,
         }
 
         yield json.dumps(
@@ -539,6 +548,7 @@ def stream_message(
                     role="assistant",
                     content=assistant_text.strip(),
                     model=model_name,
+                    executive_role=resolved_executive_role,
                     sources_json=json.dumps(
                         [
                             source.model_dump(mode="json")
@@ -591,6 +601,7 @@ def stream_message(
                         f"{error_text}"
                     ),
                     model=model_name,
+                    executive_role=resolved_executive_role,
                     sources_json="[]",
                 )
 
