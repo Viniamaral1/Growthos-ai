@@ -1,6 +1,7 @@
 "use client";
 
 import CofounderChat from "@/app/components/CofounderChat";
+import DecisionPanel from "@/app/components/DecisionPanel";
 import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
 import ResearchEngine from "@/app/components/ResearchEngine";
 import StartupStatus from "@/app/components/StartupStatus";
@@ -52,6 +53,7 @@ type View =
   | "companies"
   | "plan"
   | "cofounder"
+  | "decisions"
   | "research";
 
 type CompanyForm = {
@@ -153,6 +155,7 @@ const navItems: Array<{
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
   { id: "cofounder", label: "Executive Team", icon: "◉" },
+  { id: "decisions", label: "Decision Intelligence", icon: "◇" },
   { id: "research", label: "Research Engine", icon: "⌕" },
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
@@ -3182,6 +3185,20 @@ async function handleGenerateBusinessPlan(
         useAllDocuments={useAllDocuments}
         onDocumentChange={setActiveDocumentId}
         onScopeChange={setUseAllDocuments}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
+  } else if (view === "decisions") {
+    activeView = (
+      <DecisionPanel
+        company={selectedCompany}
         onError={(feedback) => {
           setMessage("");
           setError(feedback);

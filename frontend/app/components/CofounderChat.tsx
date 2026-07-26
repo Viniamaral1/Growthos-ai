@@ -17,6 +17,7 @@ import {
 
 import {
   createConversation,
+  createDecision,
   deleteConversation,
   getConversation,
   getConversations,
@@ -80,6 +81,7 @@ function MessageBubble({
   streaming,
   onCopy,
   onRegenerate,
+  onSaveDecision,
   executiveName,
   messageExecutiveRole,
 }: {
@@ -87,6 +89,7 @@ function MessageBubble({
   streaming?: boolean;
   onCopy: (message: ChatMessage) => void;
   onRegenerate?: () => void;
+  onSaveDecision?: () => void;
   executiveName: string;
   messageExecutiveRole?: ExecutiveRole | null;
 }) {
@@ -196,6 +199,17 @@ function MessageBubble({
                 <span aria-hidden="true">⧉</span>
                 <strong>Copy</strong>
               </button>
+
+              {onSaveDecision && (
+                <button
+                  type="button"
+                  onClick={onSaveDecision}
+                  title="Save as a tracked decision"
+                >
+                  <span aria-hidden="true">◇</span>
+                  <strong>Save Decision</strong>
+                </button>
+              )}
 
               {onRegenerate && (
                 <button
@@ -623,6 +637,8 @@ export default function CofounderChat({
   const onErrorRef = useRef(onError);
   const shouldAutoScrollRef = useRef(true);
   const userInterruptedScrollRef = useRef(false);
+  const streamAbortControllerRef =
+    useRef<AbortController | null>(null);
   const copyTimerRef = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -928,6 +944,73 @@ function prepareRegeneration(
 }
 
 
+
+
+function stopGenerating() {
+  streamAbortControllerRef.current?.abort();
+  streamAbortControllerRef.current = null;
+  setSending(false);
+  onSuccess(
+    "Generation stopped. You can edit or send a new question.",
+  );
+}
+
+
+async function saveDecisionFromMessage(
+  message: ChatMessage,
+) {
+  if (!company || !activeConversation) {
+    onError(
+      "Select a workspace and open a conversation first.",
+    );
+    return;
+  }
+
+  const firstLine = message.content
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  const title = (
+    firstLine ??
+    `${message.executive_role ?? "Executive"} recommendation`
+  )
+    .replace(/^#+\s*/, "")
+    .slice(0, 180);
+
+  try {
+    await createDecision({
+      company_id: company.id,
+      conversation_id: activeConversation.id,
+      message_id:
+        message.id > 0
+          ? message.id
+          : null,
+      title,
+      summary: message.content,
+      owner_role: null,
+      source_executive_role:
+        message.executive_role ??
+        resolvedExecutiveRole,
+      confidence_level:
+        message.confidence_level,
+      confidence_score:
+        message.confidence_score,
+    });
+
+    onSuccess(
+      "Decision saved to Decision Intelligence.",
+    );
+  } catch (error) {
+    onError(
+      error instanceof Error
+        ? error.message
+        : "Could not save the decision.",
+    );
+  }
+}
+
+
   async function startConversation() {
     if (!company) {
       onError("Select a business workspace first.");
@@ -1174,6 +1257,12 @@ function prepareRegeneration(
 
     let streamedText = "";
 
+    const streamController =
+      new AbortController();
+
+    streamAbortControllerRef.current =
+      streamController;
+
     try {
       await streamCofounderMessage(
         conversation.id,
@@ -1365,8 +1454,33 @@ function prepareRegeneration(
             onError(streamEvent.message);
           }
         },
+        streamController.signal,
       );
     } catch (error) {
+      const aborted =
+        error instanceof DOMException &&
+        error.name === "AbortError";
+
+      if (aborted) {
+        if (!streamedText.trim()) {
+          setActiveConversation((current) =>
+            current
+              ? {
+                  ...current,
+                  messages:
+                    current.messages.filter(
+                      (message) =>
+                        message.id !==
+                        temporaryAssistant.id,
+                    ),
+                }
+              : current,
+          );
+        }
+
+        return;
+      }
+
       setFailedMessage(content);
 
       setActiveConversation((current) =>
@@ -1388,6 +1502,13 @@ function prepareRegeneration(
           : `The GrowthOS ${executiveIdentity.name} could not reply.`,
       );
     } finally {
+      if (
+        streamAbortControllerRef.current ===
+        streamController
+      ) {
+        streamAbortControllerRef.current = null;
+      }
+
       setSending(false);
     }
   }
@@ -1827,6 +1948,15 @@ function prepareRegeneration(
                       ? resolvedExecutiveRole.toUpperCase()
                       : executiveIdentity.name
                   }
+                  onSaveDecision={
+                    message.role === "assistant" &&
+                    !sending
+                      ? () =>
+                          void saveDecisionFromMessage(
+                            message,
+                          )
+                      : undefined
+                  }
                   onCopy={(selectedMessage) => {
                     void copyMessage(
                       selectedMessage,
@@ -1922,7 +2052,7 @@ function prepareRegeneration(
                   ?.requestSubmit();
               }
             }}
-            placeholder="Message your AI Co-Founder..."
+            placeholder="Message your Executive Team..."
             rows={3}
             disabled={sending}
           />
@@ -1932,13 +2062,23 @@ function prepareRegeneration(
               Enter to send · Shift + Enter for a new line
             </span>
             <button
-              type="submit"
+              type={sending ? "button" : "submit"}
+              className={
+                sending
+                  ? "stop-generation-button"
+                  : undefined
+              }
               disabled={
-                sending ||
+                !sending &&
                 draft.trim().length < 2
               }
+              onClick={
+                sending
+                  ? stopGenerating
+                  : undefined
+              }
             >
-              {sending ? "Reasoning…" : "Send →"}
+              {sending ? "■ Stop" : "Send →"}
             </button>
           </footer>
         </form>

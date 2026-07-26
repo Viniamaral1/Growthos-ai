@@ -761,6 +761,7 @@ export async function streamCofounderMessage(
   useAllDocuments: boolean,
   executiveRole: ExecutiveRole,
   onEvent: (event: CofounderStreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
     `${API_URL}/conversations/${conversationId}/messages/stream`,
@@ -775,6 +776,7 @@ export async function streamCofounderMessage(
         use_all_documents: useAllDocuments,
         executive_role: executiveRole,
       }),
+      signal,
     },
   );
 
@@ -911,4 +913,125 @@ export async function addResearchEvidence(
   }
 
   return response.json();
+}
+
+
+
+export type DecisionStatus =
+  | "proposed"
+  | "accepted"
+  | "rejected"
+  | "in_progress"
+  | "completed";
+
+
+export type Decision = {
+  id: number;
+  company_id: number;
+  conversation_id: number | null;
+  message_id: number | null;
+  title: string;
+  summary: string;
+  status: DecisionStatus;
+  owner_role: string | null;
+  source_executive_role: string | null;
+  confidence_level: string | null;
+  confidence_score: number | null;
+  handoff_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+export type DecisionCreate = {
+  company_id: number;
+  conversation_id?: number | null;
+  message_id?: number | null;
+  title: string;
+  summary: string;
+  owner_role?: string | null;
+  source_executive_role?: string | null;
+  confidence_level?: string | null;
+  confidence_score?: number | null;
+};
+
+
+export async function getDecisions(
+  companyId: number,
+): Promise<Decision[]> {
+  const response = await fetch(
+    `${API_URL}/decisions?company_id=${companyId}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function createDecision(
+  payload: DecisionCreate,
+): Promise<Decision> {
+  const response = await fetch(
+    `${API_URL}/decisions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function updateDecision(
+  decisionId: number,
+  payload: Partial<{
+    title: string;
+    status: DecisionStatus;
+    owner_role: string | null;
+    handoff_note: string | null;
+  }>,
+): Promise<Decision> {
+  const response = await fetch(
+    `${API_URL}/decisions/${decisionId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function deleteDecision(
+  decisionId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/decisions/${decisionId}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
 }
