@@ -37,6 +37,9 @@ from app.services.embedding_service import (
     cosine_similarity_score,
     create_query_embedding,
 )
+from app.services.generation_cancellation_service import (
+    GenerationHandle,
+)
 
 
 def create_conversation_title(
@@ -161,55 +164,10 @@ def retrieve_chat_sources(
     document_id: int | None,
     document_ids: list[int] | None,
     use_all_documents: bool,
-    retrieval_limit: int = 2,
+    retrieval_limit: int = 4,
     minimum_score: float = 0.18,
 ) -> list[dict[str, object]]:
-    """Retrieve only the evidence selected by Smart Context Builder."""
-
-    context_plan = plan_context(
-        question,
-        document_scope_enabled=(
-            document_id is not None
-            or bool(document_ids)
-            or use_all_documents
-        ),
-    )
-
-    if not context_plan.include_document_rag:
-        return []
-
-    retrieval_limit = min(
-        retrieval_limit,
-        context_plan.rag_limit,
-    )
-
-    query_embedding = create_query_embedding(
-        question
-    )
-
-    statement = (
-        select(
-            DocumentChunk,
-            Document,
-        )
-        .join(
-            Document,
-            Document.id
-            == DocumentChunk.document_id,
-        )
-        .where(
-            Document.company_id == company_id
-        )
-        .where(
-            Document.processing_status
-            == "processed"
-        )
-        .where(
-            DocumentChunk.embedding_json.is_not(
-                None
-            )
-        )
-    )
+    """Retrieve balanced evidence from the current document scope."""
 
     selected_document_ids = {
         item
@@ -218,22 +176,51 @@ def retrieve_chat_sources(
     }
 
     if document_id is not None:
-        selected_document_ids.add(
-            document_id
+        selected_document_ids.add(document_id)
+
+    explicit_document_scope = bool(selected_document_ids)
+
+    context_plan = plan_context(
+        question,
+        document_scope_enabled=(
+            explicit_document_scope
+            or use_all_documents
+        ),
+    )
+
+    if (
+        not explicit_document_scope
+        and not context_plan.include_document_rag
+    ):
+        return []
+
+    query_embedding = create_query_embedding(question)
+
+    statement = (
+        select(DocumentChunk, Document)
+        .join(
+            Document,
+            Document.id == DocumentChunk.document_id,
         )
+        .where(Document.company_id == company_id)
+        .where(
+            Document.processing_status == "processed"
+        )
+        .where(
+            DocumentChunk.embedding_json.is_not(None)
+        )
+    )
 
     if selected_document_ids:
         statement = statement.where(
-            Document.id.in_(
-                selected_document_ids
-            )
+            Document.id.in_(selected_document_ids)
         )
 
-    rows = database.execute(
-        statement
-    ).all()
-
-    ranked: list[dict[str, object]] = []
+    rows = database.execute(statement).all()
+    ranked_by_document: dict[
+        int,
+        list[dict[str, object]],
+    ] = {}
 
     for chunk, document in rows:
         if not chunk.embedding_json:
@@ -251,43 +238,107 @@ def retrieve_chat_sources(
         ):
             continue
 
-        if score < minimum_score:
-            continue
+        source = {
+            "chunk_id": chunk.id,
+            "document_id": document.id,
+            "document_name": document.original_filename,
+            "page_number": chunk.page_number,
+            "similarity_score": round(score, 4),
+            "text": chunk.text[
+                :context_plan.rag_characters
+            ],
+        }
 
-        ranked.append(
-            {
-                "chunk_id": chunk.id,
-                "document_id": document.id,
-                "document_name": (
-                    document.original_filename
-                ),
-                "page_number": chunk.page_number,
-                "similarity_score": round(
-                    score,
-                    4,
-                ),
-                "text": chunk.text[
-                    :context_plan.rag_characters
-                ],
-            }
+        ranked_by_document.setdefault(
+            document.id,
+            [],
+        ).append(source)
+
+    for document_sources in ranked_by_document.values():
+        document_sources.sort(
+            key=lambda source: float(
+                source["similarity_score"]
+            ),
+            reverse=True,
         )
 
-    ranked.sort(
-        key=lambda source: float(
-            source["similarity_score"]
-        ),
-        reverse=True,
-    )
+    selected: list[dict[str, object]] = []
+    selected_chunk_ids: set[int] = set()
 
+    if explicit_document_scope:
+        # Always preserve evidence from every explicitly attached file.
+        # Use up to two chunks per document for comparisons.
+        per_document_limit = 2
+        for selected_document_id in sorted(
+            selected_document_ids
+        ):
+            document_sources = ranked_by_document.get(
+                selected_document_id,
+                [],
+            )
+
+            for source in document_sources[
+                :per_document_limit
+            ]:
+                chunk_id = int(source["chunk_id"])
+                if chunk_id in selected_chunk_ids:
+                    continue
+                selected.append(source)
+                selected_chunk_ids.add(chunk_id)
+
+        max_sources = min(
+            12,
+            max(
+                len(selected_document_ids) * 2,
+                retrieval_limit,
+            ),
+        )
+    else:
+        all_ranked = sorted(
+            (
+                source
+                for document_sources
+                in ranked_by_document.values()
+                for source in document_sources
+            ),
+            key=lambda source: float(
+                source["similarity_score"]
+            ),
+            reverse=True,
+        )
+
+        max_sources = min(
+            retrieval_limit,
+            context_plan.rag_limit,
+        )
+
+        for source in all_ranked:
+            if float(
+                source["similarity_score"]
+            ) < minimum_score:
+                continue
+
+            selected.append(source)
+
+            if len(selected) >= max_sources:
+                break
+
+    # De-duplicate only within the same document. Never allow
+    # similarity between two files to remove one file entirely.
     unique: list[dict[str, object]] = []
-    seen: set[str] = set()
+    seen: set[tuple[int, str]] = set()
 
-    for source in ranked:
-        key = re.sub(
+    for source in selected:
+        normalized = re.sub(
             r"\s+",
             " ",
             str(source["text"]).lower(),
         )[:700]
+
+        key = (
+            int(source["document_id"]),
+            normalized,
+        )
 
         if key in seen:
             continue
@@ -295,7 +346,7 @@ def retrieve_chat_sources(
         seen.add(key)
         unique.append(source)
 
-        if len(unique) >= retrieval_limit:
+        if len(unique) >= max_sources:
             break
 
     return [
@@ -335,10 +386,23 @@ def _evidence_context(
     return "\n\n".join(blocks)
 
 
+
+
+class GenerationCancelled(Exception):
+    """Raised when the user stops an active generation."""
+
+
 def _stream_ollama_request(
     request_body: dict[str, object],
+    cancellation_event: GenerationHandle | None = None,
 ) -> Iterator[str]:
     """Stream one Ollama request and surface useful failures."""
+
+    if (
+        cancellation_event is not None
+        and cancellation_event.cancelled
+    ):
+        raise GenerationCancelled()
 
     with httpx.stream(
         "POST",
@@ -366,6 +430,13 @@ def _stream_ollama_request(
             )
 
         for line in response.iter_lines():
+            if (
+                cancellation_event is not None
+                and cancellation_event.cancelled
+            ):
+                response.close()
+                raise GenerationCancelled()
+
             if not line:
                 continue
 
@@ -401,6 +472,7 @@ def _request_body(
     document_scope_enabled: bool,
     executive_role: ExecutiveRole,
     current_conversation_id: int | None = None,
+    selected_document_names: list[str] | None = None,
 ) -> dict[str, object]:
     """Build a bounded prompt suitable for a local 4B model."""
 
@@ -436,10 +508,16 @@ def _request_body(
         document_scope_enabled=document_scope_enabled,
     )
 
+    # Explicit attachments take precedence over Smart Context
+    # limits. Preserve balanced evidence from every attached file.
     evidence = (
-        sources[:context_plan.rag_limit]
-        if context_plan.include_document_rag
-        else []
+        sources[:12]
+        if document_scope_enabled and sources
+        else (
+            sources[:context_plan.rag_limit]
+            if context_plan.include_document_rag
+            else []
+        )
     )
 
     brain = build_brain_context(
@@ -448,6 +526,38 @@ def _request_body(
         plan=context_plan,
         current_conversation_id=current_conversation_id,
         compact=compact,
+    )
+
+    attachment_names = [
+        name.strip()
+        for name in (selected_document_names or [])
+        if name and name.strip()
+    ]
+
+    attachment_context = (
+        "ATTACHED DOCUMENTS\n"
+        + "\n".join(
+            f"- {name}"
+            for name in attachment_names
+        )
+        + (
+            "\nThese documents were attached to this request. "
+            "Retrieved evidence below comes from them. "
+            "Never state that no document was attached when this list is present."
+        )
+        if attachment_names
+        else "ATTACHED DOCUMENTS\nNone attached to this request."
+    )
+
+    document_analysis_rules = (
+        "DOCUMENT ANALYSIS MODE\n"
+        "The current request includes explicitly selected documents. "
+        "Treat the evidence section as content extracted from those files. "
+        "Do not claim that documents are missing when evidence sources are listed. "
+        "For comparisons, discuss every attached filename separately before "
+        "summarising similarities and differences."
+        if attachment_names
+        else ""
     )
 
     if compact:
@@ -460,6 +570,10 @@ Give one recommendation and one next action.
 
 BUSINESS CONTEXT
 {brain.as_prompt_block()[:1800]}
+
+{attachment_context}
+
+{document_analysis_rules}
 
 EVIDENCE
 {_evidence_context(evidence)[:900]}
@@ -488,13 +602,18 @@ ROLE-SPECIFIC EXECUTIVE MEMORY
 GROUNDING CONFIDENCE
 {confidence.prompt_block()}
 
+{attachment_context}
+
+{document_analysis_rules}
+
 CURRENT RETRIEVED DOCUMENT EVIDENCE
 {_evidence_context(evidence)}
 
 Rules:
 1. Separate workspace facts, retrieved evidence, reasoning,
    and assumptions.
-2. Cite retrieved document claims with [S1] or [S2].
+2. Cite retrieved document claims using the supplied source labels,
+   such as [S1], [S2], [S3], or [S4].
 3. Never invent market statistics, competitor facts,
    funding, laws, prices, or demographic numbers.
 4. State clearly what still requires external research.
@@ -506,6 +625,10 @@ Rules:
 9. Treat the confidence score as grounding coverage, not proof.
 10. Mention missing evidence when confidence is medium or low.
 11. Use prior executive memory only when relevant to the question.
+12. When attached-document evidence is present, analyse it directly;
+    never describe the evidence record as empty.
+13. For multiple attached documents, cover every filename represented
+    in the evidence before giving a combined recommendation.
 """.strip()
 
     return {
@@ -548,6 +671,8 @@ def stream_cofounder_reply(
     document_scope_enabled: bool,
     executive_role: ExecutiveRole = "auto",
     current_conversation_id: int | None = None,
+    selected_document_names: list[str] | None = None,
+    cancellation_event: GenerationHandle | None = None,
 ) -> Iterator[str]:
     """
     Stream a workspace-aware reply.
@@ -573,16 +698,20 @@ def stream_cofounder_reply(
                 document_scope_enabled=document_scope_enabled,
                 executive_role=executive_role,
                 current_conversation_id=current_conversation_id,
+                selected_document_names=selected_document_names,
             )
 
             for token in _stream_ollama_request(
-                request_body
+                request_body,
+                cancellation_event,
             ):
                 emitted_content = True
                 yield token
 
             return
 
+        except GenerationCancelled:
+            raise
         except httpx.ConnectError as error:
             raise AnswerGenerationError(
                 "GrowthOS could not connect to Ollama. "

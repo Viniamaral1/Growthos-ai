@@ -5,8 +5,15 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
 } from "react";
+
+import ExecutiveComposer from "@/app/components/chat/ExecutiveComposer";
+import type {
+  ComposerAttachment,
+} from "@/app/components/chat/AttachmentBar";
+import {
+  ChatStreamController,
+} from "@/lib/chat-stream-controller";
 
 import {
   readStoredNumber,
@@ -32,7 +39,6 @@ import {
   type Company,
   type ConversationDetail,
   type ConversationSummary,
-  type DocumentClassification,
   type DocumentRecord,
   type ExecutiveRole,
 } from "@/lib/api";
@@ -733,17 +739,11 @@ export default function CofounderChat({
     useState<number | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [attachedDocuments, setAttachedDocuments] =
-    useState<
-      Array<{
-        document: DocumentRecord;
-        classification: DocumentClassification;
-      }>
-    >([]);
+    useState<ComposerAttachment[]>([]);
   const [retryMenuMessageId, setRetryMenuMessageId] =
     useState<number | null>(null);
-  const attachmentInputRef =
-    useRef<HTMLInputElement | null>(null);
-
+  const [activeRequestDocumentIds, setActiveRequestDocumentIds] =
+    useState<number[]>([]);
   const messageScrollRef =
     useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(
@@ -759,8 +759,8 @@ export default function CofounderChat({
   const onErrorRef = useRef(onError);
   const shouldAutoScrollRef = useRef(true);
   const userInterruptedScrollRef = useRef(false);
-  const streamAbortControllerRef =
-    useRef<AbortController | null>(null);
+  const streamControllerRef =
+    useRef(new ChatStreamController());
   const copyTimerRef = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -1133,7 +1133,7 @@ async function attachFiles(
 
   if (pdfFiles.length !== files.length) {
     onError(
-      "This release supports PDF attachments. Unsupported files were skipped.",
+      "Only PDF files are supported in this release. Unsupported files were skipped.",
     );
   }
 
@@ -1152,15 +1152,25 @@ async function attachFiles(
     return;
   }
 
+  const pending = pdfFiles.map((file, index) => ({
+    file,
+    clientId:
+      `${Date.now()}-${index}-${file.name}`,
+  }));
+
+  setAttachedDocuments((current) => [
+    ...current,
+    ...pending.map(({ file, clientId }) => ({
+      clientId,
+      fileName: file.name,
+      status: "uploading" as const,
+    })),
+  ]);
+
   setAttaching(true);
 
-  try {
-    const additions: Array<{
-      document: DocumentRecord;
-      classification: DocumentClassification;
-    }> = [];
-
-    for (const file of pdfFiles) {
+  const results = await Promise.allSettled(
+    pending.map(async ({ file, clientId }) => {
       const uploaded = await uploadDocument(
         company.id,
         file,
@@ -1175,54 +1185,98 @@ async function attachFiles(
           processed.id,
         );
 
-      additions.push({
+      onDocumentReady(processed);
+
+      return {
+        clientId,
         document: processed,
         classification,
-      });
+      };
+    }),
+  );
 
-      onDocumentReady(processed);
-    }
+  const successful: Array<{
+    clientId: string;
+    document: DocumentRecord;
+    classification: DocumentClassification;
+  }> = [];
 
-    setAttachedDocuments((current) => [
-      ...current,
-      ...additions,
-    ]);
+  results.forEach((result, index) => {
+    const target = pending[index];
 
-    const strongest = additions
-      .slice()
-      .sort(
-        (left, right) =>
-          right.classification.confidence -
-          left.classification.confidence,
-      )[0];
+    if (result.status === "fulfilled") {
+      successful.push(result.value);
 
-    if (strongest) {
-      setExecutiveRole(
-        strongest.classification
-          .suggested_executive,
+      setAttachedDocuments((current) =>
+        current.map((attachment) =>
+          attachment.clientId ===
+          result.value.clientId
+            ? {
+                ...attachment,
+                status: "ready",
+                document: result.value.document,
+                classification:
+                  result.value.classification,
+              }
+            : attachment,
+        ),
       );
+
+      return;
     }
 
-    onDocumentChange(null);
-    onScopeChange(false);
+    setAttachedDocuments((current) =>
+      current.map((attachment) =>
+        attachment.clientId === target.clientId
+          ? {
+              ...attachment,
+              status: "error",
+              error:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : "Document processing failed.",
+            }
+          : attachment,
+      ),
+    );
+  });
 
+  const strongest = successful
+    .slice()
+    .sort(
+      (left, right) =>
+        right.classification.confidence -
+        left.classification.confidence,
+    )[0];
+
+  if (strongest) {
+    setExecutiveRole(
+      strongest.classification
+        .suggested_executive,
+    );
+  }
+
+  onDocumentChange(null);
+  onScopeChange(false);
+  setAttaching(false);
+
+  const failedCount =
+    results.length - successful.length;
+
+  if (successful.length > 0) {
     onSuccess(
-      `${additions.length} PDF${
-        additions.length === 1 ? "" : "s"
-      } attached and classified.`,
+      `${successful.length} PDF${
+        successful.length === 1 ? "" : "s"
+      } ready${
+        failedCount > 0
+          ? `; ${failedCount} failed`
+          : ""
+      }.`,
     );
-  } catch (error) {
+  } else {
     onError(
-      error instanceof Error
-        ? error.message
-        : "The attachments could not be processed.",
+      "None of the selected PDFs could be processed.",
     );
-  } finally {
-    setAttaching(false);
-
-    if (attachmentInputRef.current) {
-      attachmentInputRef.current.value = "";
-    }
   }
 }
 
@@ -1289,11 +1343,10 @@ async function rateMessage(
 
 
 function stopGenerating() {
-  streamAbortControllerRef.current?.abort();
-  streamAbortControllerRef.current = null;
+  streamControllerRef.current.stop();
   setSending(false);
   onSuccess(
-    "Generation stopped. You can edit or send a new question.",
+    "Generation stopped. Partial text was kept and you can send another question.",
   );
 }
 
@@ -1570,21 +1623,30 @@ async function saveDecisionFromMessage(
   }
 
 
-  async function sendMessage(
-    event: FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
+  async function sendMessage() {
     if (!company || sending) {
       return;
     }
+
+    const requestAttachments =
+      attachedDocuments.filter(
+        (attachment) =>
+          attachment.status === "ready" &&
+          attachment.document,
+      );
+
+    const requestDocumentIds =
+      requestAttachments.map(
+        (attachment) =>
+          attachment.document!.id,
+      );
 
     const typedContent = draft.trim();
 
     const content =
       typedContent.length >= 2
         ? typedContent
-        : attachedDocuments.length > 0
+        : requestDocumentIds.length > 0
           ? (
               "Review the attached document and identify the "
               + "most important findings, risks, and next action."
@@ -1636,6 +1698,10 @@ async function saveDecisionFromMessage(
     setSending(true);
     setFailedMessage(null);
     setDraft("");
+    setActiveRequestDocumentIds(
+      requestDocumentIds,
+    );
+    setAttachedDocuments([]);
 
     const temporaryUser: ChatMessage = {
       id: -Date.now(),
@@ -1672,11 +1738,10 @@ async function saveDecisionFromMessage(
 
     let streamedText = "";
 
-    const streamController =
-      new AbortController();
-
-    streamAbortControllerRef.current =
-      streamController;
+    const {
+      signal: streamSignal,
+      generationId,
+    } = streamControllerRef.current.start();
 
     try {
       await streamCofounderMessage(
@@ -1685,16 +1750,22 @@ async function saveDecisionFromMessage(
         useAllDocuments
           ? null
           : (
-              attachedDocuments.length === 1
-                ? attachedDocuments[0].document.id
+              requestDocumentIds.length > 0
+                ? null
                 : activeDocumentId
             ),
-        attachedDocuments.map(
-          (item) => item.document.id,
-        ),
+        requestDocumentIds,
         useAllDocuments,
         executiveRole,
         (streamEvent) => {
+          if (
+            !streamControllerRef.current.isCurrent(
+              generationId,
+            )
+          ) {
+            return;
+          }
+
           if (streamEvent.type === "metadata") {
             if (streamEvent.executive_role) {
               setResolvedExecutiveRole(
@@ -1876,12 +1947,16 @@ async function saveDecisionFromMessage(
             onError(streamEvent.message);
           }
         },
-        streamController.signal,
+        streamSignal,
       );
     } catch (error) {
       const aborted =
-        error instanceof DOMException &&
-        error.name === "AbortError";
+        (error instanceof DOMException &&
+          error.name === "AbortError") ||
+        (
+          error instanceof Error &&
+          error.name === "AbortError"
+        );
 
       if (aborted) {
         if (!streamedText.trim()) {
@@ -1924,13 +1999,10 @@ async function saveDecisionFromMessage(
           : `The GrowthOS ${executiveIdentity.name} could not reply.`,
       );
     } finally {
-      if (
-        streamAbortControllerRef.current ===
-        streamController
-      ) {
-        streamAbortControllerRef.current = null;
-      }
-
+      streamControllerRef.current.complete(
+        generationId,
+      );
+      setActiveRequestDocumentIds([]);
       setSending(false);
     }
   }
@@ -2487,159 +2559,29 @@ async function saveDecisionFromMessage(
           </div>
         )}
 
-        <form
-          className="cofounder-composer"
-          onSubmit={sendMessage}
-          onDragOver={(event) => {
-            event.preventDefault();
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            const files = Array.from(
-              event.dataTransfer.files,
-            );
 
-            if (files.length > 0) {
-              void attachFiles(files);
-            }
-          }}
-        >
-          <input
-            ref={attachmentInputRef}
-            id="cofounder-attachment"
-            name="cofounder-attachment"
-            type="file"
-            accept=".pdf,application/pdf"
-            multiple
-            hidden
-            onChange={(event) => {
-              const file =
-                event.target.files?.[0];
-
-              if (file) {
-                void attachFiles([file]);
-              }
-            }}
-          />
-
-          
-<div className="smart-attachment-row">
-  <button
-    type="button"
-    className="smart-attachment-button"
-    disabled={sending || attaching}
-    onClick={() =>
-      attachmentInputRef.current?.click()
-    }
-  >
-    {attaching
-      ? "Processing…"
-      : "📎 Attach PDFs"}
-  </button>
-
-  {attachedDocuments.length === 0 && (
-    <small className="smart-attachment-help">
-      Attach up to six PDFs. GrowthOS classifies their contents
-      and selects the best executive.
-    </small>
-  )}
-
-  {attachedDocuments.length > 0 && (
-    <div className="smart-attachment-list">
-      {attachedDocuments.map(
-        ({ document, classification }) => (
-          <article
-            className="smart-attachment-card"
-            key={document.id}
-          >
-            <div>
-              <strong>
-                {document.original_filename}
-              </strong>
-              <small>
-                {classification.category} ·{" "}
-                {classification.confidence}% ·{" "}
-                {classification.suggested_executive.toUpperCase()}
-              </small>
-              <em>
-                {document.page_count
-                  ? `${document.page_count} pages`
-                  : "Processed"}
-              </em>
-            </div>
-
-            <button
-              type="button"
-              aria-label={`Remove ${document.original_filename}`}
-              onClick={() =>
-                setAttachedDocuments(
-                  (current) =>
-                    current.filter(
-                      (item) =>
-                        item.document.id !==
-                        document.id,
-                    ),
-                )
-              }
-            >
-              ×
-            </button>
-          </article>
-        ),
-      )}
-    </div>
-  )}
-</div>
-
-          <textarea
-            id="cofounder-message"
-            name="cofounder-message"
-            autoComplete="off"
-            value={draft}
-            onChange={(event) =>
-              setDraft(event.target.value)
-            }
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey
-              ) {
-                event.preventDefault();
-                event.currentTarget.form
-                  ?.requestSubmit();
-              }
-            }}
-            placeholder="Message your Executive Team..."
-            rows={3}
-            disabled={sending}
-          />
-
-          <footer>
-            <span>
-              Enter to send · Shift + Enter for a new line
-            </span>
-            <button
-              type={sending ? "button" : "submit"}
-              className={
-                sending
-                  ? "stop-generation-button"
-                  : undefined
-              }
-              disabled={
-                !sending &&
-                draft.trim().length < 2 &&
-                attachedDocuments.length === 0
-              }
-              onClick={
-                sending
-                  ? stopGenerating
-                  : undefined
-              }
-            >
-              {sending ? "■ Stop" : "Send →"}
-            </button>
-          </footer>
-        </form>
+<ExecutiveComposer
+  draft={draft}
+  sending={sending}
+  attaching={attaching}
+  attachments={attachedDocuments}
+  onDraftChange={setDraft}
+  onAttachFiles={(files) => {
+    void attachFiles(files);
+  }}
+  onRemoveAttachment={(clientId) => {
+    setAttachedDocuments((current) =>
+      current.filter(
+        (item) =>
+          item.clientId !== clientId,
+      ),
+    );
+  }}
+  onSend={() => {
+    void sendMessage();
+  }}
+  onStop={stopGenerating}
+/>
       </div>
 
       <style jsx>{`
