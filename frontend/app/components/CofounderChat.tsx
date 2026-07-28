@@ -176,8 +176,15 @@ function MessageBubble({
                   GrowthOS is reasoning…
                 </strong>
                 <small>
-                  Selecting business context and checking
-                  available evidence
+                  {message.context_sources?.includes(
+                    "documents",
+                  )
+                    ? "Retrieving relevant document evidence"
+                    : message.context_sources?.includes(
+                          "executive_memory",
+                        )
+                      ? "Recalling relevant executive memory"
+                      : "Selecting focused business context"}
                 </small>
               </span>
             </span>
@@ -212,6 +219,43 @@ function MessageBubble({
               </strong>
               <small>
                 {message.confidence_score}/100 grounding
+              </small>
+            </section>
+          )}
+
+        {assistant &&
+          message.context_sources &&
+          message.context_sources.length > 0 && (
+            <section
+              className="message-context-selection"
+              title={
+                message.context_reason ??
+                "Intelligent context selection"
+              }
+            >
+              <span>◎</span>
+              <strong>
+                {message.context_mode ===
+                "memory_and_documents"
+                  ? "Memory + documents"
+                  : message.context_mode ===
+                      "executive_memory"
+                    ? "Executive memory"
+                    : message.context_mode ===
+                        "documents"
+                      ? "Documents"
+                      : message.context_mode ===
+                          "conversation_history"
+                        ? "Conversation history"
+                        : "Workspace context"}
+              </strong>
+              <small>
+                {message.context_sources
+                  .map((source) =>
+                    source
+                      .replaceAll("_", " "),
+                  )
+                  .join(" · ")}
               </small>
             </section>
           )}
@@ -651,6 +695,36 @@ function MessageBubble({
           color: var(--emerald);
           font-size: 6px;
           font-weight: 700;
+        }
+
+        .message-context-selection {
+          display: inline-flex;
+          width: fit-content;
+          min-height: 28px;
+          align-items: center;
+          gap: 6px;
+          margin-top: 8px;
+          border: 1px solid
+            rgba(155, 135, 245, 0.16);
+          border-radius: 999px;
+          background: rgba(155, 135, 245, 0.045);
+          padding: 0 9px;
+          color: #b9adff;
+        }
+
+        .message-context-selection > span {
+          font-size: 8px;
+        }
+
+        .message-context-selection > strong {
+          font-size: 6px;
+          font-weight: 800;
+        }
+
+        .message-context-selection > small {
+          color: #8192a9;
+          font-size: 5px;
+          text-transform: capitalize;
         }
 
         .professional-grounded-badge i {
@@ -1866,6 +1940,12 @@ async function saveDecisionFromMessage(
                         confidence_reason:
                           streamEvent.confidence_reason ??
                           message.confidence_reason,
+                        context_mode:
+                          streamEvent.context_mode,
+                        context_sources:
+                          streamEvent.context_sources,
+                        context_reason:
+                          streamEvent.context_reason,
                         sources: streamEvent.sources,
                       };
                     }
@@ -1938,7 +2018,15 @@ async function saveDecisionFromMessage(
                       (message) =>
                         message.id ===
                         temporaryAssistant.id
-                          ? streamEvent.assistant_message
+                          ? {
+                              ...streamEvent.assistant_message,
+                              context_mode:
+                                streamEvent.context_mode,
+                              context_sources:
+                                streamEvent.context_sources,
+                              context_reason:
+                                streamEvent.context_reason,
+                            }
                           : message,
                     ),
                   }

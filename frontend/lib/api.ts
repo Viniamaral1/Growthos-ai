@@ -199,6 +199,9 @@ export type ChatMessage = {
   confidence_level: "high" | "medium" | "low" | null;
   confidence_score: number | null;
   confidence_reason: string | null;
+  context_mode?: string;
+  context_sources?: string[];
+  context_reason?: string;
   sources: AnswerSource[];
   created_at: string;
 };
@@ -222,6 +225,9 @@ export type CofounderStreamEvent =
       confidence_level?: "high" | "medium" | "low";
       confidence_score?: number;
       confidence_reason?: string;
+      context_mode?: string;
+      context_sources?: string[];
+      context_reason?: string;
     }
   | {
       type: "token";
@@ -230,6 +236,9 @@ export type CofounderStreamEvent =
   | {
       type: "done";
       assistant_message: ChatMessage;
+      context_mode?: string;
+      context_sources?: string[];
+      context_reason?: string;
     }
   | {
       type: "error";

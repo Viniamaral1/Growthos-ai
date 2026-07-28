@@ -39,6 +39,9 @@ from app.services.confidence_service import (
 from app.services.executive_service import (
     route_executive_role,
 )
+from app.services.smart_context_service import (
+    plan_context,
+)
 from app.services.generation_cancellation_service import (
     begin_generation,
     cancel_generation,
@@ -497,6 +500,21 @@ def stream_message(
             document.original_filename
         )
 
+    document_scope_enabled = (
+        bool(selected_document_ids)
+        or payload.use_all_documents
+    )
+
+    context_plan = plan_context(
+        payload.content,
+        document_scope_enabled=(
+            document_scope_enabled
+        ),
+        explicit_document_scope=bool(
+            selected_document_ids
+        ),
+    )
+
     previous_messages = list(
         database.scalars(
             select(ChatMessage)
@@ -521,6 +539,7 @@ def stream_message(
                 selected_document_ids
             ),
             use_all_documents=payload.use_all_documents,
+            context_plan=context_plan,
         )
     except ValueError as error:
         raise HTTPException(
@@ -590,8 +609,7 @@ def stream_message(
         confidence = assess_confidence(
             source_count=len(response_sources),
             document_scope_enabled=(
-                bool(selected_document_ids)
-                or payload.use_all_documents
+                document_scope_enabled
             ),
         )
 
@@ -611,6 +629,15 @@ def stream_message(
             "confidence_level": confidence.level,
             "confidence_score": confidence.score,
             "confidence_reason": confidence.reason,
+            "context_mode": (
+                context_plan.context_mode()
+            ),
+            "context_sources": (
+                context_plan.selected_sources()
+            ),
+            "context_reason": (
+                context_plan.reason()
+            ),
         }
 
         yield json.dumps(
@@ -627,12 +654,12 @@ def stream_message(
                     user_message=payload.content.strip(),
                     sources=sources,
                     document_scope_enabled=(
-                        bool(selected_document_ids)
-                        or payload.use_all_documents
+                        document_scope_enabled
                     ),
                     executive_role=payload.executive_role,
                     current_conversation_id=conversation.id,
                     selected_document_names=selected_document_names,
+                    context_plan=context_plan,
                     cancellation_event=cancellation_event,
                 ):
                     assistant_text += token
@@ -685,6 +712,15 @@ def stream_message(
 
                 done_event = {
                     "type": "done",
+                    "context_mode": (
+                        context_plan.context_mode()
+                    ),
+                    "context_sources": (
+                        context_plan.selected_sources()
+                    ),
+                    "context_reason": (
+                        context_plan.reason()
+                    ),
                     "assistant_message": (
                         _message_response(
                             assistant_message

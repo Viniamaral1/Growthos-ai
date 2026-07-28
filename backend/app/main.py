@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="3.0.0",
+        version="3.2.0",
     )
 
     application.add_middleware(
@@ -165,6 +165,6 @@ def root() -> dict[str, str]:
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
-        "version": "3.0.0",
+        "version": "3.2.0",
         "documentation": "/docs",
     }

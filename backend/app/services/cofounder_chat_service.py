@@ -166,6 +166,7 @@ def retrieve_chat_sources(
     use_all_documents: bool,
     retrieval_limit: int = 4,
     minimum_score: float = 0.18,
+    context_plan: ContextPlan | None = None,
 ) -> list[dict[str, object]]:
     """Retrieve balanced evidence from the current document scope."""
 
@@ -180,11 +181,14 @@ def retrieve_chat_sources(
 
     explicit_document_scope = bool(selected_document_ids)
 
-    context_plan = plan_context(
+    context_plan = context_plan or plan_context(
         question,
         document_scope_enabled=(
             explicit_document_scope
             or use_all_documents
+        ),
+        explicit_document_scope=(
+            explicit_document_scope
         ),
     )
 
@@ -473,6 +477,7 @@ def _request_body(
     executive_role: ExecutiveRole,
     current_conversation_id: int | None = None,
     selected_document_names: list[str] | None = None,
+    context_plan: ContextPlan | None = None,
 ) -> dict[str, object]:
     """Build a bounded prompt suitable for a local 4B model."""
 
@@ -485,27 +490,42 @@ def _request_body(
         resolved_role
     )
 
+    context_plan = context_plan or plan_context(
+        user_message,
+        compact=compact,
+        document_scope_enabled=document_scope_enabled,
+        explicit_document_scope=bool(
+            selected_document_names
+        ),
+    )
+
+    if compact:
+        context_plan = plan_context(
+            user_message,
+            compact=True,
+            document_scope_enabled=document_scope_enabled,
+            explicit_document_scope=bool(
+                selected_document_names
+            ),
+        )
+
     executive_memory = (
-        "Executive memory omitted for the emergency compact retry."
-        if compact
-        else build_executive_memory(
+        build_executive_memory(
             database,
             company_id=company.id,
             executive_role=resolved_role,
             current_conversation_id=current_conversation_id,
-            compact=False,
+            compact=compact,
             query=user_message,
+        )
+        if context_plan.include_executive_memory
+        else (
+            "Executive memory was not selected for this request."
         )
     )
 
     confidence = assess_confidence(
         source_count=len(sources),
-        document_scope_enabled=document_scope_enabled,
-    )
-
-    context_plan = plan_context(
-        user_message,
-        compact=compact,
         document_scope_enabled=document_scope_enabled,
     )
 
@@ -591,7 +611,7 @@ EXECUTIVE ROUTING
 Requested role: {executive_role}
 Resolved role: {resolved_role}
 
-SMART CONTEXT PLAN
+INTELLIGENT CONTEXT SELECTION
 {context_plan.summary()}
 
 SELECTED GROWTHOS BUSINESS MEMORY
@@ -673,6 +693,7 @@ def stream_cofounder_reply(
     executive_role: ExecutiveRole = "auto",
     current_conversation_id: int | None = None,
     selected_document_names: list[str] | None = None,
+    context_plan: ContextPlan | None = None,
     cancellation_event: GenerationHandle | None = None,
 ) -> Iterator[str]:
     """
@@ -700,6 +721,7 @@ def stream_cofounder_reply(
                 executive_role=executive_role,
                 current_conversation_id=current_conversation_id,
                 selected_document_names=selected_document_names,
+                context_plan=context_plan,
             )
 
             for token in _stream_ollama_request(
