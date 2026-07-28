@@ -22,6 +22,9 @@ from app.api.routes.documents import (
 from app.api.routes.health import (
     router as health_router,
 )
+from app.api.routes.executive_memories import (
+    router as executive_memories_router,
+)
 from app.api.routes.marketing import (
     router as marketing_router,
 )
@@ -52,6 +55,7 @@ from app.models.chat_message import ChatMessage
 from app.models.research_task import ResearchTask
 from app.models.research_evidence import ResearchEvidence
 from app.models.response_feedback import ResponseFeedback
+from app.models.executive_memory import ExecutiveMemory
 
 
 def create_app() -> FastAPI:
@@ -74,7 +78,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="2.7.0",
+        version="3.0.0",
     )
 
     application.add_middleware(
@@ -143,6 +147,11 @@ def create_app() -> FastAPI:
         prefix="/api/v1",
     )
 
+    application.include_router(
+        executive_memories_router,
+        prefix="/api/v1",
+    )
+
     return application
 
 
@@ -156,6 +165,6 @@ def root() -> dict[str, str]:
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
-        "version": "2.7.0",
+        "version": "3.0.0",
         "documentation": "/docs",
     }

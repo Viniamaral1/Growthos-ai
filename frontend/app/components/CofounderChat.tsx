@@ -23,6 +23,7 @@ import {
 } from "@/lib/ui-storage";
 
 import {
+  cancelConversationGeneration,
   createConversation,
   createDecision,
   deleteConversation,
@@ -725,6 +726,7 @@ export default function CofounderChat({
   const [loadingConversation, setLoadingConversation] =
     useState(false);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [renamingId, setRenamingId] =
     useState<number | null>(null);
   const [renameValue, setRenameValue] =
@@ -761,6 +763,11 @@ export default function CofounderChat({
   const userInterruptedScrollRef = useRef(false);
   const streamControllerRef =
     useRef(new ChatStreamController());
+  const activeStreamConversationIdRef =
+    useRef<number | null>(null);
+  const activeTemporaryAssistantIdRef =
+    useRef<number | null>(null);
+  const activeStreamHasTextRef = useRef(false);
   const copyTimerRef = useRef<
     ReturnType<typeof setTimeout> | null
   >(null);
@@ -1342,12 +1349,66 @@ async function rateMessage(
 }
 
 
-function stopGenerating() {
+async function stopGenerating() {
+  if (!sending || stopping) {
+    return;
+  }
+
+  setStopping(true);
+
+  const conversationId =
+    activeStreamConversationIdRef.current;
+  const temporaryAssistantId =
+    activeTemporaryAssistantIdRef.current;
+  const hasPartialText =
+    activeStreamHasTextRef.current;
+
   streamControllerRef.current.stop();
-  setSending(false);
-  onSuccess(
-    "Generation stopped. Partial text was kept and you can send another question.",
-  );
+
+  if (
+    temporaryAssistantId !== null &&
+    !hasPartialText
+  ) {
+    setActiveConversation((current) =>
+      current
+        ? {
+            ...current,
+            messages: current.messages.filter(
+              (message) =>
+                message.id !==
+                temporaryAssistantId,
+            ),
+          }
+        : current,
+    );
+  }
+
+  try {
+    if (conversationId !== null) {
+      await cancelConversationGeneration(
+        conversationId,
+      );
+    }
+
+    onSuccess(
+      hasPartialText
+        ? "Generation stopped. The partial response was kept."
+        : "Generation stopped.",
+    );
+  } catch (error) {
+    onError(
+      error instanceof Error
+        ? error.message
+        : "The backend generation could not be cancelled.",
+    );
+  } finally {
+    activeStreamConversationIdRef.current = null;
+    activeTemporaryAssistantIdRef.current = null;
+    activeStreamHasTextRef.current = false;
+    setActiveRequestDocumentIds([]);
+    setSending(false);
+    setStopping(false);
+  }
 }
 
 
@@ -1415,9 +1476,7 @@ async function saveDecisionFromMessage(
     try {
       const created = await createConversation(
         company.id,
-        useAllDocuments
-          ? null
-          : activeDocumentId,
+        null,
       );
 
       setActiveConversation(created);
@@ -1468,10 +1527,7 @@ async function saveDecisionFromMessage(
         );
       }
 
-      if (detail.document_id !== null) {
-        onDocumentChange(detail.document_id);
-        onScopeChange(false);
-      }
+      setAttachedDocuments([]);
     } catch (error) {
       onError(
         error instanceof Error
@@ -1624,7 +1680,7 @@ async function saveDecisionFromMessage(
 
 
   async function sendMessage() {
-    if (!company || sending) {
+    if (!company || sending || stopping) {
       return;
     }
 
@@ -1666,9 +1722,7 @@ async function saveDecisionFromMessage(
       try {
         conversation = await createConversation(
           company.id,
-          useAllDocuments
-            ? null
-            : activeDocumentId,
+          null,
         );
 
         setActiveConversation(conversation);
@@ -1743,19 +1797,23 @@ async function saveDecisionFromMessage(
       generationId,
     } = streamControllerRef.current.start();
 
+    activeStreamConversationIdRef.current =
+      conversation.id;
+    activeTemporaryAssistantIdRef.current =
+      temporaryAssistant.id;
+    activeStreamHasTextRef.current = false;
+
+    const requestUseAllDocuments =
+      requestDocumentIds.length === 0 &&
+      useAllDocuments;
+
     try {
       await streamCofounderMessage(
         conversation.id,
         content,
-        useAllDocuments
-          ? null
-          : (
-              requestDocumentIds.length > 0
-                ? null
-                : activeDocumentId
-            ),
+        null,
         requestDocumentIds,
-        useAllDocuments,
+        requestUseAllDocuments,
         executiveRole,
         (streamEvent) => {
           if (
@@ -1843,6 +1901,8 @@ async function saveDecisionFromMessage(
 
           if (streamEvent.type === "token") {
             streamedText += streamEvent.content;
+            activeStreamHasTextRef.current =
+              streamedText.trim().length > 0;
 
             setActiveConversation((current) =>
               current
@@ -1999,11 +2059,23 @@ async function saveDecisionFromMessage(
           : `The GrowthOS ${executiveIdentity.name} could not reply.`,
       );
     } finally {
-      streamControllerRef.current.complete(
-        generationId,
-      );
-      setActiveRequestDocumentIds([]);
-      setSending(false);
+      if (
+        streamControllerRef.current.isCurrent(
+          generationId,
+        )
+      ) {
+        streamControllerRef.current.complete(
+          generationId,
+        );
+        activeStreamConversationIdRef.current =
+          null;
+        activeTemporaryAssistantIdRef.current =
+          null;
+        activeStreamHasTextRef.current = false;
+        setActiveRequestDocumentIds([]);
+        setSending(false);
+        setStopping(false);
+      }
     }
   }
 
@@ -2562,7 +2634,7 @@ async function saveDecisionFromMessage(
 
 <ExecutiveComposer
   draft={draft}
-  sending={sending}
+  sending={sending || stopping}
   attaching={attaching}
   attachments={attachedDocuments}
   onDraftChange={setDraft}
@@ -2580,7 +2652,9 @@ async function saveDecisionFromMessage(
   onSend={() => {
     void sendMessage();
   }}
-  onStop={stopGenerating}
+  onStop={() => {
+          void stopGenerating();
+        }}
 />
       </div>
 

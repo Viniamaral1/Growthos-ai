@@ -796,39 +796,66 @@ export async function streamCofounderMessage(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
+  const abortReader = () => {
+    void reader.cancel("Generation stopped");
+  };
 
-    buffer += decoder.decode(
-      value,
-      { stream: !done },
-    );
+  signal?.addEventListener(
+    "abort",
+    abortReader,
+    { once: true },
+  );
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue;
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException(
+          "Generation stopped",
+          "AbortError",
+        );
       }
 
+      const { value, done } =
+        await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(
+        value,
+        { stream: true },
+      );
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+
+        onEvent(
+          JSON.parse(line) as CofounderStreamEvent,
+        );
+      }
+    }
+
+    buffer += decoder.decode();
+
+    if (buffer.trim()) {
       onEvent(
-        JSON.parse(line) as CofounderStreamEvent,
+        JSON.parse(buffer) as CofounderStreamEvent,
       );
     }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (buffer.trim()) {
-    onEvent(
-      JSON.parse(buffer) as CofounderStreamEvent,
+  } finally {
+    signal?.removeEventListener(
+      "abort",
+      abortReader,
     );
+    reader.releaseLock();
   }
 }
-
 
 
 export async function getResearchSummary(
@@ -1103,4 +1130,163 @@ export async function getDocumentClassification(
   }
 
   return response.json();
+}
+
+
+
+export async function cancelConversationGeneration(
+  conversationId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+
+export type ExecutiveMemoryType =
+  | "decision"
+  | "fact"
+  | "preference"
+  | "goal"
+  | "risk"
+  | "customer"
+  | "competitor"
+  | "strategy"
+  | "meeting"
+  | "task";
+
+
+export type ExecutiveMemory = {
+  id: number;
+  company_id: number;
+  executive_role: string;
+  memory_type: ExecutiveMemoryType;
+  title: string;
+  summary: string;
+  details: string | null;
+  importance: number;
+  source_conversation_id: number | null;
+  source_message_id: number | null;
+  is_archived: boolean;
+  times_used: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+export async function getExecutiveMemories(
+  companyId: number,
+  executiveRole?: ExecutiveRole,
+): Promise<ExecutiveMemory[]> {
+  const parameters = new URLSearchParams({
+    company_id: String(companyId),
+  });
+
+  if (executiveRole) {
+    parameters.set(
+      "executive_role",
+      executiveRole,
+    );
+  }
+
+  const response = await fetch(
+    `${API_URL}/executive-memories?${parameters.toString()}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function createExecutiveMemory(
+  payload: {
+    company_id: number;
+    executive_role: ExecutiveRole;
+    memory_type: ExecutiveMemoryType;
+    title: string;
+    summary: string;
+    details?: string | null;
+    importance: number;
+    source_conversation_id?: number | null;
+    source_message_id?: number | null;
+  },
+): Promise<ExecutiveMemory> {
+  const response = await fetch(
+    `${API_URL}/executive-memories`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function updateExecutiveMemory(
+  memoryId: number,
+  payload: Partial<{
+    executive_role: ExecutiveRole;
+    memory_type: ExecutiveMemoryType;
+    title: string;
+    summary: string;
+    details: string | null;
+    importance: number;
+    is_archived: boolean;
+  }>,
+): Promise<ExecutiveMemory> {
+  const response = await fetch(
+    `${API_URL}/executive-memories/${memoryId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function deleteExecutiveMemory(
+  memoryId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/executive-memories/${memoryId}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
 }

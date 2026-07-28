@@ -494,6 +494,7 @@ def _request_body(
             executive_role=resolved_role,
             current_conversation_id=current_conversation_id,
             compact=False,
+            query=user_message,
         )
     )
 

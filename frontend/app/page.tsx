@@ -3,6 +3,7 @@
 import CofounderChat from "@/app/components/CofounderChat";
 import DecisionPanel from "@/app/components/DecisionPanel";
 import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
+import ExecutiveMemoryPanel from "@/app/components/ExecutiveMemoryPanel";
 import ResearchEngine from "@/app/components/ResearchEngine";
 import StartupStatus from "@/app/components/StartupStatus";
 import Toast from "@/app/components/Toast";
@@ -54,7 +55,8 @@ type View =
   | "plan"
   | "cofounder"
   | "decisions"
-  | "research";
+  | "research"
+  | "memory";
 
 type CompanyForm = {
   name: string;
@@ -156,6 +158,7 @@ const navItems: Array<{
   { id: "assistant", label: "AI Assistant", icon: "✦" },
   { id: "cofounder", label: "Executive Team", icon: "◉" },
   { id: "decisions", label: "Decision Intelligence", icon: "◇" },
+  { id: "memory", label: "Executive Memory", icon: "◌" },
   { id: "research", label: "Research Engine", icon: "⌕" },
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
@@ -2487,6 +2490,8 @@ export default function Home() {
       "plan",
       "cofounder",
       "research",
+      "decisions",
+      "memory",
     ];
 
     if (
@@ -3207,6 +3212,20 @@ async function handleGenerateBusinessPlan(
   } else if (view === "decisions") {
     activeView = (
       <DecisionPanel
+        company={selectedCompany}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
+  } else if (view === "memory") {
+    activeView = (
+      <ExecutiveMemoryPanel
         company={selectedCompany}
         onError={(feedback) => {
           setMessage("");
