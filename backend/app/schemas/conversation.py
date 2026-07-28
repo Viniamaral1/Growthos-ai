@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +43,10 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     model: str | None
+    executive_role: str | None = None
+    confidence_level: str | None = None
+    confidence_score: int | None = None
+    confidence_reason: str | None = None
     sources: list[AnswerSource]
     created_at: datetime
 
@@ -51,6 +56,7 @@ class ConversationDetail(ConversationSummary):
 
 
 class ChatMessageCreate(BaseModel):
+    executive_role: Literal["auto", "ceo", "cfo", "cmo", "coo", "research", "board"] = "auto"
     content: str = Field(
         min_length=2,
         max_length=6000,
@@ -58,5 +64,9 @@ class ChatMessageCreate(BaseModel):
     document_id: int | None = Field(
         default=None,
         gt=0,
+    )
+    document_ids: list[int] = Field(
+        default_factory=list,
+        max_length=12,
     )
     use_all_documents: bool = False

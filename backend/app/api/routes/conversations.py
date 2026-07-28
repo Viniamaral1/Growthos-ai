@@ -33,7 +33,19 @@ from app.services.answer_service import (
     AnswerGenerationError,
     get_ollama_model,
 )
+from app.services.confidence_service import (
+    assess_confidence,
+)
+from app.services.executive_service import (
+    route_executive_role,
+)
+from app.services.generation_cancellation_service import (
+    begin_generation,
+    cancel_generation,
+    finish_generation,
+)
 from app.services.cofounder_chat_service import (
+    GenerationCancelled,
     create_conversation_title,
     retrieve_chat_sources,
     stream_cofounder_reply,
@@ -70,6 +82,18 @@ def _sources(
     ]
 
 
+def _supported_chat_message_kwargs(
+    **values: object,
+) -> dict[str, object]:
+    """Keep stream saving compatible with a stale ORM class."""
+
+    return {
+        key: value
+        for key, value in values.items()
+        if hasattr(ChatMessage, key)
+    }
+
+
 def _message_response(
     message: ChatMessage,
 ) -> ChatMessageResponse:
@@ -79,6 +103,22 @@ def _message_response(
         role=message.role,
         content=message.content,
         model=message.model,
+        executive_role=getattr(message, "executive_role", None),
+        confidence_level=getattr(
+            message,
+            "confidence_level",
+            None,
+        ),
+        confidence_score=getattr(
+            message,
+            "confidence_score",
+            None,
+        ),
+        confidence_reason=getattr(
+            message,
+            "confidence_reason",
+            None,
+        ),
         sources=_sources(message),
         created_at=message.created_at,
     )
@@ -351,6 +391,34 @@ def delete_conversation(
     database.commit()
 
 
+
+
+@router.post(
+    "/{conversation_id}/cancel",
+)
+def cancel_conversation_generation(
+    conversation_id: int,
+    database: DatabaseSession,
+) -> dict[str, object]:
+    conversation = database.get(
+        Conversation,
+        conversation_id,
+    )
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+
+    return {
+        "conversation_id": conversation_id,
+        "cancelled": cancel_generation(
+            conversation_id
+        ),
+    }
+
+
 @router.post(
     "/{conversation_id}/messages/stream",
 )
@@ -383,10 +451,25 @@ def stream_message(
 
     document_id = payload.document_id
 
+    selected_document_ids = {
+        item
+        for item in payload.document_ids
+        if item > 0
+    }
+
     if document_id is not None:
+        selected_document_ids.add(
+            document_id
+        )
+
+    selected_document_names: list[str] = []
+
+    for selected_document_id in (
+        selected_document_ids
+    ):
         document = database.get(
             Document,
-            document_id,
+            selected_document_id,
         )
 
         if (
@@ -396,14 +479,23 @@ def stream_message(
         ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found for this workspace.",
+                detail=(
+                    "A selected document was not found "
+                    "for this workspace."
+                ),
             )
 
         if document.processing_status != "processed":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="The selected document is not ready for AI.",
+                detail=(
+                    "A selected document is not ready for AI."
+                ),
             )
+
+        selected_document_names.append(
+            document.original_filename
+        )
 
     previous_messages = list(
         database.scalars(
@@ -425,6 +517,9 @@ def stream_message(
             company_id=conversation.company_id,
             question=payload.content,
             document_id=document_id,
+            document_ids=sorted(
+                selected_document_ids
+            ),
             use_all_documents=payload.use_all_documents,
         )
     except ValueError as error:
@@ -479,9 +574,26 @@ def stream_message(
         for source in sources
     ]
 
+    cancellation_event = begin_generation(
+        conversation.id
+    )
+
     def event_stream():
         assistant_text = ""
         model_name = get_ollama_model()
+
+        resolved_executive_role = route_executive_role(
+            payload.content.strip(),
+            payload.executive_role,
+        )
+
+        confidence = assess_confidence(
+            source_count=len(response_sources),
+            document_scope_enabled=(
+                bool(selected_document_ids)
+                or payload.use_all_documents
+            ),
+        )
 
         metadata = {
             "type": "metadata",
@@ -495,6 +607,10 @@ def stream_message(
                 for source in response_sources
             ],
             "model": model_name,
+            "executive_role": resolved_executive_role,
+            "confidence_level": confidence.level,
+            "confidence_score": confidence.score,
+            "confidence_reason": confidence.reason,
         }
 
         yield json.dumps(
@@ -503,21 +619,31 @@ def stream_message(
         ) + "\n"
 
         try:
-            for token in stream_cofounder_reply(
-                company=company,
-                previous_messages=previous_messages,
-                user_message=payload.content.strip(),
-                sources=sources,
-            ):
-                assistant_text += token
+            with SessionLocal() as brain_database:
+                for token in stream_cofounder_reply(
+                    database=brain_database,
+                    company=company,
+                    previous_messages=previous_messages,
+                    user_message=payload.content.strip(),
+                    sources=sources,
+                    document_scope_enabled=(
+                        bool(selected_document_ids)
+                        or payload.use_all_documents
+                    ),
+                    executive_role=payload.executive_role,
+                    current_conversation_id=conversation.id,
+                    selected_document_names=selected_document_names,
+                    cancellation_event=cancellation_event,
+                ):
+                    assistant_text += token
 
-                yield json.dumps(
-                    {
-                        "type": "token",
-                        "content": token,
-                    },
-                    ensure_ascii=False,
-                ) + "\n"
+                    yield json.dumps(
+                        {
+                            "type": "token",
+                            "content": token,
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
 
             with SessionLocal() as save_database:
                 saved_conversation = save_database.get(
@@ -526,17 +652,23 @@ def stream_message(
                 )
 
                 assistant_message = ChatMessage(
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=assistant_text.strip(),
-                    model=model_name,
-                    sources_json=json.dumps(
-                        [
-                            source.model_dump(mode="json")
-                            for source in response_sources
-                        ],
-                        ensure_ascii=False,
-                    ),
+                    **_supported_chat_message_kwargs(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=assistant_text.strip(),
+                        model=model_name,
+                        executive_role=resolved_executive_role,
+                        confidence_level=confidence.level,
+                        confidence_score=confidence.score,
+                        confidence_reason=confidence.reason,
+                        sources_json=json.dumps(
+                            [
+                                source.model_dump(mode="json")
+                                for source in response_sources
+                            ],
+                            ensure_ascii=False,
+                        ),
+                    )
                 )
 
                 save_database.add(assistant_message)
@@ -565,6 +697,62 @@ def stream_message(
                 ensure_ascii=False,
             ) + "\n"
 
+            finish_generation(
+                conversation.id,
+                cancellation_event,
+            )
+
+        except GenerationCancelled:
+            if assistant_text.strip():
+                with SessionLocal() as save_database:
+                    saved_conversation = save_database.get(
+                        Conversation,
+                        conversation.id,
+                    )
+
+                    partial_message = ChatMessage(
+                        **_supported_chat_message_kwargs(
+                            conversation_id=conversation.id,
+                            role="assistant",
+                            content=assistant_text.strip(),
+                            model=model_name,
+                            executive_role=resolved_executive_role,
+                            confidence_level=confidence.level,
+                            confidence_score=confidence.score,
+                            confidence_reason=(
+                                "Generation was stopped by the user."
+                            ),
+                            sources_json=json.dumps(
+                                [
+                                    source.model_dump(mode="json")
+                                    for source in response_sources
+                                ],
+                                ensure_ascii=False,
+                            ),
+                        )
+                    )
+
+                    save_database.add(
+                        partial_message
+                    )
+
+                    if saved_conversation is not None:
+                        saved_conversation.message_count += 1
+                        saved_conversation.updated_at = (
+                            datetime.now(timezone.utc)
+                        )
+                        save_database.add(
+                            saved_conversation
+                        )
+
+                    save_database.commit()
+
+            finish_generation(
+                conversation.id,
+                cancellation_event,
+            )
+            return
+
         except AnswerGenerationError as error:
             error_text = str(error)
 
@@ -575,14 +763,22 @@ def stream_message(
                 )
 
                 error_message = ChatMessage(
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=(
-                        "I could not complete that reply. "
-                        f"{error_text}"
-                    ),
-                    model=model_name,
-                    sources_json="[]",
+                    **_supported_chat_message_kwargs(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=(
+                            "I could not complete that reply. "
+                            f"{error_text}"
+                        ),
+                        model=model_name,
+                        executive_role=resolved_executive_role,
+                        confidence_level="low",
+                        confidence_score=20,
+                        confidence_reason=(
+                            "The model did not complete the response."
+                        ),
+                        sources_json="[]",
+                    )
                 )
 
                 save_database.add(error_message)
@@ -596,6 +792,11 @@ def stream_message(
 
                 save_database.commit()
                 save_database.refresh(error_message)
+
+            finish_generation(
+                conversation.id,
+                cancellation_event,
+            )
 
             yield json.dumps(
                 {

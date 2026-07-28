@@ -1,7 +1,9 @@
 "use client";
 
 import CofounderChat from "@/app/components/CofounderChat";
+import DecisionPanel from "@/app/components/DecisionPanel";
 import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
+import ExecutiveMemoryPanel from "@/app/components/ExecutiveMemoryPanel";
 import ResearchEngine from "@/app/components/ResearchEngine";
 import StartupStatus from "@/app/components/StartupStatus";
 import Toast from "@/app/components/Toast";
@@ -52,7 +54,9 @@ type View =
   | "companies"
   | "plan"
   | "cofounder"
-  | "research";
+  | "decisions"
+  | "research"
+  | "memory";
 
 type CompanyForm = {
   name: string;
@@ -152,7 +156,9 @@ const navItems: Array<{
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
-  { id: "cofounder", label: "AI Co-Founder", icon: "◉" },
+  { id: "cofounder", label: "Executive Team", icon: "◉" },
+  { id: "decisions", label: "Decision Intelligence", icon: "◇" },
+  { id: "memory", label: "Executive Memory", icon: "◌" },
   { id: "research", label: "Research Engine", icon: "⌕" },
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
@@ -2484,6 +2490,8 @@ export default function Home() {
       "plan",
       "cofounder",
       "research",
+      "decisions",
+      "memory",
     ];
 
     if (
@@ -3182,6 +3190,43 @@ async function handleGenerateBusinessPlan(
         useAllDocuments={useAllDocuments}
         onDocumentChange={setActiveDocumentId}
         onScopeChange={setUseAllDocuments}
+        onDocumentReady={(document) => {
+          setDocuments((current) => [
+            document,
+            ...current.filter(
+              (item) => item.id !== document.id,
+            ),
+          ]);
+          setActiveDocumentId(document.id);
+        }}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
+  } else if (view === "decisions") {
+    activeView = (
+      <DecisionPanel
+        company={selectedCompany}
+        onError={(feedback) => {
+          setMessage("");
+          setError(feedback);
+        }}
+        onSuccess={(feedback) => {
+          setError("");
+          setMessage(feedback);
+        }}
+      />
+    );
+  } else if (view === "memory") {
+    activeView = (
+      <ExecutiveMemoryPanel
+        company={selectedCompany}
         onError={(feedback) => {
           setMessage("");
           setError(feedback);

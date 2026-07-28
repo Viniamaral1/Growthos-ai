@@ -3,6 +3,9 @@ const API_URL =
   "http://127.0.0.1:8000/api/v1";
 
 
+export type ExecutiveRole = "auto" | "ceo" | "cfo" | "cmo" | "coo" | "research" | "board";
+
+
 export type DevelopmentStage =
   | "idea"
   | "validation"
@@ -192,6 +195,10 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   model: string | null;
+  executive_role: ExecutiveRole | null;
+  confidence_level: "high" | "medium" | "low" | null;
+  confidence_score: number | null;
+  confidence_reason: string | null;
   sources: AnswerSource[];
   created_at: string;
 };
@@ -211,6 +218,10 @@ export type CofounderStreamEvent =
       user_message: ChatMessage;
       sources: AnswerSource[];
       model: string;
+      executive_role?: ExecutiveRole;
+      confidence_level?: "high" | "medium" | "low";
+      confidence_score?: number;
+      confidence_reason?: string;
     }
   | {
       type: "token";
@@ -747,8 +758,11 @@ export async function streamCofounderMessage(
   conversationId: number,
   content: string,
   documentId: number | null,
+  documentIds: number[],
   useAllDocuments: boolean,
+  executiveRole: ExecutiveRole,
   onEvent: (event: CofounderStreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
     `${API_URL}/conversations/${conversationId}/messages/stream`,
@@ -760,8 +774,11 @@ export async function streamCofounderMessage(
       body: JSON.stringify({
         content,
         document_id: documentId,
+        document_ids: documentIds,
         use_all_documents: useAllDocuments,
+        executive_role: executiveRole,
       }),
+      signal,
     },
   );
 
@@ -779,39 +796,66 @@ export async function streamCofounderMessage(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
+  const abortReader = () => {
+    void reader.cancel("Generation stopped");
+  };
 
-    buffer += decoder.decode(
-      value,
-      { stream: !done },
-    );
+  signal?.addEventListener(
+    "abort",
+    abortReader,
+    { once: true },
+  );
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue;
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException(
+          "Generation stopped",
+          "AbortError",
+        );
       }
 
+      const { value, done } =
+        await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(
+        value,
+        { stream: true },
+      );
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+
+        onEvent(
+          JSON.parse(line) as CofounderStreamEvent,
+        );
+      }
+    }
+
+    buffer += decoder.decode();
+
+    if (buffer.trim()) {
       onEvent(
-        JSON.parse(line) as CofounderStreamEvent,
+        JSON.parse(buffer) as CofounderStreamEvent,
       );
     }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (buffer.trim()) {
-    onEvent(
-      JSON.parse(buffer) as CofounderStreamEvent,
+  } finally {
+    signal?.removeEventListener(
+      "abort",
+      abortReader,
     );
+    reader.releaseLock();
   }
 }
-
 
 
 export async function getResearchSummary(
@@ -898,4 +942,351 @@ export async function addResearchEvidence(
   }
 
   return response.json();
+}
+
+
+
+export type DecisionStatus =
+  | "proposed"
+  | "accepted"
+  | "rejected"
+  | "in_progress"
+  | "completed";
+
+
+export type Decision = {
+  id: number;
+  company_id: number;
+  conversation_id: number | null;
+  message_id: number | null;
+  title: string;
+  summary: string;
+  status: DecisionStatus;
+  owner_role: string | null;
+  source_executive_role: string | null;
+  confidence_level: string | null;
+  confidence_score: number | null;
+  handoff_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+export type DecisionCreate = {
+  company_id: number;
+  conversation_id?: number | null;
+  message_id?: number | null;
+  title: string;
+  summary: string;
+  owner_role?: string | null;
+  source_executive_role?: string | null;
+  confidence_level?: string | null;
+  confidence_score?: number | null;
+};
+
+
+export async function getDecisions(
+  companyId: number,
+): Promise<Decision[]> {
+  const response = await fetch(
+    `${API_URL}/decisions?company_id=${companyId}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function createDecision(
+  payload: DecisionCreate,
+): Promise<Decision> {
+  const response = await fetch(
+    `${API_URL}/decisions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function updateDecision(
+  decisionId: number,
+  payload: Partial<{
+    title: string;
+    status: DecisionStatus;
+    owner_role: string | null;
+    handoff_note: string | null;
+  }>,
+): Promise<Decision> {
+  const response = await fetch(
+    `${API_URL}/decisions/${decisionId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function deleteDecision(
+  decisionId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/decisions/${decisionId}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+
+export type ResponseFeedbackRating =
+  | "useful"
+  | "not_useful";
+
+
+export async function submitResponseFeedback(
+  payload: {
+    company_id: number;
+    conversation_id: number;
+    message_id: number;
+    rating: ResponseFeedbackRating;
+    reason?: string | null;
+    note?: string | null;
+  },
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/response-feedback`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+
+export type DocumentClassification = {
+  document_id: number;
+  category:
+    | "strategy"
+    | "finance"
+    | "marketing"
+    | "operations"
+    | "research"
+    | "general";
+  suggested_executive: ExecutiveRole;
+  confidence: number;
+  signals: string[];
+};
+
+
+export async function getDocumentClassification(
+  documentId: number,
+): Promise<DocumentClassification> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/classification`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+
+export async function cancelConversationGeneration(
+  conversationId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
+
+
+export type ExecutiveMemoryType =
+  | "decision"
+  | "fact"
+  | "preference"
+  | "goal"
+  | "risk"
+  | "customer"
+  | "competitor"
+  | "strategy"
+  | "meeting"
+  | "task";
+
+
+export type ExecutiveMemory = {
+  id: number;
+  company_id: number;
+  executive_role: string;
+  memory_type: ExecutiveMemoryType;
+  title: string;
+  summary: string;
+  details: string | null;
+  importance: number;
+  source_conversation_id: number | null;
+  source_message_id: number | null;
+  is_archived: boolean;
+  times_used: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+export async function getExecutiveMemories(
+  companyId: number,
+  executiveRole?: ExecutiveRole,
+): Promise<ExecutiveMemory[]> {
+  const parameters = new URLSearchParams({
+    company_id: String(companyId),
+  });
+
+  if (executiveRole) {
+    parameters.set(
+      "executive_role",
+      executiveRole,
+    );
+  }
+
+  const response = await fetch(
+    `${API_URL}/executive-memories?${parameters.toString()}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function createExecutiveMemory(
+  payload: {
+    company_id: number;
+    executive_role: ExecutiveRole;
+    memory_type: ExecutiveMemoryType;
+    title: string;
+    summary: string;
+    details?: string | null;
+    importance: number;
+    source_conversation_id?: number | null;
+    source_message_id?: number | null;
+  },
+): Promise<ExecutiveMemory> {
+  const response = await fetch(
+    `${API_URL}/executive-memories`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function updateExecutiveMemory(
+  memoryId: number,
+  payload: Partial<{
+    executive_role: ExecutiveRole;
+    memory_type: ExecutiveMemoryType;
+    title: string;
+    summary: string;
+    details: string | null;
+    importance: number;
+    is_archived: boolean;
+  }>,
+): Promise<ExecutiveMemory> {
+  const response = await fetch(
+    `${API_URL}/executive-memories/${memoryId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
+export async function deleteExecutiveMemory(
+  memoryId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/executive-memories/${memoryId}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
 }

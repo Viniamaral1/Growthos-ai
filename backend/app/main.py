@@ -13,17 +13,26 @@ from app.api.routes.business_plans import (
 from app.api.routes.conversations import (
     router as conversations_router,
 )
+from app.api.routes.decisions import (
+    router as decisions_router,
+)
 from app.api.routes.documents import (
     router as documents_router,
 )
 from app.api.routes.health import (
     router as health_router,
 )
+from app.api.routes.executive_memories import (
+    router as executive_memories_router,
+)
 from app.api.routes.marketing import (
     router as marketing_router,
 )
 from app.api.routes.research import (
     router as research_router,
+)
+from app.api.routes.response_feedback import (
+    router as response_feedback_router,
 )
 from app.api.routes.search import (
     router as search_router,
@@ -36,6 +45,7 @@ from app.database.workspace_migration import (
     migrate_company_to_workspace,
 )
 from app.models.company import Company
+from app.models.decision import Decision
 from app.models.document import Document
 from app.models.document_chunk import (
     DocumentChunk,
@@ -44,6 +54,8 @@ from app.models.conversation import Conversation
 from app.models.chat_message import ChatMessage
 from app.models.research_task import ResearchTask
 from app.models.research_evidence import ResearchEvidence
+from app.models.response_feedback import ResponseFeedback
+from app.models.executive_memory import ExecutiveMemory
 
 
 def create_app() -> FastAPI:
@@ -66,7 +78,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="1.7.0",
+        version="3.0.0",
     )
 
     application.add_middleware(
@@ -101,6 +113,11 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(
+        decisions_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
         documents_router,
         prefix="/api/v1",
     )
@@ -125,6 +142,16 @@ def create_app() -> FastAPI:
         prefix="/api/v1",
     )
 
+    application.include_router(
+        response_feedback_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        executive_memories_router,
+        prefix="/api/v1",
+    )
+
     return application
 
 
@@ -138,6 +165,6 @@ def root() -> dict[str, str]:
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
-        "version": "1.7.0",
+        "version": "3.0.0",
         "documentation": "/docs",
     }
