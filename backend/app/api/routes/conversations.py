@@ -9,7 +9,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.database.session import (
@@ -24,6 +24,7 @@ from app.schemas.answer import AnswerSource
 from app.schemas.conversation import (
     ChatMessageCreate,
     ChatMessageResponse,
+    ChatMessageUpdate,
     ConversationCreate,
     ConversationDetail,
     ConversationSummary,
@@ -41,6 +42,9 @@ from app.services.executive_service import (
 )
 from app.services.smart_context_service import (
     plan_context,
+)
+from app.services.executive_memory_service import (
+    propose_memory_from_exchange,
 )
 from app.services.generation_cancellation_service import (
     begin_generation,
@@ -396,6 +400,59 @@ def delete_conversation(
 
 
 
+@router.patch(
+    "/{conversation_id}/messages/{message_id}",
+    response_model=ConversationDetail,
+)
+def edit_user_message(
+    conversation_id: int,
+    message_id: int,
+    payload: ChatMessageUpdate,
+    database: DatabaseSession,
+) -> ConversationDetail:
+    """Replace a user prompt and remove later messages before regeneration."""
+    conversation = database.get(Conversation, conversation_id)
+    message = database.get(ChatMessage, message_id)
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+
+    if (
+        message is None
+        or message.conversation_id != conversation_id
+        or message.role != "user"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Editable user message not found.",
+        )
+
+    # Remove this prompt and everything after it. The edited text is then
+    # submitted through the normal streaming endpoint, keeping one clean branch.
+    database.execute(
+        delete(ChatMessage).where(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.id >= message_id,
+        )
+    )
+    conversation.message_count = int(
+        database.scalar(
+            select(func.count(ChatMessage.id)).where(
+                ChatMessage.conversation_id == conversation_id
+            )
+        )
+        or 0
+    )
+    conversation.updated_at = datetime.now(timezone.utc)
+    database.add(conversation)
+    database.commit()
+
+    return get_conversation(conversation_id, database)
+
+
 @router.post(
     "/{conversation_id}/cancel",
 )
@@ -710,8 +767,19 @@ def stream_message(
                 save_database.commit()
                 save_database.refresh(assistant_message)
 
+                memory_proposal = propose_memory_from_exchange(
+                    save_database,
+                    company_id=conversation.company_id,
+                    executive_role=resolved_executive_role,
+                    user_message=payload.content,
+                    assistant_message=assistant_text.strip(),
+                    conversation_id=conversation.id,
+                    message_id=assistant_message.id,
+                )
+
                 done_event = {
                     "type": "done",
+                    "memory_proposal": memory_proposal,
                     "context_mode": (
                         context_plan.context_mode()
                     ),
@@ -782,6 +850,17 @@ def stream_message(
                         )
 
                     save_database.commit()
+                    save_database.refresh(partial_message)
+
+                    yield json.dumps(
+                        {
+                            "type": "cancelled",
+                            "assistant_message": _message_response(
+                                partial_message
+                            ).model_dump(mode="json"),
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
 
             finish_generation(
                 conversation.id,

@@ -25,8 +25,10 @@ import {
 import {
   cancelConversationGeneration,
   createConversation,
+  createExecutiveMemory,
   createDecision,
   deleteConversation,
+  editConversationMessage,
   getConversation,
   getConversations,
   getDocumentClassification,
@@ -41,6 +43,8 @@ import {
   type ConversationDetail,
   type ConversationSummary,
   type DocumentRecord,
+  type ExecutiveMemoryProposal,
+  type ExecutiveMemoryType,
   type ExecutiveRole,
 } from "@/lib/api";
 
@@ -88,24 +92,235 @@ function SourceCards({
 }
 
 
+
+
+
+function MemoryProposalCard({
+  proposal,
+  companyId,
+  onSaved,
+  onDismissed,
+  onError,
+}: {
+  proposal: ExecutiveMemoryProposal;
+  companyId: number;
+  onSaved: () => void;
+  onDismissed: () => void;
+  onError: (message: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({
+    executive_role: proposal.executive_role,
+    memory_type: proposal.memory_type,
+    title: proposal.title,
+    summary: proposal.summary,
+    details: proposal.details ?? "",
+    importance: proposal.importance,
+  });
+
+  async function saveMemory() {
+    setSaving(true);
+    try {
+      await createExecutiveMemory({
+        company_id: companyId,
+        executive_role: draft.executive_role,
+        memory_type: draft.memory_type,
+        title: draft.title.trim(),
+        summary: draft.summary.trim(),
+        details: draft.details.trim() || null,
+        importance: draft.importance,
+        source_conversation_id: proposal.source_conversation_id,
+        source_message_id: proposal.source_message_id,
+      });
+      onSaved();
+    } catch (error) {
+      onError(
+        error instanceof Error
+          ? error.message
+          : "The proposed memory could not be saved.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="memory-proposal-card">
+      <header>
+        <div>
+          <span>Memory suggestion</span>
+          <strong>GrowthOS thinks this may be worth remembering</strong>
+        </div>
+        <b>{draft.importance}/10</b>
+      </header>
+
+      {editing ? (
+        <div className="memory-proposal-editor">
+          <div>
+            <label>
+              Executive
+              <select
+                value={draft.executive_role}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    executive_role:
+                      event.target.value as ExecutiveRole,
+                  }))
+                }
+              >
+                {["ceo", "cfo", "cmo", "coo", "research", "board"].map(
+                  (role) => (
+                    <option key={role} value={role}>
+                      {role.toUpperCase()}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+
+            <label>
+              Type
+              <select
+                value={draft.memory_type}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    memory_type:
+                      event.target.value as ExecutiveMemoryType,
+                  }))
+                }
+              >
+                {[
+                  "decision", "fact", "preference", "goal", "risk",
+                  "customer", "competitor", "strategy", "meeting", "task",
+                ].map((memoryType) => (
+                  <option key={memoryType} value={memoryType}>
+                    {memoryType}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label>
+            Title
+            <input
+              value={draft.title}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
+          </label>
+
+          <label>
+            Summary
+            <textarea
+              rows={3}
+              value={draft.summary}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  summary: event.target.value,
+                }))
+              }
+            />
+          </label>
+
+          <label>
+            Importance: {draft.importance}/10
+            <input
+              type="range"
+              min={1}
+              max={10}
+              value={draft.importance}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  importance: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="memory-proposal-preview">
+          <small>
+            {draft.executive_role.toUpperCase()} · {draft.memory_type}
+          </small>
+          <h4>{draft.title}</h4>
+          <p>{draft.summary}</p>
+          <em>{proposal.reason}</em>
+        </div>
+      )}
+
+      <footer>
+        <button
+          type="button"
+          onClick={() => void saveMemory()}
+          disabled={
+            saving ||
+            draft.title.trim().length < 2 ||
+            draft.summary.trim().length < 2
+          }
+        >
+          {saving ? "Saving…" : "Save memory"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing((current) => !current)}
+        >
+          {editing ? "Preview" : "Edit"}
+        </button>
+        <button type="button" className="subtle" onClick={onDismissed}>
+          Dismiss
+        </button>
+      </footer>
+    </section>
+  );
+}
+
+
 function MessageBubble({
   message,
   streaming,
   onCopy,
+  onEdit,
+  editing,
+  editValue,
+  onEditValueChange,
+  onSaveEdit,
+  onCancelEdit,
   onRegenerate,
   onSaveDecision,
+  onSaveMemory,
   onFeedback,
   onRetryOption,
   retryMenuOpen,
   onToggleRetryMenu,
   executiveName,
   messageExecutiveRole,
+  companyId,
+  onMemorySaved,
+  onMemoryDismissed,
+  onMemoryError,
 }: {
   message: ChatMessage;
   streaming?: boolean;
   onCopy: (message: ChatMessage) => void;
+  onEdit?: () => void;
+  editing?: boolean;
+  editValue?: string;
+  onEditValueChange?: (value: string) => void;
+  onSaveEdit?: () => void;
+  onCancelEdit?: () => void;
   onRegenerate?: () => void;
   onSaveDecision?: () => void;
+  onSaveMemory?: () => void;
   onFeedback?: (
     rating: "useful" | "not_useful",
   ) => void;
@@ -121,6 +336,10 @@ function MessageBubble({
   onToggleRetryMenu?: () => void;
   executiveName: string;
   messageExecutiveRole?: ExecutiveRole | null;
+  companyId: number;
+  onMemorySaved: () => void;
+  onMemoryDismissed: () => void;
+  onMemoryError: (message: string) => void;
 }) {
   const assistant = message.role === "assistant";
 
@@ -164,8 +383,21 @@ function MessageBubble({
           </small>
         </header>
 
-        <div className="cofounder-message-content">
-          {message.content || (
+        <div className={`cofounder-message-content ${editing ? "editing" : ""}`}>
+          {editing ? (
+            <div className="inline-message-editor">
+              <textarea
+                value={editValue ?? ""}
+                onChange={(event) => onEditValueChange?.(event.target.value)}
+                rows={Math.max(3, Math.min(10, (editValue ?? "").split("\n").length + 1))}
+                autoFocus
+              />
+              <div>
+                <button type="button" onClick={onSaveEdit}>Save & regenerate</button>
+                <button type="button" className="subtle" onClick={onCancelEdit}>Cancel</button>
+              </div>
+            </div>
+          ) : message.content || (
             <span className="professional-reasoning">
               <span className="reasoning-orbit">
                 <i />
@@ -262,6 +494,35 @@ function MessageBubble({
 
         {assistant &&
           !streaming &&
+          message.memory_proposal && (
+            <MemoryProposalCard
+              proposal={message.memory_proposal}
+              companyId={companyId}
+              onSaved={onMemorySaved}
+              onDismissed={onMemoryDismissed}
+              onError={onMemoryError}
+            />
+          )}
+
+        {!assistant &&
+          !streaming &&
+          !editing &&
+          message.content &&
+          onEdit && (
+            <footer className="professional-message-actions">
+              <button
+                type="button"
+                onClick={onEdit}
+                title="Edit this prompt in the composer"
+              >
+                <span aria-hidden="true">✎</span>
+                <strong>Edit prompt</strong>
+              </button>
+            </footer>
+          )}
+
+        {assistant &&
+          !streaming &&
           message.content && (
             <footer className="professional-message-actions">
               <button
@@ -273,6 +534,17 @@ function MessageBubble({
                 <strong>Copy</strong>
               </button>
 
+              {onSaveMemory && (
+                <button
+                  type="button"
+                  onClick={onSaveMemory}
+                  title="Save this response to Executive Memory"
+                >
+                  <span aria-hidden="true">✦</span>
+                  <strong>Save Memory</strong>
+                </button>
+              )}
+
               {onSaveDecision && (
                 <button
                   type="button"
@@ -280,7 +552,7 @@ function MessageBubble({
                   title="Save as a tracked decision"
                 >
                   <span aria-hidden="true">◇</span>
-                  <strong>Save Decision</strong>
+                  <strong>Track Decision</strong>
                 </button>
               )}
 
@@ -619,6 +891,46 @@ function MessageBubble({
           line-height: 1.45;
         }
 
+        .inline-message-editor {
+          display: grid;
+          gap: 9px;
+          width: 100%;
+        }
+
+        .inline-message-editor textarea {
+          width: 100%;
+          resize: vertical;
+          border: 1px solid rgba(59, 214, 208, 0.28);
+          border-radius: 10px;
+          background: rgba(5, 14, 25, 0.78);
+          padding: 11px 12px;
+          color: var(--text);
+          font: inherit;
+          line-height: 1.55;
+          outline: none;
+        }
+
+        .inline-message-editor > div {
+          display: flex;
+          gap: 7px;
+        }
+
+        .inline-message-editor button {
+          min-height: 30px;
+          border: 1px solid rgba(59, 214, 208, 0.22);
+          border-radius: 8px;
+          background: rgba(59, 214, 208, 0.09);
+          padding: 0 10px;
+          color: var(--text);
+          cursor: pointer;
+        }
+
+        .inline-message-editor button.subtle {
+          border-color: rgba(148, 163, 184, 0.14);
+          background: rgba(255, 255, 255, 0.02);
+          color: var(--muted);
+        }
+
         .professional-message-actions {
           display: flex;
           min-height: 33px;
@@ -658,6 +970,108 @@ function MessageBubble({
             color 0.15s ease,
             transform 0.15s ease;
         }
+
+.memory-proposal-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  border: 1px solid rgba(155, 135, 245, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgba(155, 135, 245, 0.08),
+    rgba(59, 214, 208, 0.035)
+  );
+  padding: 12px;
+}
+
+.memory-proposal-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-proposal-card > header div,
+.memory-proposal-preview,
+.memory-proposal-editor {
+  display: grid;
+  gap: 7px;
+}
+
+.memory-proposal-card > header span {
+  color: var(--violet);
+  font-size: 6px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.memory-proposal-card > header strong,
+.memory-proposal-card > header b,
+.memory-proposal-preview p,
+.memory-proposal-preview em {
+  font-size: 7px;
+}
+
+.memory-proposal-card > header b {
+  color: var(--cyan);
+}
+
+.memory-proposal-preview small,
+.memory-proposal-editor label {
+  color: var(--muted);
+  font-size: 6px;
+}
+
+.memory-proposal-preview h4,
+.memory-proposal-preview p {
+  margin: 0;
+}
+
+.memory-proposal-editor > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.memory-proposal-editor label {
+  display: grid;
+  gap: 4px;
+}
+
+.memory-proposal-editor input,
+.memory-proposal-editor select,
+.memory-proposal-editor textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 7px;
+  background: rgba(5, 14, 25, 0.62);
+  padding: 7px 8px;
+  color: var(--text);
+  font: inherit;
+}
+
+.memory-proposal-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.memory-proposal-card > footer button {
+  min-height: 29px;
+  border: 1px solid rgba(155, 135, 245, 0.2);
+  border-radius: 7px;
+  background: rgba(155, 135, 245, 0.08);
+  padding: 0 10px;
+  color: var(--text);
+  font-size: 6px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.memory-proposal-card > footer button.subtle {
+  background: transparent;
+  color: var(--muted);
+}
 
         .professional-message-actions button:hover {
           border-color: rgba(59, 214, 208, 0.24);
@@ -745,7 +1159,47 @@ function MessageBubble({
         }
 
         @media (max-width: 760px) {
-          .professional-message-actions {
+          .inline-message-editor {
+          display: grid;
+          gap: 9px;
+          width: 100%;
+        }
+
+        .inline-message-editor textarea {
+          width: 100%;
+          resize: vertical;
+          border: 1px solid rgba(59, 214, 208, 0.28);
+          border-radius: 10px;
+          background: rgba(5, 14, 25, 0.78);
+          padding: 11px 12px;
+          color: var(--text);
+          font: inherit;
+          line-height: 1.55;
+          outline: none;
+        }
+
+        .inline-message-editor > div {
+          display: flex;
+          gap: 7px;
+        }
+
+        .inline-message-editor button {
+          min-height: 30px;
+          border: 1px solid rgba(59, 214, 208, 0.22);
+          border-radius: 8px;
+          background: rgba(59, 214, 208, 0.09);
+          padding: 0 10px;
+          color: var(--text);
+          cursor: pointer;
+        }
+
+        .inline-message-editor button.subtle {
+          border-color: rgba(148, 163, 184, 0.14);
+          background: rgba(255, 255, 255, 0.02);
+          color: var(--muted);
+        }
+
+        .professional-message-actions {
             opacity: 1;
           }
 
@@ -818,6 +1272,10 @@ export default function CofounderChat({
     useState<ComposerAttachment[]>([]);
   const [retryMenuMessageId, setRetryMenuMessageId] =
     useState<number | null>(null);
+  const [editingMessageId, setEditingMessageId] =
+    useState<number | null>(null);
+  const [editingMessageValue, setEditingMessageValue] =
+    useState("");
   const [activeRequestDocumentIds, setActiveRequestDocumentIds] =
     useState<number[]>([]);
   const messageScrollRef =
@@ -1423,6 +1881,52 @@ async function rateMessage(
 }
 
 
+async function refreshConversationAfterStop(
+  conversationId: number,
+) {
+  // Cancellation and partial-message persistence happen in the
+  // streaming worker. Give it a moment to commit, then reload the
+  // authoritative conversation so the interrupted answer survives.
+  for (const delay of [120, 260, 500]) {
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, delay),
+    );
+
+    try {
+      const detail = await getConversation(conversationId);
+      const lastMessage =
+        detail.messages[detail.messages.length - 1];
+
+      if (
+        lastMessage?.role === "assistant" ||
+        delay === 500
+      ) {
+        setActiveConversation(detail);
+        setConversations((current) => {
+          const selected = current.find(
+            (item) => item.id === detail.id,
+          );
+          return selected
+            ? mergeConversation(current, {
+                ...selected,
+                title: detail.title,
+                message_count: detail.message_count,
+                last_message_preview:
+                  lastMessage?.content.slice(0, 120) ??
+                  selected.last_message_preview,
+                updated_at: detail.updated_at,
+              })
+            : current;
+        });
+        return;
+      }
+    } catch {
+      // Retry briefly while the cancellation transaction finishes.
+    }
+  }
+}
+
+
 async function stopGenerating() {
   if (!sending || stopping) {
     return;
@@ -1437,7 +1941,8 @@ async function stopGenerating() {
   const hasPartialText =
     activeStreamHasTextRef.current;
 
-  streamControllerRef.current.stop();
+  // Keep the browser stream open while the backend records the partial
+  // response. The backend cancellation signal ends the stream cleanly.
 
   if (
     temporaryAssistantId !== null &&
@@ -1462,6 +1967,10 @@ async function stopGenerating() {
       await cancelConversationGeneration(
         conversationId,
       );
+      await refreshConversationAfterStop(
+        conversationId,
+      );
+      streamControllerRef.current.stop();
     }
 
     onSuccess(
@@ -1753,7 +2262,72 @@ async function saveDecisionFromMessage(
   }
 
 
-  async function sendMessage() {
+  async function saveInlineEdit(message: ChatMessage) {
+    if (!activeConversation || sending || stopping) {
+      return;
+    }
+
+    const revised = editingMessageValue.trim();
+    if (revised.length < 2) {
+      onError("The edited prompt must contain at least two characters.");
+      return;
+    }
+
+    try {
+      const trimmedConversation = await editConversationMessage(
+        activeConversation.id,
+        message.id,
+        revised,
+      );
+      setActiveConversation(trimmedConversation);
+      setEditingMessageId(null);
+      setEditingMessageValue("");
+      await sendMessage(revised, trimmedConversation);
+    } catch (error) {
+      onError(
+        error instanceof Error
+          ? error.message
+          : "The prompt could not be edited.",
+      );
+    }
+  }
+
+  async function saveMemoryFromMessage(message: ChatMessage) {
+    if (!company || !activeConversation) {
+      return;
+    }
+
+    const firstLine = message.content
+      .split("\n")
+      .map((line) => line.replace(/^#+\s*/, "").trim())
+      .find(Boolean);
+
+    try {
+      await createExecutiveMemory({
+        company_id: company.id,
+        executive_role: message.executive_role ?? resolvedExecutiveRole,
+        memory_type: "strategy",
+        title: (firstLine ?? "Executive guidance").slice(0, 180),
+        summary: message.content,
+        details: null,
+        importance: 7,
+        source_conversation_id: activeConversation.id,
+        source_message_id: message.id > 0 ? message.id : null,
+      });
+      onSuccess("Saved to Executive Memory.");
+    } catch (error) {
+      onError(
+        error instanceof Error
+          ? error.message
+          : "The response could not be saved to Executive Memory.",
+      );
+    }
+  }
+
+  async function sendMessage(
+    contentOverride?: string,
+    conversationOverride?: ConversationDetail,
+  ) {
     if (!company || sending || stopping) {
       return;
     }
@@ -1771,7 +2345,7 @@ async function saveDecisionFromMessage(
           attachment.document!.id,
       );
 
-    const typedContent = draft.trim();
+    const typedContent = (contentOverride ?? draft).trim();
 
     const content =
       typedContent.length >= 2
@@ -1790,7 +2364,7 @@ async function saveDecisionFromMessage(
       return;
     }
 
-    let conversation = activeConversation;
+    let conversation = conversationOverride ?? activeConversation;
 
     if (!conversation) {
       try {
@@ -2026,6 +2600,8 @@ async function saveDecisionFromMessage(
                                 streamEvent.context_sources,
                               context_reason:
                                 streamEvent.context_reason,
+                              memory_proposal:
+                                streamEvent.memory_proposal,
                             }
                           : message,
                     ),
@@ -2056,6 +2632,24 @@ async function saveDecisionFromMessage(
                     .created_at,
               });
             });
+            return;
+          }
+
+          if (streamEvent.type === "cancelled") {
+            if (streamEvent.assistant_message) {
+              setActiveConversation((current) =>
+                current
+                  ? {
+                      ...current,
+                      messages: current.messages.map((message) =>
+                        message.id === temporaryAssistant.id
+                          ? streamEvent.assistant_message!
+                          : message,
+                      ),
+                    }
+                  : current,
+              );
+            }
             return;
           }
 
@@ -2597,6 +3191,63 @@ async function saveDecisionFromMessage(
                   messageExecutiveRole={
                     message.executive_role
                   }
+                  companyId={company.id}
+                  editing={editingMessageId === message.id}
+                  editValue={editingMessageValue}
+                  onEditValueChange={setEditingMessageValue}
+                  onSaveEdit={
+                    editingMessageId === message.id
+                      ? () => void saveInlineEdit(message)
+                      : undefined
+                  }
+                  onCancelEdit={
+                    editingMessageId === message.id
+                      ? () => {
+                          setEditingMessageId(null);
+                          setEditingMessageValue("");
+                        }
+                      : undefined
+                  }
+                  onEdit={
+                    message.role === "user" && !sending
+                      ? () => {
+                          setEditingMessageId(message.id);
+                          setEditingMessageValue(message.content);
+                          setFailedMessage(null);
+                          shouldAutoScrollRef.current = false;
+                        }
+                      : undefined
+                  }
+                  onMemorySaved={() => {
+                    setActiveConversation((current) =>
+                      current
+                        ? {
+                            ...current,
+                            messages: current.messages.map((item) =>
+                              item.id === message.id
+                                ? { ...item, memory_proposal: null }
+                                : item,
+                            ),
+                          }
+                        : current,
+                    );
+                    onSuccess("Memory saved to Executive Memory.");
+                  }}
+                  onMemoryDismissed={() => {
+                    setActiveConversation((current) =>
+                      current
+                        ? {
+                            ...current,
+                            messages: current.messages.map((item) =>
+                              item.id === message.id
+                                ? { ...item, memory_proposal: null }
+                                : item,
+                            ),
+                          }
+                        : current,
+                    );
+                  }}
+                  onMemoryError={onError}
                   executiveName={
                     executiveRole === "auto"
                       ? resolvedExecutiveRole.toUpperCase()
@@ -2635,6 +3286,13 @@ async function saveDecisionFromMessage(
                             message,
                             rating,
                           )
+                      : undefined
+                  }
+                  onSaveMemory={
+                    message.role === "assistant" &&
+                    !sending
+                      ? () =>
+                          void saveMemoryFromMessage(message)
                       : undefined
                   }
                   onSaveDecision={

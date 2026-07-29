@@ -3182,33 +3182,9 @@ async function handleGenerateBusinessPlan(
       />
     );
   } else if (view === "cofounder") {
-    activeView = (
-      <CofounderChat
-        company={selectedCompany}
-        documents={documents}
-        activeDocumentId={activeDocumentId}
-        useAllDocuments={useAllDocuments}
-        onDocumentChange={setActiveDocumentId}
-        onScopeChange={setUseAllDocuments}
-        onDocumentReady={(document) => {
-          setDocuments((current) => [
-            document,
-            ...current.filter(
-              (item) => item.id !== document.id,
-            ),
-          ]);
-          setActiveDocumentId(document.id);
-        }}
-        onError={(feedback) => {
-          setMessage("");
-          setError(feedback);
-        }}
-        onSuccess={(feedback) => {
-          setError("");
-          setMessage(feedback);
-        }}
-      />
-    );
+    // The Executive Team is mounted persistently below so an active
+    // generation keeps running when the user visits another workspace view.
+    activeView = null;
   } else if (view === "decisions") {
     activeView = (
       <DecisionPanel
@@ -3480,7 +3456,38 @@ async function handleGenerateBusinessPlan(
               </div>
             )}
 
-          {activeView}
+          <div
+            hidden={view !== "cofounder"}
+            aria-hidden={view !== "cofounder"}
+          >
+            <CofounderChat
+              company={selectedCompany}
+              documents={documents}
+              activeDocumentId={activeDocumentId}
+              useAllDocuments={useAllDocuments}
+              onDocumentChange={setActiveDocumentId}
+              onScopeChange={setUseAllDocuments}
+              onDocumentReady={(document) => {
+                setDocuments((current) => [
+                  document,
+                  ...current.filter(
+                    (item) => item.id !== document.id,
+                  ),
+                ]);
+                setActiveDocumentId(document.id);
+              }}
+              onError={(feedback) => {
+                setMessage("");
+                setError(feedback);
+              }}
+              onSuccess={(feedback) => {
+                setError("");
+                setMessage(feedback);
+              }}
+            />
+          </div>
+
+          {view !== "cofounder" && activeView}
         </div>
       </section>
     </main>

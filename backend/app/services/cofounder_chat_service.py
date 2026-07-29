@@ -683,6 +683,25 @@ Rules:
     }
 
 
+
+
+def _simple_greeting_reply(message: str) -> str | None:
+    cleaned = re.sub(r"[^a-zA-Z ]+", " ", message).strip().lower()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    greetings = {
+        "hi", "hello", "hey", "good morning", "good afternoon",
+        "good evening", "hiya", "hello there", "hey there",
+    }
+    if cleaned not in greetings:
+        return None
+
+    return (
+        "Hello. How can I help today? You can ask about strategy, "
+        "your documents, research, finances, operations, marketing, "
+        "or the next action for your business."
+    )
+
+
 def stream_cofounder_reply(
     database: Session,
     company: Company,
@@ -702,6 +721,11 @@ def stream_cofounder_reply(
     If Ollama rejects the normal context before producing any
     output, retry once with a smaller prompt.
     """
+
+    greeting_reply = _simple_greeting_reply(user_message)
+    if greeting_reply is not None:
+        yield greeting_reply
+        return
 
     attempts = [False, True]
     last_error: AnswerGenerationError | None = None

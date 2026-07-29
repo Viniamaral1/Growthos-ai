@@ -1,0 +1,37 @@
+GrowthOS v3.3.2 - Chat Completion
+=================================
+
+Replacement files
+-----------------
+backend/app/api/routes/conversations.py
+backend/app/schemas/conversation.py
+frontend/app/components/CofounderChat.tsx
+frontend/lib/api.ts
+
+Fixes
+-----
+1. Stop now asks the backend to cancel before closing the browser stream.
+2. The backend persists the partial assistant text and returns a cancelled event.
+3. Interrupted text remains visible and reloads from conversation history.
+4. User prompts edit inline in their original chat bubble.
+5. Save & regenerate removes the old branch and regenerates from the edited prompt.
+6. Assistant responses now have a dedicated Save Memory action for Executive Memory.
+7. The old Save Decision action is renamed Track Decision to distinguish Decision Intelligence from Executive Memory.
+
+Before testing
+--------------
+Remove frontend/.next, restart backend and frontend, hard-refresh the browser,
+and begin with a new conversation.
+
+Suggested tests
+---------------
+A. Start a long response, press Stop after text appears, and confirm the partial text remains.
+B. Refresh the browser and confirm the interrupted text still exists.
+C. Edit a user prompt inline, choose Save & regenerate, and confirm later messages are replaced by the new branch.
+D. Choose Save Memory and confirm the item appears in Executive Memory.
+E. Choose Track Decision and confirm it appears only in Decision Intelligence.
+
+Validation
+----------
+Python backend files compile successfully.
+A full frontend build could not be run in the build environment because the configured npm registry did not contain zod-validation-error 4.0.2. No TypeScript parse errors were reported by the available compiler check.

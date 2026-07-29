@@ -25,6 +25,13 @@ class ConversationUpdate(BaseModel):
     )
 
 
+class ChatMessageUpdate(BaseModel):
+    content: str = Field(
+        min_length=2,
+        max_length=6000,
+    )
+
+
 class ConversationSummary(BaseModel):
     id: int
     company_id: int

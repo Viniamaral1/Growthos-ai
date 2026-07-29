@@ -202,6 +202,7 @@ export type ChatMessage = {
   context_mode?: string;
   context_sources?: string[];
   context_reason?: string;
+  memory_proposal?: ExecutiveMemoryProposal | null;
   sources: AnswerSource[];
   created_at: string;
 };
@@ -228,6 +229,7 @@ export type CofounderStreamEvent =
       context_mode?: string;
       context_sources?: string[];
       context_reason?: string;
+      memory_proposal?: ExecutiveMemoryProposal | null;
     }
   | {
       type: "token";
@@ -239,6 +241,11 @@ export type CofounderStreamEvent =
       context_mode?: string;
       context_sources?: string[];
       context_reason?: string;
+      memory_proposal?: ExecutiveMemoryProposal | null;
+    }
+  | {
+      type: "cancelled";
+      assistant_message?: ChatMessage;
     }
   | {
       type: "error";
@@ -747,6 +754,28 @@ export async function renameConversation(
 }
 
 
+export async function editConversationMessage(
+  conversationId: number,
+  messageId: number,
+  content: string,
+): Promise<ConversationDetail> {
+  const response = await fetch(
+    `${API_URL}/conversations/${conversationId}/messages/${messageId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+
 export async function deleteConversation(
   conversationId: number,
 ): Promise<void> {
@@ -1189,6 +1218,20 @@ export type ExecutiveMemory = {
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+
+
+export type ExecutiveMemoryProposal = {
+  executive_role: ExecutiveRole;
+  memory_type: ExecutiveMemoryType;
+  title: string;
+  summary: string;
+  details: string | null;
+  importance: number;
+  source_conversation_id: number;
+  source_message_id: number;
+  reason: string;
 };
 
 
