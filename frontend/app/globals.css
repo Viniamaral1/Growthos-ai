@@ -5181,3 +5181,40 @@ button.executive-role:not(.active):hover {
 .manual-location-row input { min-width:0; border:1px solid var(--border); border-radius:9px; background:rgba(255,255,255,.025); padding:9px 10px; color:var(--text); font-size:8px; outline:none; }
 .manual-location-row input:focus { border-color:rgba(59,214,208,.38); }
 .manual-location-row button { border:1px solid var(--border-strong); border-radius:9px; background:rgba(255,255,255,.035); padding:0 12px; color:var(--text); font-size:8px; font-weight:700; }
+
+/* GrowthOS v4 consultant and dashboard refinement */
+.exit-research-button {
+  display:inline-flex; min-height:32px; align-items:center; border:1px solid var(--border);
+  border-radius:9px; background:transparent; padding:0 10px; color:var(--muted);
+  font-size:8px; font-weight:700; cursor:pointer;
+}
+.exit-research-button:hover { color:var(--text); border-color:var(--border-strong); }
+.dashboard-resume-hero { position:relative; overflow:hidden; align-items:center; min-height:188px; }
+.dashboard-resume-hero > div:not(.dashboard-ambient-orb) { position:relative; z-index:2; }
+.dashboard-resume-hero h2 { margin:15px 0 0; font-size:17px; color:var(--text); }
+.dashboard-hero-actions { display:flex; flex-direction:column; gap:9px; min-width:205px; }
+.dashboard-hero-actions button { display:flex; align-items:center; gap:8px; justify-content:center; border:1px solid var(--border); border-radius:11px; background:rgba(255,255,255,.025); padding:11px 14px; color:var(--text); font-size:8px; font-weight:800; }
+.dashboard-hero-actions .primary-resume { border-color:rgba(59,214,208,.34); background:rgba(59,214,208,.10); color:var(--cyan); }
+.dashboard-ambient-orb { position:absolute; width:380px; height:380px; right:-120px; top:-180px; border-radius:50%; background:radial-gradient(circle,rgba(59,214,208,.15),rgba(155,135,245,.08) 45%,transparent 70%); filter:blur(4px); animation:growthosDrift 12s ease-in-out infinite alternate; pointer-events:none; }
+@keyframes growthosDrift { from { transform:translate3d(-12px,4px,0) scale(.96); } to { transform:translate3d(22px,18px,0) scale(1.06); } }
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .dashboard-metric-card,
+:root[data-theme="light"] .dashboard-primary-score,
+:root[data-theme="light"] .dashboard-recommendation,
+:root[data-theme="light"] .dashboard-progress-panel,
+:root[data-theme="light"] .dashboard-welcome { background-color:rgba(255,255,255,.95); border-color:rgba(35,69,95,.11); }
+:root[data-theme="light"] .message-row,
+:root[data-theme="light"] .cofounder-message-card { background:transparent; }
+:root[data-theme="light"] .conversation-sidebar { background:#eef4f9; }
+@media (max-width:740px){ .dashboard-hero-actions{width:100%;min-width:0}.dashboard-hero-actions button{width:100%}.dashboard-resume-hero{align-items:flex-start} }
+.growthos-guide { position:fixed; right:22px; bottom:22px; z-index:90; display:flex; align-items:flex-end; gap:10px; }
+.growthos-guide-trigger { width:42px; height:42px; border:1px solid rgba(59,214,208,.35); border-radius:50%; background:linear-gradient(135deg,rgba(18,51,68,.98),rgba(22,42,64,.98)); color:var(--cyan); font-size:16px; box-shadow:0 12px 34px rgba(0,0,0,.28); }
+.growthos-guide-panel { width:280px; border:1px solid var(--border-strong); border-radius:16px; background:var(--panel-strong); padding:15px; box-shadow:0 22px 58px rgba(0,0,0,.3); }
+.growthos-guide-panel header { display:flex; gap:10px; align-items:center; }
+.growthos-guide-panel header > span { display:grid; width:32px; height:32px; place-items:center; border-radius:9px; background:rgba(59,214,208,.1); color:var(--cyan); }
+.growthos-guide-panel strong,.growthos-guide-panel small { display:block; }
+.growthos-guide-panel strong { font-size:10px; }.growthos-guide-panel small { color:var(--muted); font-size:7px; margin-top:2px; }
+.growthos-guide-panel p { margin:12px 0; color:var(--muted); font-size:8px; line-height:1.55; }
+.growthos-guide-panel > button { width:100%; margin-top:7px; border:1px solid var(--border); border-radius:9px; background:rgba(255,255,255,.025); padding:9px 10px; text-align:left; color:var(--text); font-size:8px; }
+.growthos-guide-panel > button:hover { border-color:rgba(59,214,208,.3); background:rgba(59,214,208,.06); }
+:root[data-theme="light"] .growthos-guide-trigger { background:#ffffff; }

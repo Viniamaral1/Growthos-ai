@@ -1,0 +1,87 @@
+GrowthOS v4.0 UX Refinement
+============================
+
+This package is based on GrowthOS-AI-DEV(9).
+
+WHAT CHANGED
+------------
+1. Research Discovery now asks one question at a time.
+2. Research replies use warmer consultant-style transitions.
+3. A visible Exit research control is shown whenever Research is active.
+4. The duplicated dashboard greeting/date/time block was removed.
+5. The dashboard hero now focuses on Continue where you left off.
+6. Resume conversation and New executive conversation are separate actions.
+7. The latest conversation button restores the correct conversation.
+8. New conversation creates a genuinely fresh Executive Team conversation.
+9. System theme was removed; the appearance selector is now Dark or Light.
+10. Light-mode card and conversation contrast was refined.
+11. A subtle animated dashboard ambience was added.
+12. A contextual GrowthOS Guide was added at the bottom-right.
+
+INSTALL
+-------
+Copy the included frontend and backend folders over the same folders in your project.
+Allow replacement of existing files.
+
+CLEAN AND RESTART (PowerShell, project root)
+--------------------------------------------
+Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+Get-ChildItem .\backend -Directory -Recurse -Filter "__pycache__" | Remove-Item -Recurse -Force
+Remove-Item -Recurse -Force .\.pytest_cache -ErrorAction SilentlyContinue
+
+Backend:
+cd backend
+.\.venv\Scripts\Activate
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+Frontend (new terminal):
+cd frontend
+npm run dev
+
+Hard refresh the browser with Ctrl+Shift+R.
+
+CORE TESTS
+----------
+A. Research pacing
+- Start a new chat.
+- Enable Explore idea.
+- Send: I have an idea.
+Expected: one warm follow-up question only, not a four-question list.
+- Answer it.
+Expected: a short reflection followed by one next question.
+
+B. Exit research
+- While Research is active, click Exit research.
+- Ask: What is EBITDA?
+Expected: normal Executive Team mode.
+
+C. Dashboard resume
+- Return to Intelligence Dashboard.
+- Click Resume conversation.
+Expected: the latest conversation opens.
+- Return and click New executive conversation.
+Expected: a new empty conversation opens rather than the previous one.
+
+D. Themes
+- Switch between Dark and Light.
+Expected: no System option; cards remain readable and no large grey overlay covers chat.
+
+E. GrowthOS Guide
+- Click the ? button at bottom-right.
+Expected: a compact guidance panel with three useful destinations.
+
+VALIDATION
+----------
+Backend Python compilation passed in the packaging environment.
+A complete Next.js build was not run because node_modules was not included in DEV(9).
+Run locally before committing:
+
+cd frontend
+npm install
+npm run build
+
+RECOMMENDED COMMIT
+------------------
+git add .
+git commit -m "feat: refine research consultant flow and dashboard resume UX"
+git push origin HEAD

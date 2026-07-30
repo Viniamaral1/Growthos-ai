@@ -58,7 +58,7 @@ type View =
   | "research"
   | "memory";
 
-type ThemePreference = "system" | "light" | "dark";
+type ThemePreference = "light" | "dark";
 
 type UserLocation = {
   label: string;
@@ -2426,7 +2426,7 @@ export default function Home() {
   const [mobileNav, setMobileNav] =
     useState(false);
   const [theme, setTheme] =
-    useState<ThemePreference>("system");
+    useState<ThemePreference>("dark");
   const [now, setNow] = useState(() => new Date());
   const [userLocation, setUserLocation] =
     useState<UserLocation | null>(null);
@@ -2434,6 +2434,7 @@ export default function Home() {
     useState(false);
   const [manualLocation, setManualLocation] =
     useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const [companies, setCompanies] =
     useState<Company[]>([]);
@@ -2494,7 +2495,7 @@ export default function Home() {
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("growthos-theme") as ThemePreference | null;
-    const preferredTheme = storedTheme ?? "system";
+    const preferredTheme: ThemePreference = storedTheme === "light" ? "light" : "dark";
     setTheme(preferredTheme);
 
     const storedLocation = window.localStorage.getItem("growthos-location");
@@ -2512,19 +2513,9 @@ export default function Home() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const applyTheme = () => {
-      const resolved = theme === "system"
-        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
-        : theme;
-      root.dataset.theme = resolved;
-      root.style.colorScheme = resolved;
-    };
-
-    applyTheme();
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
     window.localStorage.setItem("growthos-theme", theme);
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    media.addEventListener("change", applyTheme);
-    return () => media.removeEventListener("change", applyTheme);
   }, [theme]);
 
   function requestLocation() {
@@ -3356,6 +3347,16 @@ async function handleGenerateBusinessPlan(
         activeDocument={activeDocument}
         businessPlan={businessPlan}
         onOpenView={openView}
+        onOpenConversation={(conversationId) => {
+          if (selectedCompanyId !== null) {
+            writeStoredNumber(uiStorageKeys.cofounderConversation(selectedCompanyId), conversationId);
+          }
+          openView("cofounder");
+        }}
+        onStartConversation={() => {
+          writeStoredBoolean(uiStorageKeys.startNewCofounder, true);
+          openView("cofounder");
+        }}
         onError={(feedback) => {
           setMessage("");
           setError(feedback);
@@ -3506,7 +3507,6 @@ async function handleGenerateBusinessPlan(
               value={theme}
               onChange={(event) => setTheme(event.target.value as ThemePreference)}
             >
-              <option value="system">System theme</option>
               <option value="dark">Dark theme</option>
               <option value="light">Light theme</option>
             </select>
@@ -3602,17 +3602,6 @@ async function handleGenerateBusinessPlan(
             />
           )}
 
-          {view === "overview" && (
-            <section className="personal-welcome">
-              <div>
-                <span>GrowthOS command centre</span>
-                <h1>{greeting}, Vini</h1>
-                <p>{localDate} · {localTime}{userLocation ? ` · ${userLocation.label}` : ""}</p>
-              </div>
-              <button type="button" onClick={() => openView("cofounder")}>Open Executive Team →</button>
-            </section>
-          )}
-
           {loadingDocuments &&
             selectedCompanyId !== null && (
               <div className="loading-documents">
@@ -3653,6 +3642,19 @@ async function handleGenerateBusinessPlan(
 
           {view !== "cofounder" && activeView}
         </div>
+
+        <aside className={cx("growthos-guide", guideOpen && "open")}>
+          {guideOpen && (
+            <div className="growthos-guide-panel">
+              <header><span>✦</span><div><strong>GrowthOS Guide</strong><small>Here when you need direction</small></div></header>
+              <p>Not sure where to begin? Choose the outcome you want.</p>
+              <button type="button" onClick={() => { writeStoredBoolean(uiStorageKeys.startNewCofounder, true); openView("cofounder"); setGuideOpen(false); }}>Start an executive conversation</button>
+              <button type="button" onClick={() => { openView("cofounder"); setGuideOpen(false); }}>Explore an idea with Research</button>
+              <button type="button" onClick={() => { openView("knowledge"); setGuideOpen(false); }}>Analyse documents</button>
+            </div>
+          )}
+          <button type="button" className="growthos-guide-trigger" onClick={() => setGuideOpen((current) => !current)} aria-label="Open GrowthOS Guide">{guideOpen ? "×" : "?"}</button>
+        </aside>
       </section>
     </main>
   );

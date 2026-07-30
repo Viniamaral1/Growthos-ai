@@ -16,9 +16,11 @@ import {
 } from "@/lib/chat-stream-controller";
 
 import {
+  readStoredBoolean,
   readStoredNumber,
   removeStoredValue,
   uiStorageKeys,
+  writeStoredBoolean,
   writeStoredNumber,
 } from "@/lib/ui-storage";
 
@@ -1406,6 +1408,15 @@ const executiveIdentity = {
         );
 
         setConversations(items);
+
+        if (readStoredBoolean(uiStorageKeys.startNewCofounder)) {
+          writeStoredBoolean(uiStorageKeys.startNewCofounder, false);
+          const created = await createConversation(companyId, null);
+          setActiveConversation(created);
+          setConversations((current) => mergeConversation(current, created));
+          writeStoredNumber(uiStorageKeys.cofounderConversation(companyId), created.id);
+          return;
+        }
 
         if (items.length > 0) {
           const savedConversationId =

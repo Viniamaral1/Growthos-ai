@@ -75,6 +75,8 @@ export default function IntelligenceDashboard({
   activeDocument,
   businessPlan,
   onOpenView,
+  onOpenConversation,
+  onStartConversation,
   onError,
 }: {
   company: Company | null;
@@ -84,6 +86,8 @@ export default function IntelligenceDashboard({
   onOpenView: (
     destination: DashboardDestination,
   ) => void;
+  onOpenConversation: (conversationId: number) => void;
+  onStartConversation: () => void;
   onError: (message: string) => void;
 }) {
   const [research, setResearch] =
@@ -345,28 +349,31 @@ export default function IntelligenceDashboard({
 
   return (
     <>
-      <header className="dashboard-welcome">
+      <header className="dashboard-welcome dashboard-resume-hero">
+        <div className="dashboard-ambient-orb" aria-hidden="true" />
         <div>
-          <span>Founder intelligence dashboard</span>
-          <h1>
-            {greeting()}, welcome back to{" "}
-            {company.name}
-          </h1>
-          <p>
-            GrowthOS combines workspace clarity,
-            indexed evidence, research progress,
-            strategy, and conversation history into
-            one transparent operating view.
-          </p>
+          <span>Your next move</span>
+          <h1>Continue where you left off</h1>
+          {recentConversation ? (
+            <>
+              <h2>{recentConversation.title}</h2>
+              <p>{recentConversation.last_message_preview || "Resume the latest Executive Team conversation."}</p>
+            </>
+          ) : (
+            <p>Start a focused conversation with your Executive Team and turn it into structured work.</p>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => onOpenView("cofounder")}
-        >
-          <span>◉</span>
-          Continue with AI Co-Founder
-        </button>
+        <div className="dashboard-hero-actions">
+          {recentConversation && (
+            <button type="button" className="primary-resume" onClick={() => onOpenConversation(recentConversation.id)}>
+              <span>↗</span> Resume conversation
+            </button>
+          )}
+          <button type="button" onClick={onStartConversation}>
+            <span>＋</span> New executive conversation
+          </button>
+        </div>
       </header>
 
       <section className="dashboard-score-grid">

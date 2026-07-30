@@ -130,11 +130,21 @@ export default function ExecutiveComposer({
           aria-pressed={researchMode}
           disabled={sending}
           onClick={() => onResearchModeChange(!researchMode)}
-          title="Turn an early idea or open question into a guided research project"
+          title="Turn an early idea or open question into a guided research conversation"
         >
           <span>⌕</span>
-          {researchMode ? "Research" : "Explore idea"}
+          {researchMode ? "Research active" : "Explore idea"}
         </button>
+        {researchMode && (
+          <button
+            type="button"
+            className="exit-research-button"
+            disabled={sending}
+            onClick={() => onResearchModeChange(false)}
+          >
+            ← Exit research
+          </button>
+        )}
       </div>
 
       <textarea

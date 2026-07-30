@@ -213,27 +213,19 @@ def is_research_discovery_intent(message: str) -> bool:
 
 
 def discovery_chat_reply(discovery: ResearchDiscovery, project_id: int) -> str:
-    intro = (
-        f"Let’s explore this properly. I’ve opened **{discovery.title}** as a research project "
-        "so the idea can develop into structured work rather than disappear in chat."
-    )
     if not discovery.questions:
         return (
-            intro
-            + "\n\nYour objective is already clear enough to create a research plan. "
-            + "Reply **Build the research plan** when you’re ready, or add any constraints first."
-            + f"\n\n`Research project #{project_id}`"
+            "That already sounds clear enough to shape into structured research. "
+            "Before I build the plan, add any boundaries you care about — budget, location, timing, or what success would look like. "
+            "Otherwise, reply **Build the research plan**."
+            + f"\n\n`Research project #{project_id} · ready`"
         )
-    lines = []
-    for index, question in enumerate(discovery.questions, 1):
-        suffix = "" if question.required else " *(optional)*"
-        lines.append(f"{index}. **{question.question}**{suffix}")
+
+    first = discovery.questions[0]
     return (
-        intro
-        + "\n\nYou do not need a complete idea, plan, or document. Answer what you know; "
-        + "say **not sure** where you want GrowthOS to compare options or use assumptions."
-        + "\n\n"
-        + "\n".join(lines)
+        "That sounds worth exploring. We do not need to solve everything at once — let’s shape it together, one step at a time.\n\n"
+        f"**{first.question}**\n\n"
+        "Answer in your own words. A rough answer or **not sure** is completely fine."
         + f"\n\n`Research project #{project_id} · discovery`"
     )
 
@@ -286,18 +278,27 @@ USER REPLY
 
 
 def remaining_questions_chat_reply(title: str, questions: list[dict], answers: dict[str, str], project_id: int) -> str:
-    remaining = [q for q in questions if q.get("required", True) and not answers.get(str(q.get("id", "")), "").strip()]
+    remaining = [
+        q for q in questions
+        if q.get("required", True) and not answers.get(str(q.get("id", "")), "").strip()
+    ]
     if not remaining:
         return (
-            f"Discovery for **{title}** is complete. I now have enough context to design the evidence strategy, "
-            "comparison criteria, risks, and deliverable.\n\nReply **Build the research plan** to continue, "
-            "or add anything else you want the project to consider."
+            "That gives me enough to understand the direction. I can now turn this conversation into a focused research plan with evidence requirements, comparisons, risks, and a useful final deliverable.\n\n"
+            "Reply **Build the research plan** when you are ready, or tell me one more thing you want included."
             f"\n\n`Research project #{project_id} · ready`"
         )
-    lines = [f"{index}. **{q.get('question', '')}**" for index, q in enumerate(remaining, 1)]
+
+    next_question = remaining[0].get("question", "Tell me a little more about what you want to achieve.")
+    transitions = (
+        "That helps — I can see the idea more clearly now.",
+        "Interesting. That changes how I would approach the research.",
+        "Good, that gives us a useful starting point.",
+    )
+    answered_count = sum(1 for value in answers.values() if str(value).strip())
+    transition = transitions[answered_count % len(transitions)]
     return (
-        "That helps. I still need the following before I can scope the research responsibly:\n\n"
-        + "\n".join(lines)
-        + "\n\nAnswer what you know, or say **not sure** and GrowthOS will treat it as an item to investigate."
-        + f"\n\n`Research project #{project_id} · discovery`"
+        f"{transition}\n\n**{next_question}**\n\n"
+        "Take your time. If you are unsure, say **not sure** and I will treat it as something to investigate."
+        f"\n\n`Research project #{project_id} · discovery`"
     )

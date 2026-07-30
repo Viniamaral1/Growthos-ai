@@ -119,6 +119,7 @@ export const uiStorageKeys = {
   activeWorkspace: "active-workspace",
   activeDocument: "active-document",
   useAllDocuments: "use-all-documents",
+  startNewCofounder: "start-new-cofounder",
 
   cofounderConversation(
     companyId: number,
