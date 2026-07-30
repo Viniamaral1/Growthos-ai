@@ -1,0 +1,55 @@
+GrowthOS AI — UX Polish v3.5
+============================
+
+Included
+--------
+- Compact Explore Idea / Research composer control aligned with the rest of chat.
+- System, Dark, and Light appearance modes with saved preference.
+- Live local date and time in the top navigation.
+- Personal greeting on the Intelligence Dashboard.
+- Optional browser location permission with privacy-friendly city-level preference.
+- Manual city/country fallback when location permission is declined.
+- Location preferences can be removed at any time.
+- Updated GrowthOS page title and product metadata.
+- Responsive behaviour for desktop and mobile.
+
+Privacy behaviour
+-----------------
+The browser may provide coordinates temporarily when permission is granted, but this UI stores only a display preference and timezone. It does not persist exact latitude or longitude.
+
+Weather
+-------
+Weather is intentionally not simulated. A real weather summary requires choosing and configuring a weather provider/API. The header is prepared for this future addition, but this package does not display fabricated weather data.
+
+Clean and run
+-------------
+From the project root in PowerShell:
+
+Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+Get-ChildItem .\backend -Directory -Recurse -Filter "__pycache__" | Remove-Item -Recurse -Force
+Remove-Item -Recurse -Force .\.pytest_cache -ErrorAction SilentlyContinue
+
+Backend:
+cd backend
+.\.venv\Scripts\Activate
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+Frontend (new terminal):
+cd frontend
+npm install
+npm run dev
+
+Test checklist
+--------------
+1. Open the dashboard and confirm the greeting, date, and time update.
+2. Switch System > Light > Dark and reload after each selection.
+3. Open location preferences using the target icon.
+4. Test both approximate permission and manual city entry.
+5. Open Executive Team and confirm Explore idea matches Attach PDFs in visual scale.
+6. Enable Research, send a vague idea, and verify Research Lead routing still works.
+7. Disable Research and verify normal Executive Team responses resume.
+8. Resize to mobile width and verify the header and greeting remain usable.
+
+Validation note
+---------------
+Backend files were not changed. Frontend source was parser-checked, but a full Next.js build could not be completed in the packaging environment because the uploaded ZIP excluded node_modules and the internal npm mirror was missing one locked dependency. Run npm install and npm run build locally before committing.

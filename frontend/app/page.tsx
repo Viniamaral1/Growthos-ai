@@ -58,6 +58,13 @@ type View =
   | "research"
   | "memory";
 
+type ThemePreference = "system" | "light" | "dark";
+
+type UserLocation = {
+  label: string;
+  timezone: string;
+};
+
 type CompanyForm = {
   name: string;
   website: string;
@@ -2418,6 +2425,15 @@ export default function Home() {
     useState<View>("overview");
   const [mobileNav, setMobileNav] =
     useState(false);
+  const [theme, setTheme] =
+    useState<ThemePreference>("system");
+  const [now, setNow] = useState(() => new Date());
+  const [userLocation, setUserLocation] =
+    useState<UserLocation | null>(null);
+  const [locationPromptOpen, setLocationPromptOpen] =
+    useState(false);
+  const [manualLocation, setManualLocation] =
+    useState("");
 
   const [companies, setCompanies] =
     useState<Company[]>([]);
@@ -2475,6 +2491,63 @@ export default function Home() {
   const [error, setError] = useState("");
   const [uiStateRestored, setUiStateRestored] =
     useState(false);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem("growthos-theme") as ThemePreference | null;
+    const preferredTheme = storedTheme ?? "system";
+    setTheme(preferredTheme);
+
+    const storedLocation = window.localStorage.getItem("growthos-location");
+    if (storedLocation) {
+      try {
+        setUserLocation(JSON.parse(storedLocation) as UserLocation);
+      } catch {
+        window.localStorage.removeItem("growthos-location");
+      }
+    }
+
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const applyTheme = () => {
+      const resolved = theme === "system"
+        ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : theme;
+      root.dataset.theme = resolved;
+      root.style.colorScheme = resolved;
+    };
+
+    applyTheme();
+    window.localStorage.setItem("growthos-theme", theme);
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [theme]);
+
+  function requestLocation() {
+    if (!navigator.geolocation) {
+      setError("Location is not supported by this browser. You can continue without it.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        const location = {
+          label: "Approximate location enabled",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        };
+        setUserLocation(location);
+        window.localStorage.setItem("growthos-location", JSON.stringify(location));
+        setLocationPromptOpen(false);
+        setMessage("Location preference saved. GrowthOS will ask before using it in research.");
+      },
+      () => setError("Location permission was not granted. GrowthOS will ask for location only when it matters."),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 86_400_000 },
+    );
+  }
 
   useEffect(() => {
     const storedView = readStoredString(
@@ -3318,6 +3391,18 @@ async function handleGenerateBusinessPlan(
     );
   }
 
+  const locationTimezone = userLocation?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", hour12: false, timeZone: locationTimezone,
+  }).format(now));
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const localDate = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long", day: "numeric", month: "long", timeZone: locationTimezone,
+  }).format(now);
+  const localTime = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", minute: "2-digit", timeZone: locationTimezone,
+  }).format(now);
+
   return (
     <main className="app-shell">
       <aside
@@ -3403,6 +3488,28 @@ async function handleGenerateBusinessPlan(
           </div>
 
           <div className="topbar-right">
+            <div className="topbar-context" aria-label="Local date and time">
+              <strong>{localTime}</strong>
+              <small>{localDate}{userLocation ? ` · ${userLocation.label}` : ""}</small>
+            </div>
+            <button
+              type="button"
+              className="location-button"
+              onClick={() => setLocationPromptOpen((current) => !current)}
+              title="Location preferences"
+            >
+              ◎
+            </button>
+            <select
+              className="theme-select"
+              aria-label="Appearance"
+              value={theme}
+              onChange={(event) => setTheme(event.target.value as ThemePreference)}
+            >
+              <option value="system">System theme</option>
+              <option value="dark">Dark theme</option>
+              <option value="light">Light theme</option>
+            </select>
             <label>
               <span>Active workspace</span>
               <select
@@ -3440,6 +3547,52 @@ async function handleGenerateBusinessPlan(
           </div>
         </header>
 
+        {locationPromptOpen && (
+          <section className="location-popover" role="dialog" aria-label="Location preferences">
+            <div>
+              <span>◎</span>
+              <div>
+                <strong>Personalise with your location</strong>
+                <p>GrowthOS stores only a city-level preference and asks before using it in research.</p>
+              </div>
+            </div>
+            {userLocation ? (
+              <div className="location-confirmed">
+                <span>{userLocation.label}</span>
+                <button type="button" onClick={() => {
+                  setUserLocation(null);
+                  window.localStorage.removeItem("growthos-location");
+                }}>Remove</button>
+              </div>
+            ) : (
+              <>
+                <div className="location-actions">
+                  <button type="button" className="primary-button" onClick={requestLocation}>Use approximate location</button>
+                  <button type="button" className="secondary-button" onClick={() => setLocationPromptOpen(false)}>Not now</button>
+                </div>
+                <div className="manual-location-row">
+                  <input
+                    value={manualLocation}
+                    onChange={(event) => setManualLocation(event.target.value)}
+                    placeholder="Or enter a city, e.g. London, United Kingdom"
+                  />
+                  <button type="button" disabled={!manualLocation.trim()} onClick={() => {
+                    const location = {
+                      label: manualLocation.trim(),
+                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    };
+                    setUserLocation(location);
+                    window.localStorage.setItem("growthos-location", JSON.stringify(location));
+                    setManualLocation("");
+                    setLocationPromptOpen(false);
+                    setMessage("Location preference saved.");
+                  }}>Save</button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
         <div className="workspace">
           {(message || error) && (
             <Toast
@@ -3447,6 +3600,17 @@ async function handleGenerateBusinessPlan(
               message={error || message}
               onClose={clearFeedback}
             />
+          )}
+
+          {view === "overview" && (
+            <section className="personal-welcome">
+              <div>
+                <span>GrowthOS command centre</span>
+                <h1>{greeting}, Vini</h1>
+                <p>{localDate} · {localTime}{userLocation ? ` · ${userLocation.label}` : ""}</p>
+              </div>
+              <button type="button" onClick={() => openView("cofounder")}>Open Executive Team →</button>
+            </section>
           )}
 
           {loadingDocuments &&

@@ -133,13 +133,8 @@ export default function ExecutiveComposer({
           title="Turn an early idea or open question into a guided research project"
         >
           <span>⌕</span>
-          {researchMode ? "Research discovery on" : "Explore an idea"}
+          {researchMode ? "Research" : "Explore idea"}
         </button>
-        {researchMode && (
-          <span className="research-mode-hint">
-            No finished idea or document required. GrowthOS will ask what matters.
-          </span>
-        )}
       </div>
 
       <textarea
