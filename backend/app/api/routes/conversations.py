@@ -20,6 +20,7 @@ from app.models.chat_message import ChatMessage
 from app.models.company import Company
 from app.models.conversation import Conversation
 from app.models.document import Document
+from app.models.research_project import ResearchProject
 from app.schemas.answer import AnswerSource
 from app.schemas.conversation import (
     ChatMessageCreate,
@@ -50,6 +51,15 @@ from app.services.generation_cancellation_service import (
     begin_generation,
     cancel_generation,
     finish_generation,
+)
+from app.services.research_project_service import (
+    ResearchProjectGenerationError,
+    create_discovery,
+    create_plan,
+    discovery_chat_reply,
+    extract_discovery_answers,
+    is_research_discovery_intent,
+    remaining_questions_chat_reply,
 )
 from app.services.cofounder_chat_service import (
     GenerationCancelled,
@@ -701,6 +711,168 @@ def stream_message(
             metadata,
             ensure_ascii=False,
         ) + "\n"
+
+        # Research discovery is a first-class chat capability. Explicit mode
+        # always wins; automatic routing is deliberately conservative.
+        research_project_id = getattr(conversation, "active_research_project_id", None)
+        research_requested = payload.research_mode or is_research_discovery_intent(payload.content)
+
+        # Turning the visible Research Discovery control off returns the thread
+        # to normal Executive Team routing without deleting the saved project.
+        if research_project_id is not None and not payload.research_mode and not research_requested:
+            with SessionLocal() as mode_database:
+                saved_conversation = mode_database.get(Conversation, conversation.id)
+                if saved_conversation is not None:
+                    saved_conversation.active_research_project_id = None
+                    mode_database.add(saved_conversation)
+                    mode_database.commit()
+            research_project_id = None
+
+        if research_requested or (research_project_id is not None and payload.research_mode):
+            try:
+                with SessionLocal() as research_database:
+                    saved_conversation = research_database.get(Conversation, conversation.id)
+                    project = (
+                        research_database.get(ResearchProject, research_project_id)
+                        if research_project_id is not None
+                        else None
+                    )
+
+                    if project is None:
+                        discovery, model_name = create_discovery(
+                            company, payload.content.strip(), None
+                        )
+                        project = ResearchProject(
+                            company_id=company.id,
+                            title=discovery.title,
+                            goal=payload.content.strip(),
+                            context=None,
+                            status="ready" if not discovery.questions else "discovery",
+                            project_type=discovery.project_type,
+                            deliverable_type="research_report",
+                            questions_json=json.dumps(
+                                [question.model_dump() for question in discovery.questions],
+                                ensure_ascii=False,
+                            ),
+                            answers_json="{}",
+                            assumptions_json=json.dumps(discovery.assumptions, ensure_ascii=False),
+                            model=model_name,
+                        )
+                        research_database.add(project)
+                        research_database.flush()
+                        if saved_conversation is not None:
+                            saved_conversation.active_research_project_id = project.id
+                            research_database.add(saved_conversation)
+                        assistant_text = discovery_chat_reply(discovery, project.id)
+                    else:
+                        questions = json.loads(project.questions_json or "[]")
+                        answers = json.loads(project.answers_json or "{}")
+                        normalized = payload.content.strip().lower()
+
+                        if normalized in {
+                            "build the research plan", "build research plan",
+                            "create the research plan", "generate the research plan",
+                            "create research plan", "generate research plan",
+                        }:
+                            required_ids = {
+                                str(item.get("id", "")) for item in questions
+                                if item.get("required", True)
+                            }
+                            answered_ids = {
+                                key for key, value in answers.items() if str(value).strip()
+                            }
+                            if not required_ids.issubset(answered_ids):
+                                assistant_text = remaining_questions_chat_reply(
+                                    project.title, questions, answers, project.id
+                                )
+                            else:
+                                plan, model_name = create_plan(
+                                    company=company,
+                                    goal=project.goal,
+                                    context=project.context,
+                                    project_type=project.project_type,
+                                    questions=questions,
+                                    answers=answers,
+                                    assumptions=json.loads(project.assumptions_json or "[]"),
+                                    deliverable_type=project.deliverable_type,
+                                )
+                                project.plan_json = json.dumps(plan.model_dump(), ensure_ascii=False)
+                                project.assumptions_json = json.dumps(plan.assumptions, ensure_ascii=False)
+                                project.status = "planned"
+                                project.model = model_name
+                                assistant_text = (
+                                    f"The research plan for **{project.title}** is ready. "
+                                    f"It contains {len(plan.sections)} investigation sections, "
+                                    f"{len(plan.source_strategy)} source-strategy rules, and "
+                                    f"{len(plan.evaluation_criteria)} evaluation criteria.\n\n"
+                                    "Open **Research** to review the complete plan, or continue here with "
+                                    "a change such as *add a competitor comparison* or *narrow the geography*."
+                                    f"\n\n`Research project #{project.id} · planned`"
+                                )
+                        elif project.status == "discovery":
+                            extracted, model_name = extract_discovery_answers(
+                                company, project.goal, questions, answers, payload.content.strip()
+                            )
+                            answers.update(extracted)
+                            project.answers_json = json.dumps(answers, ensure_ascii=False)
+                            required_ids = {
+                                str(item.get("id", "")) for item in questions
+                                if item.get("required", True)
+                            }
+                            project.status = "ready" if required_ids.issubset(
+                                {key for key, value in answers.items() if str(value).strip()}
+                            ) else "discovery"
+                            project.model = model_name
+                            assistant_text = remaining_questions_chat_reply(
+                                project.title, questions, answers, project.id
+                            )
+                        else:
+                            assistant_text = (
+                                f"**{project.title}** is already linked to this conversation. "
+                                "Reply **Build the research plan** to create the structured plan, "
+                                "or tell me what you want to change before we continue."
+                                f"\n\n`Research project #{project.id} · {project.status}`"
+                            )
+
+                    research_database.add(project)
+                    assistant_message = ChatMessage(
+                        **_supported_chat_message_kwargs(
+                            conversation_id=conversation.id,
+                            role="assistant",
+                            content=assistant_text.strip(),
+                            model=model_name,
+                            executive_role="research",
+                            confidence_level="high",
+                            confidence_score=90,
+                            confidence_reason="Guided research discovery uses user-provided scope and explicit unknowns.",
+                            sources_json="[]",
+                        )
+                    )
+                    research_database.add(assistant_message)
+                    if saved_conversation is not None:
+                        saved_conversation.message_count += 1
+                        saved_conversation.updated_at = datetime.now(timezone.utc)
+                        research_database.add(saved_conversation)
+                    research_database.commit()
+                    research_database.refresh(assistant_message)
+
+                yield json.dumps({"type": "token", "content": assistant_text}, ensure_ascii=False) + "\n"
+                yield json.dumps({
+                    "type": "done",
+                    "memory_proposal": None,
+                    "context_mode": "research_discovery",
+                    "context_sources": ["guided_research"],
+                    "context_reason": "GrowthOS is shaping an idea into a persistent research project.",
+                    "research_project_id": project.id,
+                    "research_project_status": project.status,
+                    "assistant_message": _message_response(assistant_message).model_dump(mode="json"),
+                }, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
+            except ResearchProjectGenerationError as error:
+                yield json.dumps({"type": "error", "message": str(error)}, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
 
         try:
             with SessionLocal() as brain_database:

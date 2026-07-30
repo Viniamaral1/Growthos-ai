@@ -31,6 +31,9 @@ from app.api.routes.marketing import (
 from app.api.routes.research import (
     router as research_router,
 )
+from app.api.routes.research_projects import (
+    router as research_projects_router,
+)
 from app.api.routes.response_feedback import (
     router as response_feedback_router,
 )
@@ -43,6 +46,7 @@ from app.database.session import (
 )
 from app.database.workspace_migration import (
     migrate_company_to_workspace,
+    migrate_research_chat_integration,
 )
 from app.models.company import Company
 from app.models.decision import Decision
@@ -53,6 +57,7 @@ from app.models.document_chunk import (
 from app.models.conversation import Conversation
 from app.models.chat_message import ChatMessage
 from app.models.research_task import ResearchTask
+from app.models.research_project import ResearchProject
 from app.models.research_evidence import ResearchEvidence
 from app.models.response_feedback import ResponseFeedback
 from app.models.executive_memory import ExecutiveMemory
@@ -70,6 +75,7 @@ def create_app() -> FastAPI:
     migrate_company_to_workspace(
         engine
     )
+    migrate_research_chat_integration(engine)
 
     application = FastAPI(
         title="GrowthOS AI API",
@@ -78,7 +84,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="3.3.0",
+        version="3.4.1",
     )
 
     application.add_middleware(
@@ -143,6 +149,11 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(
+        research_projects_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
         response_feedback_router,
         prefix="/api/v1",
     )
@@ -165,6 +176,6 @@ def root() -> dict[str, str]:
     return {
         "message": "Welcome to GrowthOS AI",
         "status": "running",
-        "version": "3.3.0",
+        "version": "3.4.0",
         "documentation": "/docs",
     }

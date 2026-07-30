@@ -64,6 +64,7 @@ class ConversationDetail(ConversationSummary):
 
 class ChatMessageCreate(BaseModel):
     executive_role: Literal["auto", "ceo", "cfo", "cmo", "coo", "research", "board"] = "auto"
+    research_mode: bool = False
     content: str = Field(
         min_length=2,
         max_length=6000,

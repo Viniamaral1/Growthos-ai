@@ -1,0 +1,73 @@
+GrowthOS v3.4.0 — Universal Research Architect
+Baseline: GrowthOS-AI-DEV(6).zip
+
+WHAT THIS RELEASE ADDS
+- Topic-agnostic research projects saved per workspace.
+- Adaptive discovery questions generated from the actual request.
+- No farm-specific or industry-specific questionnaire logic.
+- Saved answers and resumable research projects.
+- Evidence-first research-plan generation.
+- Structured scope, source strategy, evaluation criteria, limitations,
+  deliverables, and next actions.
+- Existing Research Engine evidence-gap tasks remain available below the
+  new Research Architect.
+
+IMPORTANT SCOPE
+This release creates the guided discovery and research planning foundation.
+It does not yet browse the public web, autonomously collect sources, write the
+final researched report, generate a PDF, send email, or create calendar events.
+Those capabilities should be connected to this project model in later phases.
+
+INSTALL
+Copy the replacement files into the same paths in GrowthOS-AI, allowing the
+files to overwrite the current versions. New files must also be copied.
+
+RESTART
+Backend:
+  cd backend
+  .\.venv\Scripts\Activate.ps1
+  uvicorn app.main:app --reload
+
+Frontend:
+  cd frontend
+  npm run dev
+
+The backend creates the new research_projects table automatically on startup.
+Existing SQLite data is preserved.
+
+TEST 1 — GENERAL BUSINESS RESEARCH
+1. Open Research Engine.
+2. Enter: "Evaluate whether our company should expand into Germany and compare
+   direct entry, a local partner, and acquisition."
+3. Start guided research.
+Expected: questions are specific to expansion and do not mention farming.
+
+TEST 2 — NON-BUSINESS TOPIC
+Enter: "Compare practical options for reducing household energy consumption
+without changing the building structure."
+Expected: questions adapt to the home, location, current usage, constraints,
+and decision criteria.
+
+TEST 3 — ALREADY PRECISE REQUEST
+Enter a detailed request containing geography, timeframe, audience, options,
+constraints, and deliverable.
+Expected: GrowthOS asks few or no unnecessary questions.
+
+TEST 4 — SAVE AND RESUME
+1. Answer discovery questions and click Save answers.
+2. Navigate away and return to Research Engine.
+Expected: project and answers remain available.
+
+TEST 5 — GENERATE PLAN
+Answer every required question and click Generate research plan.
+Expected: a structured plan appears with sections, evidence requirements,
+source strategy, evaluation criteria, limitations, and next actions. It must
+not claim that external research has already been completed.
+
+VALIDATION COMPLETED
+- Backend Python files compile successfully.
+- Pydantic schemas generate successfully.
+- New SQLAlchemy model imports successfully.
+- Modified TypeScript and TSX files pass parser-level syntax validation.
+- A full frontend build was not run because node_modules were not included in
+  the supplied development ZIP.

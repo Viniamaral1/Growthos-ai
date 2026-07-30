@@ -123,3 +123,16 @@ def migrate_chat_message_confidence(
                     f"ADD COLUMN {column_name} {column_type}"
                 )
             )
+
+
+def migrate_research_chat_integration(engine: Engine) -> None:
+    """Link conversations to guided research without deleting existing data."""
+    inspector = inspect(engine)
+    if "conversations" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("conversations")}
+    if "active_research_project_id" not in existing:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN active_research_project_id INTEGER"
+            ))

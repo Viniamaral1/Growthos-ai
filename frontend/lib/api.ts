@@ -242,6 +242,8 @@ export type CofounderStreamEvent =
       context_sources?: string[];
       context_reason?: string;
       memory_proposal?: ExecutiveMemoryProposal | null;
+      research_project_id?: number;
+      research_project_status?: ResearchProjectStatus;
     }
   | {
       type: "cancelled";
@@ -318,6 +320,59 @@ export type ResearchSummary = {
   tasks: ResearchTask[];
 };
 
+
+export type ResearchProjectStatus =
+  | "discovery"
+  | "ready"
+  | "planned"
+  | "archived";
+
+export type ResearchQuestion = {
+  id: string;
+  question: string;
+  why_it_matters: string;
+  required: boolean;
+  suggested_answer: string | null;
+};
+
+export type ResearchPlanSection = {
+  title: string;
+  purpose: string;
+  research_questions: string[];
+  evidence_needed: string[];
+  analysis_method: string;
+};
+
+export type ResearchPlanContent = {
+  objective: string;
+  scope: string[];
+  exclusions: string[];
+  sections: ResearchPlanSection[];
+  source_strategy: string[];
+  evaluation_criteria: string[];
+  assumptions: string[];
+  risks_and_limitations: string[];
+  proposed_deliverables: string[];
+  next_actions: string[];
+};
+
+export type ResearchProject = {
+  id: number;
+  company_id: number;
+  title: string;
+  goal: string;
+  context: string | null;
+  status: ResearchProjectStatus;
+  project_type: string | null;
+  deliverable_type: string;
+  questions: ResearchQuestion[];
+  answers: Record<string, string>;
+  plan: ResearchPlanContent | null;
+  assumptions: string[];
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type CreateCompanyPayload = {
   name: string;
@@ -799,6 +854,7 @@ export async function streamCofounderMessage(
   documentIds: number[],
   useAllDocuments: boolean,
   executiveRole: ExecutiveRole,
+  researchMode: boolean,
   onEvent: (event: CofounderStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -815,6 +871,7 @@ export async function streamCofounderMessage(
         document_ids: documentIds,
         use_all_documents: useAllDocuments,
         executive_role: executiveRole,
+        research_mode: researchMode,
       }),
       signal,
     },
@@ -1341,4 +1398,69 @@ export async function deleteExecutiveMemory(
   if (!response.ok) {
     throw new Error(await readError(response));
   }
+}
+
+
+export async function getResearchProjects(
+  companyId: number,
+): Promise<ResearchProject[]> {
+  const response = await fetch(
+    `${API_URL}/research-projects/company/${companyId}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function createResearchProject(
+  companyId: number,
+  payload: { goal: string; context: string | null; deliverable_type: string },
+): Promise<ResearchProject> {
+  const response = await fetch(
+    `${API_URL}/research-projects/company/${companyId}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function updateResearchProjectAnswers(
+  projectId: number,
+  answers: Record<string, string>,
+): Promise<ResearchProject> {
+  const response = await fetch(
+    `${API_URL}/research-projects/${projectId}/answers`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function generateResearchProjectPlan(
+  projectId: number,
+): Promise<ResearchProject> {
+  const response = await fetch(
+    `${API_URL}/research-projects/${projectId}/plan`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function deleteResearchProject(
+  projectId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/research-projects/${projectId}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error(await readError(response));
 }

@@ -20,6 +20,8 @@ export default function ExecutiveComposer({
   onRemoveAttachment,
   onSend,
   onStop,
+  researchMode,
+  onResearchModeChange,
 }: {
   draft: string;
   sending: boolean;
@@ -30,6 +32,8 @@ export default function ExecutiveComposer({
   onRemoveAttachment: (documentId: number) => void;
   onSend: () => void;
   onStop: () => void;
+  researchMode: boolean;
+  onResearchModeChange: (value: boolean) => void;
 }) {
   const inputRef =
     useRef<HTMLInputElement | null>(null);
@@ -119,6 +123,25 @@ export default function ExecutiveComposer({
         onRemove={onRemoveAttachment}
       />
 
+      <div className="composer-intent-tools">
+        <button
+          type="button"
+          className={researchMode ? "research-mode-toggle active" : "research-mode-toggle"}
+          aria-pressed={researchMode}
+          disabled={sending}
+          onClick={() => onResearchModeChange(!researchMode)}
+          title="Turn an early idea or open question into a guided research project"
+        >
+          <span>⌕</span>
+          {researchMode ? "Research discovery on" : "Explore an idea"}
+        </button>
+        {researchMode && (
+          <span className="research-mode-hint">
+            No finished idea or document required. GrowthOS will ask what matters.
+          </span>
+        )}
+      </div>
+
       <textarea
         id="cofounder-message"
         name="cofounder-message"
@@ -131,7 +154,9 @@ export default function ExecutiveComposer({
         placeholder={
           attachments.length > 0
             ? "Ask a question about the attached documents, or press Send for an automatic review..."
-            : "Message your Executive Team..."
+            : researchMode
+              ? "Describe an idea, opportunity, question, or problem — even if it is still vague..."
+              : "Message your Executive Team..."
         }
         rows={3}
         disabled={false}

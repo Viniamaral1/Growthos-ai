@@ -1249,6 +1249,7 @@ export default function CofounderChat({
   const [activeConversation, setActiveConversation] =
     useState<ConversationDetail | null>(null);
   const [draft, setDraft] = useState("");
+  const [researchMode, setResearchMode] = useState(false);
   const [loadingList, setLoadingList] =
     useState(false);
   const [loadingConversation, setLoadingConversation] =
@@ -2463,6 +2464,7 @@ async function saveDecisionFromMessage(
         requestDocumentIds,
         requestUseAllDocuments,
         executiveRole,
+        researchMode,
         (streamEvent) => {
           if (
             !streamControllerRef.current.isCurrent(
@@ -2579,6 +2581,10 @@ async function saveDecisionFromMessage(
           }
 
           if (streamEvent.type === "done") {
+            if (streamEvent.research_project_id) {
+              setResolvedExecutiveRole("research");
+              setResearchMode(streamEvent.research_project_status !== "planned");
+            }
             setActiveConversation((current) =>
               current
                 ? {
@@ -3401,6 +3407,8 @@ async function saveDecisionFromMessage(
   onStop={() => {
           void stopGenerating();
         }}
+  researchMode={researchMode}
+  onResearchModeChange={setResearchMode}
 />
       </div>
 

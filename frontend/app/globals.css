@@ -5076,3 +5076,49 @@ button.executive-role:not(.active):hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* v3.4 Universal Research Architect */
+.research-architect { margin-bottom: 24px; }
+.research-architect-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr); gap: 22px; align-items: start; }
+.research-project-form { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 16px; background: rgba(255,255,255,.02); }
+.research-project-form label, .research-discovery-questions label { display: grid; gap: 7px; font-weight: 600; }
+.research-project-form textarea, .research-project-form select, .research-discovery-questions textarea { width: 100%; }
+.research-project-workspace { min-width: 0; }
+.research-project-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; }
+.research-project-tabs button { min-width: 180px; text-align: left; display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; opacity: .72; }
+.research-project-tabs button.active { opacity: 1; box-shadow: inset 0 0 0 1px currentColor; }
+.research-project-tabs span { text-transform: uppercase; font-size: .68rem; letter-spacing: .08em; opacity: .7; }
+.research-project-detail { border: 1px solid var(--border-color, #e5e7eb); border-radius: 16px; padding: 18px; }
+.research-project-detail > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.research-project-detail h3 { margin: 4px 0 0; font-size: 1.25rem; }
+.research-project-detail header span { font-size: .75rem; text-transform: uppercase; letter-spacing: .07em; opacity: .7; }
+.research-project-goal { margin: 14px 0 20px; line-height: 1.65; }
+.danger-link { background: transparent !important; color: #b91c1c !important; border: 0 !important; padding: 4px 6px !important; }
+.research-discovery-questions { display: grid; gap: 15px; }
+.research-discovery-questions h4 { margin-bottom: 0; }
+.research-discovery-questions label > span { display: flex; gap: 7px; align-items: center; }
+.research-discovery-questions em { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; font-style: normal; opacity: .65; }
+.research-discovery-questions small { font-weight: 400; line-height: 1.45; opacity: .72; }
+.research-project-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.research-ready-card { padding: 18px; border-radius: 14px; background: rgba(124,58,237,.08); }
+.research-ready-card p { margin: 8px 0 14px; }
+.research-plan-view { display: grid; gap: 14px; }
+.research-plan-summary { padding: 16px; border-radius: 14px; background: rgba(124,58,237,.08); }
+.research-plan-summary span { font-size: .75rem; text-transform: uppercase; letter-spacing: .07em; opacity: .7; }
+.research-plan-summary p { margin: 7px 0 0; line-height: 1.6; }
+.research-plan-view details { border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; padding: 12px 14px; }
+.research-plan-view summary { cursor: pointer; font-weight: 700; }
+.research-plan-view li { margin-bottom: 6px; line-height: 1.45; }
+.research-plan-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.research-plan-columns > div { padding: 14px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; }
+.research-plan-columns ul { padding-left: 18px; margin-bottom: 0; }
+@media (max-width: 980px) { .research-architect-grid { grid-template-columns: 1fr; } }
+@media (max-width: 680px) { .research-plan-columns { grid-template-columns: 1fr; } .research-project-actions { justify-content: stretch; } .research-project-actions button { flex: 1; } }
+
+
+/* v3.4.1 Guided Research Discovery */
+.composer-intent-tools { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.research-mode-toggle { border:1px solid rgba(94,234,212,.24); background:rgba(13,148,136,.07); color:#9fb6c9; border-radius:999px; padding:7px 11px; font-size:11px; cursor:pointer; transition:.18s ease; }
+.research-mode-toggle:hover { border-color:rgba(94,234,212,.48); color:#d9fffa; transform:translateY(-1px); }
+.research-mode-toggle.active { background:linear-gradient(135deg,rgba(13,148,136,.25),rgba(14,116,144,.2)); border-color:rgba(94,234,212,.62); color:#d8fffa; box-shadow:0 0 0 3px rgba(45,212,191,.06); }
+.research-mode-hint { color:#738ba1; font-size:10px; }

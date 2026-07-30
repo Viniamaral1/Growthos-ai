@@ -40,6 +40,12 @@ class Conversation(Base):
         index=True,
     )
 
+    active_research_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("research_projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     message_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

@@ -17,11 +17,17 @@ import {
 
 import {
   addResearchEvidence,
+  createResearchProject,
+  deleteResearchProject,
+  generateResearchProjectPlan,
+  getResearchProjects,
   getResearchSummary,
   regenerateResearchTasks,
+  updateResearchProjectAnswers,
   updateResearchTask,
   type Company,
   type DocumentRecord,
+  type ResearchProject,
   type ResearchStatus,
   type ResearchSummary,
   type ResearchTask,
@@ -61,6 +67,15 @@ export default function ResearchEngine({
     useState<number | null>(null);
   const [savingEvidence, setSavingEvidence] =
     useState(false);
+  const [projects, setProjects] = useState<ResearchProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  const [researchGoal, setResearchGoal] = useState("");
+  const [researchContext, setResearchContext] = useState("");
+  const [deliverableType, setDeliverableType] = useState("research_report");
+  const [projectAnswers, setProjectAnswers] = useState<Record<string, string>>({});
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [savingAnswers, setSavingAnswers] = useState(false);
+  const [generatingPlan, setGeneratingPlan] = useState(false);
 
   const evidencePanelRef =
     useRef<HTMLElement | null>(null);
@@ -85,17 +100,25 @@ export default function ResearchEngine({
       if (!company) {
         setSummary(null);
         setActiveTask(null);
+        setProjects([]);
+        setActiveProjectId(null);
         return;
       }
 
       setLoading(true);
 
       try {
-        const research = await getResearchSummary(
-          company.id,
-        );
+        const [research, savedProjects] = await Promise.all([
+          getResearchSummary(company.id),
+          getResearchProjects(company.id),
+        ]);
 
         setSummary(research);
+        setProjects(savedProjects);
+        if (savedProjects.length > 0) {
+          setActiveProjectId((current) => current ?? savedProjects[0].id);
+          setProjectAnswers(savedProjects[0].answers);
+        }
 
         const savedTaskId = readStoredNumber(
           uiStorageKeys.researchTask(
@@ -221,6 +244,87 @@ export default function ResearchEngine({
     }
   }
 
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
+
+  function replaceProject(project: ResearchProject) {
+    setProjects((current) => {
+      const exists = current.some((item) => item.id === project.id);
+      return exists
+        ? current.map((item) => item.id === project.id ? project : item)
+        : [project, ...current];
+    });
+    setActiveProjectId(project.id);
+    setProjectAnswers(project.answers);
+  }
+
+  async function startResearchProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!company || !researchGoal.trim()) return;
+    setCreatingProject(true);
+    try {
+      const project = await createResearchProject(company.id, {
+        goal: researchGoal.trim(),
+        context: researchContext.trim() || null,
+        deliverable_type: deliverableType,
+      });
+      replaceProject(project);
+      setResearchGoal("");
+      setResearchContext("");
+      onSuccess(project.questions.length
+        ? "Research discovery created. Answer the adaptive questions next."
+        : "Research request is clear and ready for planning.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The research project could not be created.");
+    } finally {
+      setCreatingProject(false);
+    }
+  }
+
+  async function saveProjectAnswers() {
+    if (!activeProject) return;
+    setSavingAnswers(true);
+    try {
+      const project = await updateResearchProjectAnswers(activeProject.id, projectAnswers);
+      replaceProject(project);
+      onSuccess(project.status === "ready"
+        ? "Discovery complete. The research plan is ready to generate."
+        : "Discovery answers saved.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Answers could not be saved.");
+    } finally {
+      setSavingAnswers(false);
+    }
+  }
+
+  async function buildProjectPlan() {
+    if (!activeProject) return;
+    setGeneratingPlan(true);
+    try {
+      const saved = await updateResearchProjectAnswers(activeProject.id, projectAnswers);
+      const project = await generateResearchProjectPlan(saved.id);
+      replaceProject(project);
+      onSuccess("Universal research plan generated.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The research plan could not be generated.");
+    } finally {
+      setGeneratingPlan(false);
+    }
+  }
+
+  async function removeProject(projectId: number) {
+    try {
+      await deleteResearchProject(projectId);
+      setProjects((current) => current.filter((item) => item.id !== projectId));
+      if (activeProjectId === projectId) {
+        setActiveProjectId(null);
+        setProjectAnswers({});
+      }
+      onSuccess("Research project removed.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The project could not be removed.");
+    }
+  }
+
   async function submitEvidence(
     event: FormEvent<HTMLFormElement>,
   ) {
@@ -304,6 +408,102 @@ export default function ResearchEngine({
           research action.
         </p>
       </header>
+
+      <section className="research-architect panel">
+        <div className="panel-heading">
+          <span className="panel-icon violet">◇</span>
+          <div>
+            <h2>Universal Research Architect</h2>
+            <p>Start with any research goal. GrowthOS identifies missing inputs and builds an evidence-first plan without hard-coded industries.</p>
+          </div>
+        </div>
+
+        <div className="research-architect-grid">
+          <form className="research-project-form" onSubmit={startResearchProject}>
+            <label>What do you want to research?
+              <textarea required minLength={10} rows={4} value={researchGoal} onChange={(event) => setResearchGoal(event.target.value)} placeholder="Example: Evaluate whether our company should expand into Germany, compare entry strategies, and identify the evidence needed for a decision." />
+            </label>
+            <label>Useful context (optional)
+              <textarea rows={3} value={researchContext} onChange={(event) => setResearchContext(event.target.value)} placeholder="Constraints, audience, timeframe, budget, options already considered, or what a good decision must achieve." />
+            </label>
+            <label>Desired deliverable
+              <select value={deliverableType} onChange={(event) => setDeliverableType(event.target.value)}>
+                <option value="research_report">Research report</option>
+                <option value="feasibility_study">Feasibility study</option>
+                <option value="comparison_report">Comparison report</option>
+                <option value="market_analysis">Market analysis</option>
+                <option value="business_case">Business case</option>
+                <option value="decision_brief">Decision brief</option>
+              </select>
+            </label>
+            <button type="submit" disabled={creatingProject}>{creatingProject ? "Analysing request..." : "Start guided research"}</button>
+          </form>
+
+          <div className="research-project-workspace">
+            {projects.length > 0 && (
+              <div className="research-project-tabs">
+                {projects.map((project) => (
+                  <button key={project.id} type="button" className={project.id === activeProjectId ? "active" : ""} onClick={() => { setActiveProjectId(project.id); setProjectAnswers(project.answers); }}>
+                    <span>{project.status}</span>{project.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!activeProject ? (
+              <div className="research-evidence-placeholder"><span>◇</span><p>Create a project to begin an adaptive discovery interview.</p></div>
+            ) : (
+              <article className="research-project-detail">
+                <header><div><span>{activeProject.project_type ?? "General research"}</span><h3>{activeProject.title}</h3></div><button type="button" className="danger-link" onClick={() => void removeProject(activeProject.id)}>Remove</button></header>
+                <p className="research-project-goal">{activeProject.goal}</p>
+
+                {activeProject.questions.length > 0 && !activeProject.plan && (
+                  <div className="research-discovery-questions">
+                    <h4>Discovery questions</h4>
+                    <p>These questions are generated from this request. They are not tied to a fixed industry template.</p>
+                    {activeProject.questions.map((question) => (
+                      <label key={question.id}>
+                        <span>{question.question}{question.required && <em> required</em>}</span>
+                        <small>{question.why_it_matters}</small>
+                        <textarea rows={2} value={projectAnswers[question.id] ?? ""} onChange={(event) => setProjectAnswers((current) => ({ ...current, [question.id]: event.target.value }))} placeholder={question.suggested_answer ?? "Your answer"} />
+                      </label>
+                    ))}
+                    <div className="research-project-actions">
+                      <button type="button" className="secondary" disabled={savingAnswers} onClick={() => void saveProjectAnswers()}>{savingAnswers ? "Saving..." : "Save answers"}</button>
+                      <button type="button" disabled={generatingPlan} onClick={() => void buildProjectPlan()}>{generatingPlan ? "Building plan..." : "Generate research plan"}</button>
+                    </div>
+                  </div>
+                )}
+
+                {activeProject.questions.length === 0 && !activeProject.plan && (
+                  <div className="research-ready-card"><strong>The request is sufficiently clear.</strong><p>GrowthOS did not add unnecessary questions. Generate the evidence-first plan when ready.</p><button type="button" disabled={generatingPlan} onClick={() => void buildProjectPlan()}>{generatingPlan ? "Building plan..." : "Generate research plan"}</button></div>
+                )}
+
+                {activeProject.plan && (
+                  <div className="research-plan-view">
+                    <div className="research-plan-summary"><span>Research objective</span><p>{activeProject.plan.objective}</p></div>
+                    {activeProject.plan.sections.map((section, index) => (
+                      <details key={`${section.title}-${index}`} open={index === 0}>
+                        <summary>{index + 1}. {section.title}</summary>
+                        <p>{section.purpose}</p>
+                        <strong>Questions to answer</strong><ul>{section.research_questions.map((item) => <li key={item}>{item}</li>)}</ul>
+                        <strong>Evidence needed</strong><ul>{section.evidence_needed.map((item) => <li key={item}>{item}</li>)}</ul>
+                        <strong>Analysis method</strong><p>{section.analysis_method}</p>
+                      </details>
+                    ))}
+                    <div className="research-plan-columns">
+                      <div><strong>Source strategy</strong><ul>{activeProject.plan.source_strategy.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                      <div><strong>Evaluation criteria</strong><ul>{activeProject.plan.evaluation_criteria.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                      <div><strong>Risks and limitations</strong><ul>{activeProject.plan.risks_and_limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                      <div><strong>Next actions</strong><ul>{activeProject.plan.next_actions.map((item) => <li key={item}>{item}</li>)}</ul></div>
+                    </div>
+                  </div>
+                )}
+              </article>
+            )}
+          </div>
+        </div>
+      </section>
 
       <section className="research-stat-grid">
         <article>
