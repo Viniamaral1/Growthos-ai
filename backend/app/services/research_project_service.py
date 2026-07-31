@@ -212,21 +212,60 @@ def is_research_discovery_intent(message: str) -> bool:
     return any(re.search(pattern, cleaned) for pattern in _RESEARCH_PATTERNS)
 
 
+_TASK_SWITCH_PATTERNS = (
+    r"\b(?:write|draft|rewrite|compose|create)\b.{0,40}\b(?:email|letter|message|reply|proposal|summary|caption|post)\b",
+    r"\b(?:send|email)\b.{0,40}\b(?:supplier|customer|client|team|manager|landlord|courier)\b",
+    r"\b(?:summari[sz]e|translate|proofread|correct|edit)\b",
+    r"\b(?:calculate|convert)\b",
+    r"\b(?:new question|different question|another task|change topic|stop research|exit research)\b",
+)
+
+
+def is_direct_task_intent(message: str) -> bool:
+    """Return True when a message should interrupt guided discovery.
+
+    These are requests where the user expects an immediate deliverable rather
+    than another research question. The check deliberately runs for every
+    message so a previous research project cannot contaminate an unrelated
+    writing or utility task.
+    """
+    import re
+    cleaned = " ".join(message.lower().split())
+    return any(re.search(pattern, cleaned) for pattern in _TASK_SWITCH_PATTERNS)
+
+
+def should_continue_research(*, message: str, explicit_research_mode: bool, active_project: bool) -> bool:
+    """Decide whether this turn belongs to the active discovery interview."""
+    if is_direct_task_intent(message):
+        return False
+    if explicit_research_mode:
+        return True
+    if not active_project:
+        return is_research_discovery_intent(message)
+
+    cleaned = " ".join(message.lower().split())
+    exit_phrases = (
+        "exit research", "stop research", "cancel research",
+        "leave research", "new conversation", "change topic",
+    )
+    return not any(phrase in cleaned for phrase in exit_phrases)
+
+
 def discovery_chat_reply(discovery: ResearchDiscovery, project_id: int) -> str:
+    del project_id  # Internal identifier; never expose it in the conversation.
     if not discovery.questions:
         return (
-            "That already sounds clear enough to shape into structured research. "
-            "Before I build the plan, add any boundaries you care about — budget, location, timing, or what success would look like. "
-            "Otherwise, reply **Build the research plan**."
-            + f"\n\n`Research project #{project_id} · ready`"
+            "I understand the direction. Before I shape the research plan, "
+            "add any boundary that matters most — budget, location, timing, "
+            "or what a successful answer should help you decide. Otherwise, "
+            "say **build the plan** and I’ll move ahead."
         )
 
     first = discovery.questions[0]
     return (
-        "That sounds worth exploring. We do not need to solve everything at once — let’s shape it together, one step at a time.\n\n"
+        "Let’s explore that properly without rushing to a conclusion.\n\n"
         f"**{first.question}**\n\n"
-        "Answer in your own words. A rough answer or **not sure** is completely fine."
-        + f"\n\n`Research project #{project_id} · discovery`"
+        "A rough answer is fine. I’ll ask only what materially changes the research."
     )
 
 
@@ -278,27 +317,28 @@ USER REPLY
 
 
 def remaining_questions_chat_reply(title: str, questions: list[dict], answers: dict[str, str], project_id: int) -> str:
+    del title, project_id  # Retained for API compatibility; not shown to users.
     remaining = [
         q for q in questions
         if q.get("required", True) and not answers.get(str(q.get("id", "")), "").strip()
     ]
     if not remaining:
         return (
-            "That gives me enough to understand the direction. I can now turn this conversation into a focused research plan with evidence requirements, comparisons, risks, and a useful final deliverable.\n\n"
-            "Reply **Build the research plan** when you are ready, or tell me one more thing you want included."
-            f"\n\n`Research project #{project_id} · ready`"
+            "That gives me enough context to build a focused research plan. "
+            "I’ll organise the evidence needed, comparisons, risks, and the final deliverable now."
         )
 
-    next_question = remaining[0].get("question", "Tell me a little more about what you want to achieve.")
+    next_question = remaining[0].get("question", "What outcome would make this useful for you?")
     transitions = (
-        "That helps — I can see the idea more clearly now.",
-        "Interesting. That changes how I would approach the research.",
-        "Good, that gives us a useful starting point.",
+        "That helps.",
+        "I see the direction more clearly now.",
+        "Good — that changes what we should investigate.",
+        "Understood. Let’s narrow one more thing.",
     )
     answered_count = sum(1 for value in answers.values() if str(value).strip())
     transition = transitions[answered_count % len(transitions)]
     return (
         f"{transition}\n\n**{next_question}**\n\n"
-        "Take your time. If you are unsure, say **not sure** and I will treat it as something to investigate."
-        f"\n\n`Research project #{project_id} · discovery`"
+        "Answer naturally. If you are unsure, say so and I’ll treat it as something to investigate."
     )
+

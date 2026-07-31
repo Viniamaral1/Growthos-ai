@@ -5218,3 +5218,91 @@ button.executive-role:not(.active):hover {
 .growthos-guide-panel > button { width:100%; margin-top:7px; border:1px solid var(--border); border-radius:9px; background:rgba(255,255,255,.025); padding:9px 10px; text-align:left; color:var(--text); font-size:8px; }
 .growthos-guide-panel > button:hover { border-color:rgba(59,214,208,.3); background:rgba(59,214,208,.06); }
 :root[data-theme="light"] .growthos-guide-trigger { background:#ffffff; }
+
+/* GrowthOS v4.1 Conversation Engine V2 */
+.cofounder-shell.conversation-sidebar-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.cofounder-shell.conversation-sidebar-collapsed .cofounder-conversation-sidebar {
+  overflow: hidden;
+  border-right: 0;
+  padding-inline: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cofounder-conversation-sidebar {
+  transition: width .2s ease, padding .2s ease, opacity .16s ease;
+}
+
+.cofounder-chat-panel {
+  position: relative;
+  height: min(78vh, 860px);
+  min-height: 610px;
+}
+
+.conversation-sidebar-toggle {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(8,18,31,.88);
+  color: var(--text-soft);
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.conversation-sidebar-toggle:hover {
+  border-color: rgba(59,214,208,.28);
+  color: var(--cyan);
+}
+
+.cofounder-message-scroll {
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 24px;
+}
+
+.executive-composer {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+}
+
+.executive-composer textarea {
+  min-height: 44px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+:root[data-theme="light"] .conversation-sidebar-toggle {
+  background: rgba(249,251,253,.94);
+}
+
+:root[data-theme="light"] body {
+  background: #edf2f6;
+}
+
+:root[data-theme="light"] .cofounder-chat-panel,
+:root[data-theme="light"] .panel,
+:root[data-theme="light"] .dashboard-card {
+  background-color: #f7f9fb;
+}
+
+@media (max-width: 760px) {
+  .cofounder-shell.conversation-sidebar-collapsed {
+    display: block;
+  }
+  .cofounder-shell.conversation-sidebar-collapsed .cofounder-conversation-sidebar {
+    display: none;
+  }
+  .cofounder-chat-panel {
+    height: 76vh;
+    min-height: 560px;
+  }
+}

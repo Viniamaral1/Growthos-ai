@@ -1,0 +1,92 @@
+GrowthOS v4.1 — Conversation Engine V2
+======================================
+
+WHAT CHANGED
+------------
+1. Every message is re-evaluated before guided research continues.
+2. Direct tasks such as writing an email interrupt a previous research interview.
+3. Research project IDs are no longer displayed in chat replies.
+4. Guided discovery asks one focused question at a time with less repetitive wording.
+5. When all required discovery answers are available, GrowthOS automatically builds the research plan.
+6. The conversation sidebar can be collapsed for focus mode.
+7. The composer is smaller and the chat panel uses a fixed working height.
+8. Light-mode surfaces have slightly softer contrast.
+
+FILES CHANGED
+-------------
+backend/app/services/research_project_service.py
+backend/app/api/routes/conversations.py
+frontend/app/components/CofounderChat.tsx
+frontend/app/components/chat/ExecutiveComposer.tsx
+frontend/app/globals.css
+
+INSTALL
+-------
+1. Stop frontend and backend.
+2. Replace your current project with this package, or copy the changed files listed above.
+3. From frontend:
+
+   npm install
+
+4. From backend, activate your environment and install requirements if needed:
+
+   pip install -r requirements.txt
+
+5. Clear caches:
+
+   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+   Get-ChildItem . -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+6. Start backend first, then frontend.
+7. Hard-refresh the browser with Ctrl+Shift+R.
+
+PRIMARY TEST
+------------
+A. Select Auto and type:
+
+   I have an idea for an app that helps restaurants reduce food waste.
+
+Expected:
+- GrowthOS routes into Research Lead automatically.
+- It asks one relevant question.
+- No research project number is shown.
+
+B. Answer the question naturally and continue until discovery is complete.
+
+Expected:
+- One question at a time.
+- The plan is created automatically when enough information exists.
+- The assistant tells you the plan is available in Research.
+
+C. In the same conversation, type:
+
+   Write me a polite email to a supplier asking for an updated quotation.
+
+Expected:
+- Research mode is exited automatically.
+- GrowthOS writes the email immediately.
+- It does not ask another discovery question.
+
+D. Click the small arrow/menu button at the upper-left of the executive workspace.
+
+Expected:
+- Conversation history collapses.
+- The chat expands.
+- Clicking again restores the history.
+
+E. Test light mode.
+
+Expected:
+- Background is softer than pure white.
+- Cards and chat remain readable with clear boundaries.
+
+VALIDATION COMPLETED
+--------------------
+- Backend Python compilation: PASSED
+- Routing helper checks: PASSED
+- Modified TSX syntax transpilation: PASSED
+- Full npm build: NOT RUN because the package registry available in the build environment did not contain zod-validation-error 4.0.2. Run npm install/build locally.
+
+NOTES
+-----
+The database and uploaded documents are retained in this package because this is based on your working DEV(10) project. Back up your current folder before replacing it.

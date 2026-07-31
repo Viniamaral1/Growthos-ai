@@ -59,6 +59,8 @@ from app.services.research_project_service import (
     discovery_chat_reply,
     extract_discovery_answers,
     is_research_discovery_intent,
+    is_direct_task_intent,
+    should_continue_research,
     remaining_questions_chat_reply,
 )
 from app.services.cofounder_chat_service import (
@@ -715,11 +717,16 @@ def stream_message(
         # Research discovery is a first-class chat capability. Explicit mode
         # always wins; automatic routing is deliberately conservative.
         research_project_id = getattr(conversation, "active_research_project_id", None)
-        research_requested = payload.research_mode or is_research_discovery_intent(payload.content)
+        research_requested = should_continue_research(
+            message=payload.content,
+            explicit_research_mode=payload.research_mode,
+            active_project=research_project_id is not None,
+        )
 
-        # Turning the visible Research Discovery control off returns the thread
-        # to normal Executive Team routing without deleting the saved project.
-        if research_project_id is not None and not payload.research_mode and not research_requested:
+        # Re-evaluate every turn. Immediate deliverables and explicit topic
+        # changes interrupt discovery even when the Research toggle was left on.
+        # The project remains saved, but it is detached from this conversation.
+        if research_project_id is not None and not research_requested:
             with SessionLocal() as mode_database:
                 saved_conversation = mode_database.get(Conversation, conversation.id)
                 if saved_conversation is not None:
@@ -728,7 +735,7 @@ def stream_message(
                     mode_database.commit()
             research_project_id = None
 
-        if research_requested or (research_project_id is not None and payload.research_mode):
+        if research_requested:
             try:
                 with SessionLocal() as research_database:
                     saved_conversation = research_database.get(Conversation, conversation.id)
@@ -807,7 +814,6 @@ def stream_message(
                                     f"{len(plan.evaluation_criteria)} evaluation criteria.\n\n"
                                     "Open **Research** to review the complete plan, or continue here with "
                                     "a change such as *add a competitor comparison* or *narrow the geography*."
-                                    f"\n\n`Research project #{project.id} · planned`"
                                 )
                         elif project.status == "discovery":
                             extracted, model_name = extract_discovery_answers(
@@ -819,19 +825,40 @@ def stream_message(
                                 str(item.get("id", "")) for item in questions
                                 if item.get("required", True)
                             }
-                            project.status = "ready" if required_ids.issubset(
+                            complete = required_ids.issubset(
                                 {key for key, value in answers.items() if str(value).strip()}
-                            ) else "discovery"
-                            project.model = model_name
-                            assistant_text = remaining_questions_chat_reply(
-                                project.title, questions, answers, project.id
                             )
+                            project.status = "ready" if complete else "discovery"
+                            project.model = model_name
+                            if complete:
+                                plan, model_name = create_plan(
+                                    company=company,
+                                    goal=project.goal,
+                                    context=project.context,
+                                    project_type=project.project_type,
+                                    questions=questions,
+                                    answers=answers,
+                                    assumptions=json.loads(project.assumptions_json or "[]"),
+                                    deliverable_type=project.deliverable_type,
+                                )
+                                project.plan_json = json.dumps(plan.model_dump(), ensure_ascii=False)
+                                project.assumptions_json = json.dumps(plan.assumptions, ensure_ascii=False)
+                                project.status = "planned"
+                                project.model = model_name
+                                assistant_text = (
+                                    f"I have enough context now. I’ve created a focused research plan for **{project.title}** "
+                                    f"with {len(plan.sections)} investigation areas and clear evidence criteria.\n\n"
+                                    "You can continue here to refine the scope, or open **Research** to review and run the plan."
+                                )
+                            else:
+                                assistant_text = remaining_questions_chat_reply(
+                                    project.title, questions, answers, project.id
+                                )
                         else:
                             assistant_text = (
                                 f"**{project.title}** is already linked to this conversation. "
                                 "Reply **Build the research plan** to create the structured plan, "
                                 "or tell me what you want to change before we continue."
-                                f"\n\n`Research project #{project.id} · {project.status}`"
                             )
 
                     research_database.add(project)

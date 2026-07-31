@@ -51,6 +51,17 @@ import {
 } from "@/lib/api";
 
 
+function isImmediateTask(message: string): boolean {
+  const cleaned = message.toLowerCase().replace(/\s+/g, " ").trim();
+  return [
+    /\b(write|draft|rewrite|compose|create)\b.{0,40}\b(email|letter|message|reply|proposal|summary|caption|post)\b/,
+    /\b(send|email)\b.{0,40}\b(supplier|customer|client|team|manager|landlord|courier)\b/,
+    /\b(summarise|summarize|translate|proofread|correct|edit)\b/,
+    /\b(new question|different question|another task|change topic|stop research|exit research)\b/,
+  ].some((pattern) => pattern.test(cleaned));
+}
+
+
 function mergeConversation(
   conversations: ConversationSummary[],
   conversation: ConversationSummary,
@@ -1252,6 +1263,7 @@ export default function CofounderChat({
     useState<ConversationDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [researchMode, setResearchMode] = useState(false);
+  const [conversationSidebarCollapsed, setConversationSidebarCollapsed] = useState(false);
   const [loadingList, setLoadingList] =
     useState(false);
   const [loadingConversation, setLoadingConversation] =
@@ -2376,6 +2388,12 @@ async function saveDecisionFromMessage(
       return;
     }
 
+    const immediateTask = isImmediateTask(content);
+    const effectiveResearchMode = researchMode && !immediateTask;
+    if (immediateTask && researchMode) {
+      setResearchMode(false);
+    }
+
     let conversation = conversationOverride ?? activeConversation;
 
     if (!conversation) {
@@ -2475,7 +2493,7 @@ async function saveDecisionFromMessage(
         requestDocumentIds,
         requestUseAllDocuments,
         executiveRole,
-        researchMode,
+        effectiveResearchMode,
         (streamEvent) => {
           if (
             !streamControllerRef.current.isCurrent(
@@ -2799,8 +2817,8 @@ async function saveDecisionFromMessage(
   }
 
   return (
-    <section className="cofounder-shell">
-      <aside className="cofounder-conversation-sidebar">
+    <section className={`cofounder-shell ${conversationSidebarCollapsed ? "conversation-sidebar-collapsed" : ""}`}>
+      <aside className="cofounder-conversation-sidebar" aria-hidden={conversationSidebarCollapsed}>
         <header>
           <div>
             <small>Workspace</small>
@@ -2971,7 +2989,15 @@ async function saveDecisionFromMessage(
       </aside>
 
       <div className="cofounder-chat-panel">
-
+        <button
+          type="button"
+          className="conversation-sidebar-toggle"
+          onClick={() => setConversationSidebarCollapsed((current) => !current)}
+          aria-label={conversationSidebarCollapsed ? "Show conversations" : "Hide conversations"}
+          title={conversationSidebarCollapsed ? "Show conversations" : "Focus mode"}
+        >
+          {conversationSidebarCollapsed ? "☰" : "‹"}
+        </button>
 
 <section className="executive-team-selector">
   <div className="executive-team-intro">

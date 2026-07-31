@@ -163,7 +163,7 @@ export default function ExecutiveComposer({
               ? "Describe an idea, opportunity, question, or problem — even if it is still vague..."
               : "Message your Executive Team..."
         }
-        rows={3}
+        rows={2}
         disabled={false}
       />
 
