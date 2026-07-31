@@ -79,7 +79,7 @@ def _call_structured_model(*, system: str, user: str, schema: dict, max_tokens: 
         ) from error
 
 
-def create_discovery(company: Company, goal: str, context: str | None) -> tuple[ResearchDiscovery, str]:
+def create_discovery(company: Company, goal: str, context: str | None, *, use_workspace_context: bool = True) -> tuple[ResearchDiscovery, str]:
     system = """
 You are GrowthOS Research Architect. Convert an incomplete research request into a
 clear, topic-agnostic discovery interview.
@@ -102,7 +102,7 @@ OPTIONAL USER CONTEXT
 {context or 'Not provided'}
 
 SAVED WORKSPACE CONTEXT
-{_company_context(company)}
+{_company_context(company) if use_workspace_context else 'Workspace context intentionally excluded because the user is starting a new, unspecified idea.'}
 
 Create a neutral project title, classify the broad research type, restate the
 objective, identify genuinely missing inputs, and list explicit assumptions.
@@ -342,3 +342,29 @@ def remaining_questions_chat_reply(title: str, questions: list[dict], answers: d
         "Answer naturally. If you are unsure, say so and I’ll treat it as something to investigate."
     )
 
+
+
+def create_isolated_writing_reply(user_request: str) -> tuple[str, str]:
+    """Generate a writing deliverable without workspace, research, or persona leakage."""
+    system = """
+You are GrowthOS Writing Assistant. Complete the user's writing request directly.
+Do not start research, ask discovery questions, mention projects, or reuse unrelated
+workspace details. When details are missing, use neutral placeholders in square
+brackets and provide a polished draft that can be edited. Return only the useful
+written deliverable, with a brief heading only when it improves clarity.
+""".strip()
+    schema = {
+        "type": "object",
+        "properties": {"content": {"type": "string"}},
+        "required": ["content"],
+    }
+    raw, model = _call_structured_model(
+        system=system,
+        user=user_request.strip(),
+        schema=schema,
+        max_tokens=1400,
+    )
+    content = str(raw.get("content", "")).strip()
+    if not content:
+        raise ResearchProjectGenerationError("The writing assistant returned an empty response.")
+    return content, model

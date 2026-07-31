@@ -62,7 +62,9 @@ from app.services.research_project_service import (
     is_direct_task_intent,
     should_continue_research,
     remaining_questions_chat_reply,
+    create_isolated_writing_reply,
 )
+from app.services.conversation_orchestrator import decide as orchestrate_message
 from app.services.cofounder_chat_service import (
     GenerationCancelled,
     create_conversation_title,
@@ -670,10 +672,21 @@ def stream_message(
         assistant_text = ""
         model_name = get_ollama_model()
 
-        resolved_executive_role = route_executive_role(
-            payload.content.strip(),
-            payload.executive_role,
+        initial_research_project_id = getattr(conversation, "active_research_project_id", None)
+        orchestration = orchestrate_message(
+            payload.content,
+            active_research=initial_research_project_id is not None,
+            explicit_research_mode=payload.research_mode,
         )
+        if orchestration.specialist == "writer":
+            resolved_executive_role = "writer"
+        elif orchestration.specialist == "research":
+            resolved_executive_role = "research"
+        else:
+            resolved_executive_role = route_executive_role(
+                payload.content.strip(),
+                payload.executive_role,
+            )
 
         confidence = assess_confidence(
             source_count=len(response_sources),
@@ -714,19 +727,14 @@ def stream_message(
             ensure_ascii=False,
         ) + "\n"
 
-        # Research discovery is a first-class chat capability. Explicit mode
-        # always wins; automatic routing is deliberately conservative.
-        research_project_id = getattr(conversation, "active_research_project_id", None)
-        research_requested = should_continue_research(
-            message=payload.content,
-            explicit_research_mode=payload.research_mode,
-            active_project=research_project_id is not None,
-        )
+        # Conversation Orchestrator runs before personas and research prompts.
+        # It owns task switching so stale project state cannot contaminate a new request.
+        research_project_id = initial_research_project_id
+        research_requested = orchestration.continue_active_research
 
-        # Re-evaluate every turn. Immediate deliverables and explicit topic
-        # changes interrupt discovery even when the Research toggle was left on.
-        # The project remains saved, but it is detached from this conversation.
-        if research_project_id is not None and not research_requested:
+        # Detach only the conversation pointer; the research project remains saved
+        # and can be resumed deliberately later.
+        if research_project_id is not None and orchestration.detach_active_research:
             with SessionLocal() as mode_database:
                 saved_conversation = mode_database.get(Conversation, conversation.id)
                 if saved_conversation is not None:
@@ -734,6 +742,49 @@ def stream_message(
                     mode_database.add(saved_conversation)
                     mode_database.commit()
             research_project_id = None
+
+        # Immediate writing requests bypass CEO/Research prompts entirely. This
+        # produces the requested deliverable from a clean context.
+        if orchestration.intent == "direct_writing":
+            try:
+                with SessionLocal() as writing_database:
+                    assistant_text, model_name = create_isolated_writing_reply(payload.content)
+                    assistant_message = ChatMessage(
+                        **_supported_chat_message_kwargs(
+                            conversation_id=conversation.id,
+                            role="assistant",
+                            content=assistant_text,
+                            model=model_name,
+                            executive_role="writer",
+                            confidence_level="high",
+                            confidence_score=95,
+                            confidence_reason="Direct writing request handled in an isolated context.",
+                            sources_json="[]",
+                        )
+                    )
+                    writing_database.add(assistant_message)
+                    saved_conversation = writing_database.get(Conversation, conversation.id)
+                    if saved_conversation is not None:
+                        saved_conversation.message_count += 1
+                        saved_conversation.updated_at = datetime.now(timezone.utc)
+                        writing_database.add(saved_conversation)
+                    writing_database.commit()
+                    writing_database.refresh(assistant_message)
+                yield json.dumps({"type": "token", "content": assistant_text}, ensure_ascii=False) + "\n"
+                yield json.dumps({
+                    "type": "done",
+                    "memory_proposal": None,
+                    "context_mode": "isolated_writing",
+                    "context_sources": [],
+                    "context_reason": orchestration.reason,
+                    "assistant_message": _message_response(assistant_message).model_dump(mode="json"),
+                }, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
+            except ResearchProjectGenerationError as error:
+                yield json.dumps({"type": "error", "message": str(error)}, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
 
         if research_requested:
             try:
@@ -747,7 +798,10 @@ def stream_message(
 
                     if project is None:
                         discovery, model_name = create_discovery(
-                            company, payload.content.strip(), None
+                            company,
+                            payload.content.strip(),
+                            None,
+                            use_workspace_context=orchestration.use_workspace_context,
                         )
                         project = ResearchProject(
                             company_id=company.id,

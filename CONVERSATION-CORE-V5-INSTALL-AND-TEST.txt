@@ -1,0 +1,60 @@
+GrowthOS Conversation Core v5 — install and test
+================================================
+
+WHAT CHANGED
+- Added backend/app/services/conversation_orchestrator.py.
+- Every incoming message is classified before CEO, Research Lead, or workspace prompts run.
+- Direct writing tasks use an isolated writing path and cannot inherit active research or BSL workspace context.
+- A bare "I have an idea" starts a clean discovery and intentionally excludes the current workspace profile.
+- Research is no longer automatically sticky in Auto mode.
+- Active research is detached from the conversation when a clearly unrelated task begins, but the project remains saved.
+- "Continue/resume my idea/research/project" explicitly returns to saved research.
+- The routed role metadata now reflects Writer or Research before the response starts.
+
+IMPORTANT DESIGN LIMITATION
+This is a foundation release, not the finished universal reasoning engine. The deterministic orchestrator deliberately handles the highest-risk task switches first (writing, new idea, resume, exit, research). Test these before adding more intent categories.
+
+INSTALL
+1. Stop frontend and backend.
+2. Replace your project with this package (keep a backup/tag of DEV11).
+3. Backend:
+   cd backend
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload
+4. Frontend:
+   cd frontend
+   npm install
+   npm run dev
+5. Hard refresh the browser: Ctrl+Shift+R.
+
+MANDATORY TESTS (use a NEW conversation)
+1. Select Auto. Type: I have an idea.
+   Expected: one neutral question asking about the new idea. It must not mention BSL or the active workspace.
+
+2. During that discovery type:
+   Write me a polite email to a supplier asking for a quotation.
+   Expected: a complete editable email. No research question, no BSL content, no CEO exploration template.
+
+3. Type:
+   Let's continue with my idea.
+   Expected: the saved research flow resumes deliberately.
+
+4. Start another new conversation and type:
+   Write me an HR email inviting an employee to a probation review.
+   Expected: direct email draft with neutral placeholders.
+
+5. Start another new conversation and type:
+   I need to send a pallet from London to Manchester.
+   Expected: research/operations clarification relevant only to delivery.
+
+6. While researching delivery type:
+   Summarise this sentence: Our delivery must arrive by Friday.
+   Expected: direct summary, not another delivery question.
+
+REPORT
+For each failed test capture:
+- exact user message
+- exact assistant response
+- selected mode (Auto/Research/etc.)
+- whether a workspace/project was active
+- backend console error, if any
