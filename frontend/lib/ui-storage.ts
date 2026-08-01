@@ -116,6 +116,7 @@ export function writeStoredBoolean(
 
 export const uiStorageKeys = {
   activeView: "active-view",
+  firstLaunchComplete: "first-launch-complete",
   activeWorkspace: "active-workspace",
   activeDocument: "active-document",
   useAllDocuments: "use-all-documents",

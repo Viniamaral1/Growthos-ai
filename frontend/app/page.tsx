@@ -167,6 +167,7 @@ const navItems: Array<{
 }> = [
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
+  { id: "spaces", label: "Knowledge", icon: "▧" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
   { id: "cofounder", label: "Executive Team", icon: "◉" },
   { id: "decisions", label: "Decision Intelligence", icon: "◇" },
@@ -175,7 +176,6 @@ const navItems: Array<{
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
   { id: "companies", label: "Workspaces", icon: "▦" },
-  { id: "spaces", label: "Knowledge Spaces", icon: "▧" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -2529,8 +2529,14 @@ export default function Home() {
     const root = document.documentElement;
     root.dataset.theme = theme;
     root.style.colorScheme = theme;
-    window.localStorage.setItem("growthos-theme", theme);
   }, [theme]);
+
+  function applyTheme(nextTheme: ThemePreference, persist = true) {
+    setTheme(nextTheme);
+    if (persist) {
+      window.localStorage.setItem("growthos-theme", nextTheme);
+    }
+  }
 
   function requestLocation() {
     if (!navigator.geolocation) {
@@ -2555,8 +2561,21 @@ export default function Home() {
   }
 
   useEffect(() => {
-    // Always land on the dashboard. Previous work is resumed explicitly from dashboard cards.
-    setView("overview");
+    const allowedViews: View[] = [
+      "overview", "knowledge", "assistant", "marketing", "companies",
+      "plan", "cofounder", "decisions", "research", "memory", "spaces", "settings",
+    ];
+    const hasLaunched = readStoredBoolean(
+      uiStorageKeys.firstLaunchComplete,
+      false,
+    );
+    const savedView = readStoredString(uiStorageKeys.activeView) as View | null;
+    setView(
+      hasLaunched && savedView && allowedViews.includes(savedView)
+        ? savedView
+        : "overview",
+    );
+    writeStoredBoolean(uiStorageKeys.firstLaunchComplete, true);
 
     setSelectedCompanyId(
       readStoredNumber(
@@ -2804,6 +2823,7 @@ export default function Home() {
   function openView(nextView: View) {
     setView(nextView);
     setMobileNav(false);
+    setGuideOpen(false);
     clearFeedback();
 
     if (
@@ -3282,8 +3302,16 @@ async function handleGenerateBusinessPlan(
     activeView = (
       <SettingsPanel
         theme={theme}
-        onThemeChange={setTheme}
-        onProfileSaved={setProfile}
+        profile={profile}
+        onPreviewAppearance={(nextTheme, accent) => {
+          applyTheme(nextTheme, false);
+          document.documentElement.dataset.accent = accent;
+        }}
+        onSave={(savedProfile, savedTheme) => {
+          applyTheme(savedTheme, true);
+          setProfile(savedProfile);
+          document.documentElement.dataset.accent = savedProfile.accent;
+        }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
       />
     );
@@ -3536,7 +3564,7 @@ async function handleGenerateBusinessPlan(
               className="theme-select"
               aria-label="Appearance"
               value={theme}
-              onChange={(event) => setTheme(event.target.value as ThemePreference)}
+              onChange={(event) => applyTheme(event.target.value as ThemePreference, true)}
             >
               <option value="dark">Dark theme</option>
               <option value="light">Light theme</option>
@@ -3574,6 +3602,16 @@ async function handleGenerateBusinessPlan(
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              className="topbar-help-button"
+              onClick={() => setGuideOpen((current) => !current)}
+              aria-expanded={guideOpen}
+              aria-label="Open GrowthOS Guide"
+              title="GrowthOS Guide"
+            >
+              ?
+            </button>
             <button type="button" className="avatar profile-avatar-button" onClick={() => openView("settings")} title="Open settings">
               {profile.avatarDataUrl ? <img src={profile.avatarDataUrl} alt={profile.name} /> : (profile.name || "Founder").slice(0, 2).toUpperCase()}
             </button>
@@ -3685,9 +3723,6 @@ async function handleGenerateBusinessPlan(
               <button type="button" onClick={() => { openView("cofounder"); setGuideOpen(false); }}>Explore an idea with Research</button>
               <button type="button" onClick={() => { openView("knowledge"); setGuideOpen(false); }}>Analyse documents</button>
             </div>
-          )}
-          {view !== "cofounder" && (
-            <button type="button" className="growthos-guide-trigger" onClick={() => setGuideOpen((current) => !current)} aria-label="Open GrowthOS Guide">{guideOpen ? "×" : "?"}</button>
           )}
         </aside>
       </section>

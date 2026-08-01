@@ -67,6 +67,45 @@ function isImmediateTask(message: string): boolean {
 }
 
 
+const CONTINUE_INSTRUCTION =
+  "Continue the previous response from exactly where it stopped. Do not repeat completed sections.";
+
+function normalizeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
+  const normalized: ChatMessage[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (
+      message.role === "user" &&
+      message.content.trim() === CONTINUE_INSTRUCTION
+    ) {
+      const continuation = messages[index + 1];
+      const previous = normalized[normalized.length - 1];
+      if (
+        continuation?.role === "assistant" &&
+        previous?.role === "assistant"
+      ) {
+        normalized[normalized.length - 1] = {
+          ...previous,
+          content: `${previous.content.trimEnd()}${previous.content.trim() ? "\n\n" : ""}${continuation.content.trimStart()}`,
+          created_at: continuation.created_at,
+        };
+        index += 1;
+      }
+      continue;
+    }
+    normalized.push(message);
+  }
+  return normalized;
+}
+
+function normalizeConversation(detail: ConversationDetail): ConversationDetail {
+  return {
+    ...detail,
+    messages: normalizeConversationMessages(detail.messages),
+  };
+}
+
+
 function mergeConversation(
   conversations: ConversationSummary[],
   conversation: ConversationSummary,
@@ -1353,6 +1392,10 @@ export default function CofounderChat({
   const bottomRef = useRef<HTMLDivElement | null>(
     null,
   );
+  const conversationDrawerRef = useRef<HTMLElement | null>(null);
+  const conversationTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const executiveMenuRef = useRef<HTMLDivElement | null>(null);
+  const executiveTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const [canScrollUp, setCanScrollUp] =
     useState(false);
@@ -1377,6 +1420,40 @@ export default function CofounderChat({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setConversationSidebarCollapsed(true);
+      setExecutiveSelectorOpen(false);
+      setRetryMenuMessageId(null);
+    }
+
+    function closeOnOutsidePointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        !conversationSidebarCollapsed &&
+        !conversationDrawerRef.current?.contains(target) &&
+        !conversationTriggerRef.current?.contains(target)
+      ) {
+        setConversationSidebarCollapsed(true);
+      }
+      if (
+        executiveSelectorOpen &&
+        !executiveMenuRef.current?.contains(target) &&
+        !executiveTriggerRef.current?.contains(target)
+      ) {
+        setExecutiveSelectorOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("mousedown", closeOnOutsidePointer);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("mousedown", closeOnOutsidePointer);
+    };
+  }, [conversationSidebarCollapsed, executiveSelectorOpen]);
 
   const companyId = company?.id ?? null;
 
@@ -1518,7 +1595,7 @@ const executiveIdentity = {
             conversationToOpen.id,
           );
 
-          setActiveConversation(detail);
+          setActiveConversation(normalizeConversation(detail));
 
           writeStoredNumber(
             uiStorageKeys.cofounderConversation(
@@ -2022,7 +2099,7 @@ async function refreshConversationAfterStop(
         lastMessage?.role === "assistant" ||
         delay === 500
       ) {
-        setActiveConversation(detail);
+        setActiveConversation(normalizeConversation(detail));
         setConversations((current) => {
           const selected = current.find(
             (item) => item.id === detail.id,
@@ -2216,7 +2293,7 @@ async function saveDecisionFromMessage(
       const detail = await getConversation(
         conversationId,
       );
-      setActiveConversation(detail);
+      setActiveConversation(normalizeConversation(detail));
       shouldAutoScrollRef.current = true;
       userInterruptedScrollRef.current = false;
 
@@ -2403,7 +2480,7 @@ async function saveDecisionFromMessage(
         message.id,
         revised,
       );
-      setActiveConversation(trimmedConversation);
+      setActiveConversation(normalizeConversation(trimmedConversation));
       setEditingMessageId(null);
       setEditingMessageValue("");
       await sendMessage(revised, trimmedConversation);
@@ -2491,6 +2568,7 @@ async function saveDecisionFromMessage(
   async function sendMessage(
     contentOverride?: string,
     conversationOverride?: ConversationDetail,
+    options?: { internalContinuation?: boolean },
   ) {
     if (!company || sending || stopping) {
       return;
@@ -2567,6 +2645,8 @@ async function saveDecisionFromMessage(
 
     shouldAutoScrollRef.current = true;
     userInterruptedScrollRef.current = false;
+    setConversationSidebarCollapsed(true);
+    setExecutiveSelectorOpen(false);
     setSending(true);
     setFailedMessage(null);
     setDraft("");
@@ -2574,6 +2654,7 @@ async function saveDecisionFromMessage(
       requestDocumentIds,
     );
 
+    const internalContinuation = options?.internalContinuation === true;
     const temporaryUser: ChatMessage = {
       id: -Date.now(),
       conversation_id: conversation.id,
@@ -2594,18 +2675,15 @@ async function saveDecisionFromMessage(
       created_at: new Date().toISOString(),
     };
 
-    setActiveConversation((current) =>
-      current
-        ? {
-            ...current,
-            messages: [
-              ...current.messages,
-              temporaryUser,
-              temporaryAssistant,
-            ],
-          }
-        : current,
-    );
+    setActiveConversation((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        messages: internalContinuation
+          ? [...current.messages, temporaryAssistant]
+          : [...current.messages, temporaryUser, temporaryAssistant],
+      };
+    });
 
     let streamedText = "";
 
@@ -2754,35 +2832,56 @@ async function saveDecisionFromMessage(
               setResolvedExecutiveRole("research");
               setResearchMode(streamEvent.research_project_status !== "planned");
             }
-            setActiveConversation((current) =>
-              current
-                ? {
+            setActiveConversation((current) => {
+              if (!current) return current;
+              if (internalContinuation) {
+                const temporaryIndex = current.messages.findIndex(
+                  (message) => message.id === temporaryAssistant.id,
+                );
+                const previousAssistantIndex = [...current.messages]
+                  .slice(0, temporaryIndex)
+                  .map((message, index) => ({ message, index }))
+                  .reverse()
+                  .find(({ message }) => message.role === "assistant")?.index;
+                if (previousAssistantIndex !== undefined) {
+                  const messages = current.messages.filter(
+                    (message) => message.id !== temporaryAssistant.id,
+                  );
+                  const adjustedIndex =
+                    previousAssistantIndex > temporaryIndex
+                      ? previousAssistantIndex - 1
+                      : previousAssistantIndex;
+                  const previous = messages[adjustedIndex];
+                  messages[adjustedIndex] = {
+                    ...previous,
+                    content: `${previous.content.trimEnd()}${previous.content.trim() ? "\n\n" : ""}${streamEvent.assistant_message.content.trimStart()}`,
+                    created_at: streamEvent.assistant_message.created_at,
+                  };
+                  return {
                     ...current,
-                    updated_at:
-                      streamEvent.assistant_message
-                        .created_at,
-                    message_count:
-                      current.message_count + 2,
-                    messages: current.messages.map(
-                      (message) =>
-                        message.id ===
-                        temporaryAssistant.id
-                          ? {
-                              ...streamEvent.assistant_message,
-                              context_mode:
-                                streamEvent.context_mode,
-                              context_sources:
-                                streamEvent.context_sources,
-                              context_reason:
-                                streamEvent.context_reason,
-                              memory_proposal:
-                                streamEvent.memory_proposal,
-                            }
-                          : message,
-                    ),
-                  }
-                : current,
-            );
+                    updated_at: streamEvent.assistant_message.created_at,
+                    message_count: current.message_count + 2,
+                    messages,
+                  };
+                }
+              }
+              return {
+                ...current,
+                updated_at: streamEvent.assistant_message.created_at,
+                message_count: current.message_count + 2,
+                messages: current.messages.map((message) =>
+                  message.id === temporaryAssistant.id
+                    ? {
+                        ...streamEvent.assistant_message,
+                        context_mode: streamEvent.context_mode,
+                        context_sources: streamEvent.context_sources,
+                        context_reason: streamEvent.context_reason,
+                        memory_proposal: streamEvent.memory_proposal,
+                      }
+                    : message,
+                ),
+              };
+            });
 
             setConversations((current) => {
               const selected = current.find(
@@ -2959,7 +3058,7 @@ async function saveDecisionFromMessage(
 
   return (
     <section className={`cofounder-shell ${conversationSidebarCollapsed ? "conversation-sidebar-collapsed" : ""}`}>
-      <aside className="cofounder-conversation-sidebar" aria-hidden={conversationSidebarCollapsed}>
+      <aside ref={conversationDrawerRef} className="cofounder-conversation-sidebar" aria-hidden={conversationSidebarCollapsed}>
         <header>
           <div>
             <small>Workspace</small>
@@ -3146,6 +3245,7 @@ async function saveDecisionFromMessage(
     <div className="executive-router-actions">
       <button
         type="button"
+        ref={conversationTriggerRef}
         className="conversation-history-button"
         onClick={() => {
           setExecutiveSelectorOpen(false);
@@ -3164,6 +3264,7 @@ async function saveDecisionFromMessage(
       )}
       <button
         type="button"
+        ref={executiveTriggerRef}
         className="team-selector-button"
         onClick={() => {
           setConversationSidebarCollapsed(true);
@@ -3194,7 +3295,7 @@ async function saveDecisionFromMessage(
   </div>
 
   {executiveSelectorOpen && (
-  <div className="executive-role-grid">
+  <div ref={executiveMenuRef} className="executive-role-grid">
     {(
       [
         {
@@ -3623,7 +3724,7 @@ async function saveDecisionFromMessage(
   canContinue={canContinueAfterStop}
   onContinue={() => {
     setCanContinueAfterStop(false);
-    void sendMessage("Continue the previous response from exactly where it stopped. Do not repeat completed sections.");
+    void sendMessage(CONTINUE_INSTRUCTION, undefined, { internalContinuation: true });
   }}
 />
       </div>

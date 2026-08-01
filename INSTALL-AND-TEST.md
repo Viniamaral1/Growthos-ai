@@ -1,30 +1,32 @@
-# Install and test
+# Install and Test
 
-Copy the replacement files into the same paths in your project.
+## Install
 
-## Clean
+Copy the project files over the current GrowthOS project. Preserve your own `.env`, database, and uploaded data.
+
+From the project root in PowerShell:
 
 ```powershell
 Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force .\.pytest_cache -ErrorAction SilentlyContinue
 Get-ChildItem . -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-Get-ChildItem . -Recurse -Include *.pyc,*.pyo | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem . -Recurse -Include *.pyc,*.pyo,*.tsbuildinfo | Remove-Item -Force -ErrorAction SilentlyContinue
 ```
 
-## Start backend
+Backend:
 
 ```powershell
 cd backend
 .\.venv\Scripts\Activate
+pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-On first startup SQLAlchemy creates the two new tables automatically.
-
-## Start frontend
+Frontend:
 
 ```powershell
 cd frontend
+npm install
 npm run dev
 ```
 
@@ -32,20 +34,27 @@ Hard refresh with `Ctrl + Shift + R`.
 
 ## Test order
 
-1. Restart the app. It should open on **Intelligence Dashboard**.
-2. Open **Settings**, change the name, save, return to Dashboard, and confirm the greeting updates.
-3. Upload a profile photo and confirm the top-right avatar updates.
-4. Change accent colour and theme, save, refresh, and confirm persistence.
-5. Open Executive Team. Send a message and use **Capture** beneath the assistant response.
-6. Create a new Knowledge Space called `Meat Farm` from the Capture dialog.
-7. Open **Knowledge Spaces** and confirm the captured message is present.
-8. Capture another message into the existing `Meat Farm` space.
-9. Search inside the space using a word from the captured content.
-10. Attach the same PDF twice in one composer. The second attachment should be rejected.
-11. Attach a PDF already present in the workspace with the same filename and file size. GrowthOS should ask whether to upload another version.
-12. Start generation with an attachment and press Stop. The attachment should remain visible rather than disappearing immediately.
-13. Create a new conversation or select a conversation from history. The history drawer should close.
+1. Clear browser site storage once to simulate a first launch. Confirm Dashboard opens.
+2. Visit Executive Team and refresh. Confirm Executive Team remains open.
+3. Confirm Knowledge appears near the top of the main navigation.
+4. Create a Knowledge Space and refresh.
+5. Capture an assistant message into the space.
+6. Open Settings and change theme/accent. Confirm preview changes before Save.
+7. Click Discard preview. Confirm saved appearance returns.
+8. Preview again and Save. Refresh and confirm persistence.
+9. Change profile name. Save. Confirm dashboard greeting updates.
+10. Open conversation history, click outside, and press Escape. Confirm it closes.
+11. Open Team while history is open. Confirm history closes.
+12. Choose an executive. Confirm Team closes.
+13. Stop a long response and click Continue response. Confirm no visible user instruction is added and text continues beneath the partial response.
+14. Scroll upward during generation. Confirm GrowthOS does not force-scroll back to the bottom.
+15. Confirm the Guide no longer covers dashboard/research controls.
+16. Attach the same PDF twice. Confirm duplicate warning/rejection.
 
-## Important
+## Validation performed in the packaging environment
 
-Email sending, voice, semantic global search, PDF folder export, recurring automation, and true CAG are not included in this release. The new Knowledge Space data model is the foundation for those later capabilities.
+- Python compilation: passed.
+- Conversation orchestrator tests: 7 passed.
+- Syntax parsing for all 17 TypeScript/TSX files: passed.
+- Full FastAPI import was not completed because `fastembed` is not installed in the packaging environment.
+- Full Next.js build was not completed because the available npm registry does not provide one locked dependency (`zod-validation-error@4.0.2`).
