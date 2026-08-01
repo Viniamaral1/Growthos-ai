@@ -71,6 +71,7 @@ function priorityWeight(
 
 export default function IntelligenceDashboard({
   company,
+  displayName,
   documents,
   activeDocument,
   businessPlan,
@@ -80,6 +81,7 @@ export default function IntelligenceDashboard({
   onError,
 }: {
   company: Company | null;
+  displayName: string;
   documents: DocumentRecord[];
   activeDocument: DocumentRecord | null;
   businessPlan: BusinessPlan | null;
@@ -352,7 +354,7 @@ export default function IntelligenceDashboard({
       <header className="dashboard-welcome dashboard-resume-hero">
         <div className="dashboard-ambient-orb" aria-hidden="true" />
         <div>
-          <span>Your next move</span>
+          <span>{greeting()}, {displayName || "Founder"}</span>
           <h1>Continue where you left off</h1>
           {recentConversation ? (
             <>

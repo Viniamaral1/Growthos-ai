@@ -1464,3 +1464,76 @@ export async function deleteResearchProject(
   );
   if (!response.ok) throw new Error(await readError(response));
 }
+
+export type KnowledgeSpace = {
+  id: number;
+  company_id: number;
+  name: string;
+  description: string | null;
+  color: string;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeItem = {
+  id: number;
+  company_id: number;
+  space_id: number;
+  item_type: string;
+  title: string;
+  summary: string;
+  content: string;
+  tags_json: string | null;
+  source_conversation_id: number | null;
+  source_message_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getKnowledgeSpaces(companyId: number): Promise<KnowledgeSpace[]> {
+  const response = await fetch(`${API_URL}/knowledge-spaces?company_id=${companyId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function createKnowledgeSpace(payload: {
+  company_id: number;
+  name: string;
+  description?: string | null;
+  color?: string;
+}): Promise<KnowledgeSpace> {
+  const response = await fetch(`${API_URL}/knowledge-spaces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function captureKnowledgeItem(spaceId: number, payload: {
+  company_id: number;
+  item_type: string;
+  title: string;
+  summary: string;
+  content: string;
+  tags?: string[];
+  source_conversation_id?: number | null;
+  source_message_id?: number | null;
+}): Promise<KnowledgeItem> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/${spaceId}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, space_id: spaceId }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function getKnowledgeItems(spaceId: number, search = ""): Promise<KnowledgeItem[]> {
+  const query = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+  const response = await fetch(`${API_URL}/knowledge-spaces/${spaceId}/items${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

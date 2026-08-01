@@ -29,6 +29,9 @@ import {
   createConversation,
   createExecutiveMemory,
   createDecision,
+  createKnowledgeSpace,
+  captureKnowledgeItem,
+  getKnowledgeSpaces,
   deleteConversation,
   editConversationMessage,
   getConversation,
@@ -45,9 +48,11 @@ import {
   type ConversationDetail,
   type ConversationSummary,
   type DocumentRecord,
+  type DocumentClassification,
   type ExecutiveMemoryProposal,
   type ExecutiveMemoryType,
   type ExecutiveRole,
+  type KnowledgeSpace,
 } from "@/lib/api";
 
 
@@ -311,6 +316,7 @@ function MessageBubble({
   onRegenerate,
   onSaveDecision,
   onSaveMemory,
+  onCaptureKnowledge,
   onFeedback,
   onRetryOption,
   retryMenuOpen,
@@ -334,6 +340,7 @@ function MessageBubble({
   onRegenerate?: () => void;
   onSaveDecision?: () => void;
   onSaveMemory?: () => void;
+  onCaptureKnowledge?: () => void;
   onFeedback?: (
     rating: "useful" | "not_useful",
   ) => void;
@@ -546,6 +553,17 @@ function MessageBubble({
                 <span aria-hidden="true">⧉</span>
                 <strong>Copy</strong>
               </button>
+
+              {onCaptureKnowledge && (
+                <button
+                  type="button"
+                  onClick={onCaptureKnowledge}
+                  title="Capture this message in a Knowledge Space"
+                >
+                  <span aria-hidden="true">▧</span>
+                  <strong>Capture</strong>
+                </button>
+              )}
 
               {onSaveMemory && (
                 <button
@@ -1292,7 +1310,7 @@ export default function CofounderChat({
     useState<ConversationDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [researchMode, setResearchMode] = useState(false);
-  const [conversationSidebarCollapsed, setConversationSidebarCollapsed] = useState(false);
+  const [conversationSidebarCollapsed, setConversationSidebarCollapsed] = useState(true);
   const [executiveSelectorOpen, setExecutiveSelectorOpen] = useState(false);
   const [loadingList, setLoadingList] =
     useState(false);
@@ -1300,6 +1318,7 @@ export default function CofounderChat({
     useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [canContinueAfterStop, setCanContinueAfterStop] = useState(false);
   const [renamingId, setRenamingId] =
     useState<number | null>(null);
   const [renameValue, setRenameValue] =
@@ -1315,6 +1334,12 @@ export default function CofounderChat({
   const [attaching, setAttaching] = useState(false);
   const [attachedDocuments, setAttachedDocuments] =
     useState<ComposerAttachment[]>([]);
+  const [knowledgeSpaces, setKnowledgeSpaces] = useState<KnowledgeSpace[]>([]);
+  const [captureMessage, setCaptureMessage] = useState<ChatMessage | null>(null);
+  const [captureSpaceId, setCaptureSpaceId] = useState<number | null>(null);
+  const [captureNewSpace, setCaptureNewSpace] = useState("");
+  const [captureType, setCaptureType] = useState("note");
+  const [capturingKnowledge, setCapturingKnowledge] = useState(false);
   const [retryMenuMessageId, setRetryMenuMessageId] =
     useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] =
@@ -1354,6 +1379,21 @@ export default function CofounderChat({
   }, [onError]);
 
   const companyId = company?.id ?? null;
+
+  useEffect(() => {
+    if (companyId === null) {
+      setKnowledgeSpaces([]);
+      return;
+    }
+    getKnowledgeSpaces(companyId)
+      .then((spaces) => {
+        setKnowledgeSpaces(spaces);
+        setCaptureSpaceId((current) => current ?? spaces[0]?.id ?? null);
+      })
+      .catch(() => {
+        // Knowledge capture remains optional if the endpoint is unavailable.
+      });
+  }, [companyId]);
 
   const readyDocuments = documents.filter(
     (document) =>
@@ -1579,11 +1619,10 @@ const executiveIdentity = {
     if (
       sending &&
       shouldAutoScrollRef.current &&
-      !userInterruptedScrollRef.current &&
-      container
+      !userInterruptedScrollRef.current
     ) {
-      container.scrollTo({
-        top: container.scrollHeight,
+      bottomRef.current?.scrollIntoView({
+        block: "end",
         behavior: "auto",
       });
     }
@@ -1718,13 +1757,41 @@ async function attachFiles(
     return;
   }
 
-  const pdfFiles = files.filter(
+  const candidatePdfFiles = files.filter(
     (file) =>
       file.type === "application/pdf" ||
       file.name.toLowerCase().endsWith(".pdf"),
   );
 
-  if (pdfFiles.length !== files.length) {
+  const pdfFiles: File[] = [];
+  for (const file of candidatePdfFiles) {
+    const duplicateInComposer = attachedDocuments.some(
+      (attachment) => attachment.fileName.toLowerCase() === file.name.toLowerCase(),
+    );
+    const duplicateInWorkspace = documents.some(
+      (document) =>
+        document.original_filename.toLowerCase() === file.name.toLowerCase() &&
+        document.file_size === file.size,
+    );
+
+    if (duplicateInComposer) {
+      onError(`${file.name} is already attached to this message.`);
+      continue;
+    }
+
+    if (duplicateInWorkspace) {
+      const uploadAgain = window.confirm(
+        `${file.name} already exists in this workspace with the same file size.\n\nChoose OK to upload it as another version, or Cancel to use the existing file.`,
+      );
+      if (!uploadAgain) {
+        continue;
+      }
+    }
+
+    pdfFiles.push(file);
+  }
+
+  if (candidatePdfFiles.length !== files.length) {
     onError(
       "Only PDF files are supported in this release. Unsupported files were skipped.",
     );
@@ -2027,6 +2094,7 @@ async function stopGenerating() {
       streamControllerRef.current.stop();
     }
 
+    setCanContinueAfterStop(hasPartialText);
     onSuccess(
       hasPartialText
         ? "Generation stopped. The partial response was kept."
@@ -2129,6 +2197,7 @@ async function saveDecisionFromMessage(
         mergeConversation(current, created),
       );
       setDraft("");
+      setConversationSidebarCollapsed(true);
     } catch (error) {
       onError(
         error instanceof Error
@@ -2165,6 +2234,7 @@ async function saveDecisionFromMessage(
       }
 
       setAttachedDocuments([]);
+      setConversationSidebarCollapsed(true);
     } catch (error) {
       onError(
         error instanceof Error
@@ -2378,6 +2448,46 @@ async function saveDecisionFromMessage(
     }
   }
 
+  async function saveCapturedKnowledge() {
+    if (!company || !activeConversation || !captureMessage) return;
+    setCapturingKnowledge(true);
+    try {
+      let spaceId = captureSpaceId;
+      if (captureNewSpace.trim()) {
+        const created = await createKnowledgeSpace({
+          company_id: company.id,
+          name: captureNewSpace.trim(),
+          description: "Created from an Executive Team conversation.",
+          color: "cyan",
+        });
+        setKnowledgeSpaces((current) => [created, ...current]);
+        spaceId = created.id;
+      }
+      if (!spaceId) {
+        onError("Choose an existing Knowledge Space or create a new one.");
+        return;
+      }
+      const firstLine = captureMessage.content.split("\n").map((line) => line.replace(/^#+\s*/, "").trim()).find(Boolean) ?? "Captured conversation knowledge";
+      await captureKnowledgeItem(spaceId, {
+        company_id: company.id,
+        item_type: captureType,
+        title: firstLine.slice(0, 200),
+        summary: captureMessage.content.slice(0, 1200),
+        content: captureMessage.content,
+        tags: [],
+        source_conversation_id: activeConversation.id,
+        source_message_id: captureMessage.id > 0 ? captureMessage.id : null,
+      });
+      setCaptureMessage(null);
+      setCaptureNewSpace("");
+      onSuccess("Captured in Knowledge Spaces.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The message could not be captured.");
+    } finally {
+      setCapturingKnowledge(false);
+    }
+  }
+
   async function sendMessage(
     contentOverride?: string,
     conversationOverride?: ConversationDetail,
@@ -2463,7 +2573,6 @@ async function saveDecisionFromMessage(
     setActiveRequestDocumentIds(
       requestDocumentIds,
     );
-    setAttachedDocuments([]);
 
     const temporaryUser: ChatMessage = {
       id: -Date.now(),
@@ -2640,6 +2749,7 @@ async function saveDecisionFromMessage(
           }
 
           if (streamEvent.type === "done") {
+            setAttachedDocuments([]);
             if (streamEvent.research_project_id) {
               setResolvedExecutiveRole("research");
               setResearchMode(streamEvent.research_project_status !== "planned");
@@ -2701,6 +2811,7 @@ async function saveDecisionFromMessage(
           }
 
           if (streamEvent.type === "cancelled") {
+            setCanContinueAfterStop(true);
             if (streamEvent.assistant_message) {
               setActiveConversation((current) =>
                 current
@@ -3019,19 +3130,6 @@ async function saveDecisionFromMessage(
       </aside>
 
       <div className="cofounder-chat-panel">
-        <button
-          type="button"
-          className="conversation-sidebar-toggle"
-          onClick={() => {
-            setExecutiveSelectorOpen(false);
-            setConversationSidebarCollapsed((current) => !current);
-          }}
-          aria-label={conversationSidebarCollapsed ? "Show conversations" : "Hide conversations"}
-          title={conversationSidebarCollapsed ? "Show conversations" : "Focus mode"}
-        >
-          {conversationSidebarCollapsed ? "☰" : "‹"}
-        </button>
-
 <section className="executive-team-selector">
   <div className="executive-team-intro">
     <span className="executive-team-mark">
@@ -3046,6 +3144,19 @@ async function saveDecisionFromMessage(
     </div>
 
     <div className="executive-router-actions">
+      <button
+        type="button"
+        className="conversation-history-button"
+        onClick={() => {
+          setExecutiveSelectorOpen(false);
+          setConversationSidebarCollapsed((current) => !current);
+        }}
+        aria-expanded={!conversationSidebarCollapsed}
+        aria-label={conversationSidebarCollapsed ? "Open conversation history" : "Close conversation history"}
+        title="Conversation history"
+      >
+        ☰
+      </button>
       {executiveRole === "auto" && (
         <span className="executive-router-status">
           {resolvedExecutiveRole.toUpperCase()}
@@ -3175,64 +3286,43 @@ async function saveDecisionFromMessage(
 </section>
 
         <header className="cofounder-chat-header">
-          <div>
-            <small>GrowthOS Executive Team</small>
-            <h1>
-              {activeConversation?.title ??
-                "Start a new conversation"}
-            </h1>
-            <p>
-              {executiveIdentity.name} guidance powered by the
-              shared Business Brain, Smart Context Builder, and
-              selected evidence.
-            </p>
+          <div className="conversation-heading">
+            <small>{executiveIdentity.name}</small>
+            <h1>{activeConversation?.title ?? "New conversation"}</h1>
           </div>
 
-          <div className="cofounder-scope-controls">
-            <label>
-              <input
-                id="cofounder-search-all"
-                name="cofounder-search-all"
-                type="checkbox"
-                checked={useAllDocuments}
-                onChange={(event) =>
-                  onScopeChange(
-                    event.target.checked,
-                  )
-                }
-              />
-              Search all intelligence
-            </label>
-
-            {!useAllDocuments && (
-              <select
-                id="cofounder-document-scope"
-                name="cofounder-document-scope"
-                value={activeDocumentId ?? ""}
-                onChange={(event) =>
-                  onDocumentChange(
-                    event.target.value
-                      ? Number(
-                          event.target.value,
-                        )
-                      : null,
-                  )
-                }
-              >
-                <option value="">
-                  Workspace and plan only
-                </option>
-                {readyDocuments.map((document) => (
-                  <option
-                    key={document.id}
-                    value={document.id}
-                  >
-                    {document.original_filename}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+          <details className="chat-context-menu">
+            <summary>Context</summary>
+            <div>
+              <label>
+                <input
+                  id="cofounder-search-all"
+                  name="cofounder-search-all"
+                  type="checkbox"
+                  checked={useAllDocuments}
+                  onChange={(event) => onScopeChange(event.target.checked)}
+                />
+                Search all intelligence
+              </label>
+              {!useAllDocuments && (
+                <select
+                  id="cofounder-document-scope"
+                  name="cofounder-document-scope"
+                  value={activeDocumentId ?? ""}
+                  onChange={(event) =>
+                    onDocumentChange(event.target.value ? Number(event.target.value) : null)
+                  }
+                >
+                  <option value="">Workspace only</option>
+                  {readyDocuments.map((document) => (
+                    <option key={document.id} value={document.id}>
+                      {document.original_filename}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </details>
         </header>
 
         <div
@@ -3327,6 +3417,10 @@ async function saveDecisionFromMessage(
                         }
                       : undefined
                   }
+                  onCaptureKnowledge={() => {
+                    setCaptureMessage(message);
+                    setCaptureSpaceId(knowledgeSpaces[0]?.id ?? null);
+                  }}
                   onMemorySaved={() => {
                     setActiveConversation((current) =>
                       current
@@ -3487,6 +3581,20 @@ async function saveDecisionFromMessage(
         )}
 
 
+{captureMessage && (
+  <div className="capture-knowledge-backdrop" role="presentation" onMouseDown={() => setCaptureMessage(null)}>
+    <section className="capture-knowledge-dialog" role="dialog" aria-modal="true" aria-label="Capture knowledge" onMouseDown={(event) => event.stopPropagation()}>
+      <header><div><span>▧</span><div><strong>Capture Knowledge</strong><small>Save this message by subject, not only by chat.</small></div></div><button type="button" onClick={() => setCaptureMessage(null)}>×</button></header>
+      <label>Type<select value={captureType} onChange={(event) => setCaptureType(event.target.value)}><option value="note">Note</option><option value="idea">Idea</option><option value="email">Email</option><option value="research">Research</option><option value="decision">Decision</option><option value="strategy">Strategy</option><option value="task">Task</option></select></label>
+      <label>Existing Knowledge Space<select value={captureSpaceId ?? ""} onChange={(event) => setCaptureSpaceId(event.target.value ? Number(event.target.value) : null)}><option value="">Choose a space…</option>{knowledgeSpaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label>
+      <div className="capture-or"><span />or<span /></div>
+      <label>Create new subject<input value={captureNewSpace} onChange={(event) => setCaptureNewSpace(event.target.value)} placeholder="e.g. Meat Farm" /></label>
+      <blockquote>{captureMessage.content.slice(0, 420)}{captureMessage.content.length > 420 ? "…" : ""}</blockquote>
+      <footer><button type="button" className="subtle" onClick={() => setCaptureMessage(null)}>Cancel</button><button type="button" onClick={() => void saveCapturedKnowledge()} disabled={capturingKnowledge || (!captureSpaceId && captureNewSpace.trim().length < 2)}>{capturingKnowledge ? "Saving…" : "Capture"}</button></footer>
+    </section>
+  </div>
+)}
+
 <ExecutiveComposer
   draft={draft}
   sending={sending || stopping}
@@ -3512,6 +3620,11 @@ async function saveDecisionFromMessage(
         }}
   researchMode={researchMode}
   onResearchModeChange={setResearchMode}
+  canContinue={canContinueAfterStop}
+  onContinue={() => {
+    setCanContinueAfterStop(false);
+    void sendMessage("Continue the previous response from exactly where it stopped. Do not repeat completed sections.");
+  }}
 />
       </div>
 

@@ -7,6 +7,9 @@ import ExecutiveMemoryPanel from "@/app/components/ExecutiveMemoryPanel";
 import ResearchEngine from "@/app/components/ResearchEngine";
 import StartupStatus from "@/app/components/StartupStatus";
 import Toast from "@/app/components/Toast";
+import SettingsPanel from "@/app/components/SettingsPanel";
+import KnowledgeSpacesPanel from "@/app/components/KnowledgeSpacesPanel";
+import { defaultProfile, readProfile, type GrowthOSProfile } from "@/lib/profile";
 
 import {
   useEffect,
@@ -56,7 +59,9 @@ type View =
   | "cofounder"
   | "decisions"
   | "research"
-  | "memory";
+  | "memory"
+  | "spaces"
+  | "settings";
 
 type ThemePreference = "light" | "dark";
 
@@ -170,6 +175,8 @@ const navItems: Array<{
   { id: "marketing", label: "Marketing Studio", icon: "◈" },
   { id: "plan", label: "Business Plan", icon: "▥" },
   { id: "companies", label: "Workspaces", icon: "▦" },
+  { id: "spaces", label: "Knowledge Spaces", icon: "▧" },
+  { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
 function cx(
@@ -2437,6 +2444,7 @@ export default function Home() {
   const [manualLocation, setManualLocation] =
     useState("");
   const [guideOpen, setGuideOpen] = useState(false);
+  const [profile, setProfile] = useState<GrowthOSProfile>(defaultProfile);
 
   const [companies, setCompanies] =
     useState<Company[]>([]);
@@ -2500,6 +2508,10 @@ export default function Home() {
     const preferredTheme: ThemePreference = storedTheme === "light" ? "light" : "dark";
     setTheme(preferredTheme);
 
+    const loadedProfile = readProfile();
+    setProfile(loadedProfile);
+    document.documentElement.dataset.accent = loadedProfile.accent;
+
     const storedLocation = window.localStorage.getItem("growthos-location");
     if (storedLocation) {
       try {
@@ -2543,29 +2555,8 @@ export default function Home() {
   }
 
   useEffect(() => {
-    const storedView = readStoredString(
-      uiStorageKeys.activeView,
-    ) as View | null;
-
-    const validViews: View[] = [
-      "overview",
-      "knowledge",
-      "assistant",
-      "marketing",
-      "companies",
-      "plan",
-      "cofounder",
-      "research",
-      "decisions",
-      "memory",
-    ];
-
-    if (
-      storedView !== null &&
-      validViews.includes(storedView)
-    ) {
-      setView(storedView);
-    }
+    // Always land on the dashboard. Previous work is resumed explicitly from dashboard cards.
+    setView("overview");
 
     setSelectedCompanyId(
       readStoredNumber(
@@ -3279,6 +3270,23 @@ async function handleGenerateBusinessPlan(
         }}
       />
     );
+  } else if (view === "spaces") {
+    activeView = (
+      <KnowledgeSpacesPanel
+        company={selectedCompany}
+        onError={(feedback) => { setMessage(""); setError(feedback); }}
+        onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
+      />
+    );
+  } else if (view === "settings") {
+    activeView = (
+      <SettingsPanel
+        theme={theme}
+        onThemeChange={setTheme}
+        onProfileSaved={setProfile}
+        onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
+      />
+    );
   } else if (view === "research") {
     activeView = (
       <ResearchEngine
@@ -3345,6 +3353,7 @@ async function handleGenerateBusinessPlan(
     activeView = (
       <IntelligenceDashboard
         company={selectedCompany}
+        displayName={profile.name}
         documents={documents}
         activeDocument={activeDocument}
         businessPlan={businessPlan}
@@ -3451,7 +3460,6 @@ async function handleGenerateBusinessPlan(
               onClick={() => openView(item.id)}
               aria-label={item.label}
               data-tooltip={item.label}
-              title={navigationCollapsed ? item.label : undefined}
             >
               <span>{item.icon}</span>
               <strong>{item.label}</strong>
@@ -3566,7 +3574,9 @@ async function handleGenerateBusinessPlan(
                 ))}
               </select>
             </label>
-            <span className="avatar">VA</span>
+            <button type="button" className="avatar profile-avatar-button" onClick={() => openView("settings")} title="Open settings">
+              {profile.avatarDataUrl ? <img src={profile.avatarDataUrl} alt={profile.name} /> : (profile.name || "Founder").slice(0, 2).toUpperCase()}
+            </button>
           </div>
         </header>
 
@@ -3666,7 +3676,7 @@ async function handleGenerateBusinessPlan(
           {view !== "cofounder" && activeView}
         </div>
 
-        <aside className={cx("growthos-guide", guideOpen && "open")}>
+        <aside className={cx("growthos-guide", view === "cofounder" && "cofounder-guide", guideOpen && "open")}>
           {guideOpen && (
             <div className="growthos-guide-panel">
               <header><span>✦</span><div><strong>GrowthOS Guide</strong><small>Here when you need direction</small></div></header>
@@ -3676,7 +3686,9 @@ async function handleGenerateBusinessPlan(
               <button type="button" onClick={() => { openView("knowledge"); setGuideOpen(false); }}>Analyse documents</button>
             </div>
           )}
-          <button type="button" className="growthos-guide-trigger" onClick={() => setGuideOpen((current) => !current)} aria-label="Open GrowthOS Guide">{guideOpen ? "×" : "?"}</button>
+          {view !== "cofounder" && (
+            <button type="button" className="growthos-guide-trigger" onClick={() => setGuideOpen((current) => !current)} aria-label="Open GrowthOS Guide">{guideOpen ? "×" : "?"}</button>
+          )}
         </aside>
       </section>
     </main>

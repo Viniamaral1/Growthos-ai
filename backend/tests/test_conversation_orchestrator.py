@@ -55,6 +55,17 @@ class ConversationOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.intent, "utility")
         self.assertFalse(result.use_workspace_context)
 
+    def test_weather_with_location_is_utility(self):
+        result = self.decision(
+            "What is the weather in London today?",
+            active_research=True,
+            active_research_status="discovery",
+            explicit_research_mode=True,
+        )
+        self.assertEqual(result.intent, "utility")
+        self.assertTrue(result.detach_active_research)
+        self.assertFalse(result.use_workspace_context)
+
     def test_short_answer_continues_discovery(self):
         result = self.decision(
             "It is a mobile app for independent restaurants.",

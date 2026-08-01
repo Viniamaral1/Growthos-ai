@@ -38,8 +38,9 @@ _WRITING = re.compile(
     re.I,
 )
 _UTILITY = re.compile(
-    r"\b(?:what(?:'s| is) the weather|weather (?:today|tomorrow|forecast)|current time|what time is it|"
-    r"calculate|convert|translate)\b",
+    r"\b(?:what(?:'s| is) the weather|what(?:'s| is) the temperature|"
+    r"weather(?: today| tomorrow| forecast| in| for)?|forecast(?: in| for)?|temperature(?: in| for)?|"
+    r"current time|what time is it|calculate|convert|translate)\b",
     re.I,
 )
 _VAGUE_IDEA = re.compile(r"^(?:i have an idea|i've got an idea|i have a new idea)[.! ]*$", re.I)

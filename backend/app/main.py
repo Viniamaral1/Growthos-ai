@@ -25,6 +25,9 @@ from app.api.routes.health import (
 from app.api.routes.executive_memories import (
     router as executive_memories_router,
 )
+from app.api.routes.knowledge_spaces import (
+    router as knowledge_spaces_router,
+)
 from app.api.routes.marketing import (
     router as marketing_router,
 )
@@ -61,6 +64,8 @@ from app.models.research_project import ResearchProject
 from app.models.research_evidence import ResearchEvidence
 from app.models.response_feedback import ResponseFeedback
 from app.models.executive_memory import ExecutiveMemory
+from app.models.knowledge_space import KnowledgeSpace
+from app.models.knowledge_item import KnowledgeItem
 
 
 def create_app() -> FastAPI:
@@ -84,7 +89,7 @@ def create_app() -> FastAPI:
             "business workspaces, company knowledge, grounded "
             "answers, and evidence-based marketing."
         ),
-        version="3.4.1",
+        version="5.2.0",
     )
 
     application.add_middleware(
@@ -160,6 +165,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         executive_memories_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        knowledge_spaces_router,
         prefix="/api/v1",
     )
 

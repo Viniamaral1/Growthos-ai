@@ -22,6 +22,8 @@ export default function ExecutiveComposer({
   onStop,
   researchMode,
   onResearchModeChange,
+  canContinue,
+  onContinue,
 }: {
   draft: string;
   sending: boolean;
@@ -34,51 +36,36 @@ export default function ExecutiveComposer({
   onStop: () => void;
   researchMode: boolean;
   onResearchModeChange: (value: boolean) => void;
+  canContinue: boolean;
+  onContinue: () => void;
 }) {
-  const inputRef =
-    useRef<HTMLInputElement | null>(null);
-  const textareaRef =
-    useRef<HTMLTextAreaElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   function selectFiles() {
     inputRef.current?.click();
   }
 
-  function handleKeyDown(
-    event: KeyboardEvent<HTMLTextAreaElement>,
-  ) {
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Escape" && sending) {
       event.preventDefault();
       onStop();
       return;
     }
 
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !sending
-    ) {
+    if (event.key === "Enter" && !event.shiftKey && !sending) {
       event.preventDefault();
       onSend();
     }
   }
 
-  const canSend =
-    draft.trim().length >= 2 ||
-    attachments.length > 0;
+  const canSend = draft.trim().length >= 2 || attachments.length > 0;
 
   return (
     <form
       className="cofounder-composer executive-composer"
       onSubmit={(event) => {
         event.preventDefault();
-
-        if (sending) {
-          onStop();
-          return;
-        }
-
-        onSend();
+        sending ? onStop() : onSend();
       }}
       onDragOver={(event) => {
         event.preventDefault();
@@ -86,14 +73,8 @@ export default function ExecutiveComposer({
       }}
       onDrop={(event) => {
         event.preventDefault();
-
-        const files = Array.from(
-          event.dataTransfer.files,
-        );
-
-        if (files.length > 0) {
-          onAttachFiles(files);
-        }
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length > 0) onAttachFiles(files);
       }}
     >
       <input
@@ -105,52 +86,30 @@ export default function ExecutiveComposer({
         multiple
         hidden
         onChange={(event) => {
-          const files = Array.from(
-            event.target.files ?? [],
-          );
-
-          if (files.length > 0) {
-            onAttachFiles(files);
-          }
-
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) onAttachFiles(files);
           event.currentTarget.value = "";
         }}
       />
 
-      <AttachmentBar
-        attachments={attachments}
-        attaching={attaching}
-        disabled={sending}
-        onChooseFiles={selectFiles}
-        onRemove={onRemoveAttachment}
-      />
-
-      <div className="composer-intent-tools">
-        <button
-          type="button"
-          className={researchMode ? "research-mode-toggle active" : "research-mode-toggle"}
-          aria-pressed={researchMode}
+      {attachments.length > 0 && (
+        <AttachmentBar
+          attachments={attachments}
+          attaching={attaching}
           disabled={sending}
-          onClick={() => onResearchModeChange(!researchMode)}
-          title="Turn an early idea or open question into a guided research conversation"
-        >
-          <span>⌕</span>
-          {researchMode ? "Research active" : "Explore idea"}
-        </button>
-        {researchMode && (
-          <button
-            type="button"
-            className="exit-research-button"
-            disabled={sending}
-            onClick={() => onResearchModeChange(false)}
-          >
-            ← Exit research
-          </button>
-        )}
-      </div>
+          onChooseFiles={selectFiles}
+          onRemove={onRemoveAttachment}
+        />
+      )}
+
+      {canContinue && !sending && (
+        <div className="composer-resume-row" role="status">
+          <span>The previous reply was stopped.</span>
+          <button type="button" onClick={onContinue}>Continue response</button>
+        </div>
+      )}
 
       <textarea
-        ref={textareaRef}
         id="cofounder-message"
         name="cofounder-message"
         autoComplete="off"
@@ -158,42 +117,64 @@ export default function ExecutiveComposer({
         onChange={(event) => {
           onDraftChange(event.target.value);
           event.currentTarget.style.height = "auto";
-          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
+          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 200)}px`;
         }}
         onKeyDown={handleKeyDown}
         placeholder={
           attachments.length > 0
-            ? "Ask a question about the attached documents, or press Send for an automatic review..."
+            ? "Ask about the attached documents…"
             : researchMode
-              ? "Describe an idea, opportunity, question, or problem — even if it is still vague..."
-              : "Message your Executive Team..."
+              ? "Describe the idea or answer the current question…"
+              : "Message GrowthOS…"
         }
         rows={3}
-        disabled={false}
       />
 
       <footer>
-        <span>
-          Enter to send · Shift + Enter for a new line
-          {sending ? " · Esc to stop" : ""}
-        </span>
+        <div className="composer-left-actions">
+          <button
+            type="button"
+            className="composer-icon-button"
+            disabled={sending || attaching}
+            onClick={selectFiles}
+            aria-label="Attach PDFs"
+            title="Attach PDFs"
+          >
+            ⎘
+          </button>
+          <button
+            type="button"
+            className={researchMode ? "research-mode-toggle active" : "research-mode-toggle"}
+            aria-pressed={researchMode}
+            disabled={sending}
+            onClick={() => onResearchModeChange(!researchMode)}
+            title="Guided research"
+          >
+            ⌕ <span>{researchMode ? "Research" : "Explore"}</span>
+          </button>
+          {researchMode && (
+            <button
+              type="button"
+              className="exit-research-button"
+              disabled={sending}
+              onClick={() => onResearchModeChange(false)}
+            >
+              Exit
+            </button>
+          )}
+        </div>
 
-        <button
-          type={sending ? "button" : "submit"}
-          className={
-            sending
-              ? "stop-generation-button"
-              : undefined
-          }
-          disabled={!sending && !canSend}
-          onClick={
-            sending
-              ? onStop
-              : undefined
-          }
-        >
-          {sending ? "■ Stop" : "Send →"}
-        </button>
+        <div className="composer-send-area">
+          <span>Enter to send · Shift+Enter for a new line</span>
+          <button
+            type={sending ? "button" : "submit"}
+            className={sending ? "stop-generation-button" : "send-message-button"}
+            disabled={!sending && !canSend}
+            onClick={sending ? onStop : undefined}
+          >
+            {sending ? "■ Stop" : "Send ↑"}
+          </button>
+        </div>
       </footer>
     </form>
   );
