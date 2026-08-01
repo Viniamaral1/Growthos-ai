@@ -1,8 +1,7 @@
-"""Deterministic first-pass conversation orchestration.
+"""Deterministic conversation orchestration before specialist prompts.
 
-This layer runs before executive personas or research prompts. Its job is not to
-answer the user; it prevents stale project state from contaminating unrelated
-requests and gives each specialist a clean, explicit task.
+High-risk task switches are classified here so workspace context, research
+state, and executive personas cannot contaminate unrelated requests.
 """
 from __future__ import annotations
 
@@ -11,7 +10,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 Intent = Literal[
+    "greeting",
     "direct_writing",
+    "utility",
     "research_start",
     "research_continue",
     "resume_research",
@@ -30,99 +31,113 @@ class OrchestrationDecision:
     reason: str
 
 
+_GREETING = re.compile(r"^(?:hi|hello|hey|good (?:morning|afternoon|evening))[!. ]*$", re.I)
 _WRITING = re.compile(
-    r"\b(?:write|draft|compose|rewrite|prepare|create)\b.{0,80}"
-    r"\b(?:email|letter|message|reply|response|proposal|post|caption|summary|memo|notice)\b",
+    r"\b(?:write|draft|compose|rewrite|prepare|create|polish|improve)\b.{0,120}"
+    r"\b(?:email|letter|message|reply|response|proposal|post|caption|summary|memo|notice|script|copy|bio|description)\b",
     re.I,
 )
+_UTILITY = re.compile(
+    r"\b(?:what(?:'s| is) the weather|weather (?:today|tomorrow|forecast)|current time|what time is it|"
+    r"calculate|convert|translate)\b",
+    re.I,
+)
+_VAGUE_IDEA = re.compile(r"^(?:i have an idea|i've got an idea|i have a new idea)[.! ]*$", re.I)
 _RESEARCH_START = re.compile(
-    r"\b(?:i have an idea|i've got an idea|help me (?:research|explore|validate|investigate)|"
-    r"research whether|compare (?:providers|options|suppliers|products)|find (?:the )?best)\b",
+    r"\b(?:help me (?:research|explore|validate|investigate|compare)|research whether|"
+    r"compare (?:courier|delivery|provider|supplier|product|option|company|service)s?|"
+    r"find (?:the )?best (?:courier|delivery|provider|supplier|option)|"
+    r"feasibility (?:study|analysis)|i have an idea|i've got an idea|"
+    r"is (?:this|it) worth pursuing|could this (?:idea|business|project)? ?work)\b",
     re.I,
 )
 _RESUME = re.compile(
-    r"\b(?:continue|resume|go back to|return to|pick up)\b.{0,50}\b(?:idea|research|project|plan)\b",
+    r"\b(?:continue|resume|go back to|return to|pick up)\b.{0,80}\b(?:idea|research|project|plan)\b",
     re.I,
 )
-_EXIT = re.compile(r"\b(?:exit|stop|cancel|leave)\s+research\b|\bchange topic\b", re.I)
-_NEW_TOPIC = re.compile(r"\b(?:new question|different question|another task|separate task)\b", re.I)
+_EXIT = re.compile(
+    r"\b(?:exit|stop|cancel|leave)\s+research\b|"
+    r"\b(?:change topic|new question|different question|another task|separate task)\b",
+    re.I,
+)
+_QUESTION_START = re.compile(
+    r"^(?:what|why|how|when|where|who|which|can|could|would|should|is|are|do|does|please|tell|explain|show|list|check)\b",
+    re.I,
+)
 
 
-def decide(message: str, *, active_research: bool, explicit_research_mode: bool) -> OrchestrationDecision:
+def _looks_like_discovery_answer(text: str) -> bool:
+    if not text or _GREETING.fullmatch(text):
+        return False
+    if text.endswith("?") or _QUESTION_START.match(text):
+        return False
+    return len(text.split()) <= 60
+
+
+def decide(
+    message: str,
+    *,
+    active_research: bool,
+    paused_research: bool = False,
+    explicit_research_mode: bool,
+    active_research_status: str | None = None,
+) -> OrchestrationDecision:
     text = " ".join((message or "").split()).strip()
+
+    if _GREETING.fullmatch(text):
+        return OrchestrationDecision("greeting", False, False, False, "general", "Simple greeting.")
 
     if _WRITING.search(text):
         return OrchestrationDecision(
-            intent="direct_writing",
-            continue_active_research=False,
-            detach_active_research=active_research,
-            use_workspace_context=False,
-            specialist="writer",
-            reason="The user requested an immediate written deliverable.",
+            "direct_writing", False, active_research, False, "writer",
+            "Immediate writing deliverable requested; pause research and isolate this turn.",
         )
 
-    if _EXIT.search(text) or _NEW_TOPIC.search(text):
+    if _UTILITY.search(text):
         return OrchestrationDecision(
-            intent="exit_research",
-            continue_active_research=False,
-            detach_active_research=active_research,
-            use_workspace_context=False,
-            specialist="general",
-            reason="The user explicitly changed or exited the active topic.",
+            "utility", False, active_research, False, "general",
+            "Utility/current-information request must not inherit business or research context.",
+        )
+
+    if _EXIT.search(text):
+        return OrchestrationDecision(
+            "exit_research", False, active_research, False, "general",
+            "The user explicitly exited or changed the active topic.",
         )
 
     if _RESUME.search(text):
+        available = active_research or paused_research
         return OrchestrationDecision(
-            intent="resume_research",
-            continue_active_research=active_research,
-            detach_active_research=False,
-            use_workspace_context=True,
-            specialist="research",
-            reason="The user explicitly asked to resume existing work.",
+            "resume_research", available, False, False,
+            "research" if available else "general",
+            "The user explicitly asked to resume saved research." if available else "No saved research is available.",
+        )
+
+    if _VAGUE_IDEA.fullmatch(text):
+        return OrchestrationDecision(
+            "research_start", True, active_research, False, "research",
+            "A new unspecified idea starts in isolation from the active workspace.",
         )
 
     if _RESEARCH_START.search(text):
-        # A vague new idea is intentionally isolated from the workspace. This
-        # prevents an active company profile from silently becoming the idea.
-        vague_new_idea = bool(re.fullmatch(r"(?:i have an idea|i've got an idea)[.!?]*", text, re.I))
         return OrchestrationDecision(
-            intent="research_start",
-            continue_active_research=True,
-            detach_active_research=active_research and vague_new_idea,
-            use_workspace_context=not vague_new_idea,
-            specialist="research",
-            reason="The user asked to explore or research a topic.",
+            "research_start", True, active_research, False, "research",
+            "The user explicitly requested exploration, comparison, or research.",
         )
 
     if active_research and explicit_research_mode:
         return OrchestrationDecision(
-            intent="research_continue",
-            continue_active_research=True,
-            detach_active_research=False,
-            use_workspace_context=True,
-            specialist="research",
-            reason="Research mode is explicit and the message is not a direct task switch.",
+            "research_continue", True, False, False, "research",
+            "Research mode is explicitly active.",
         )
 
-    if active_research:
-        # Do not make research sticky in Auto mode. A plain message is handled
-        # as a normal task unless it explicitly resumes or answers discovery.
-        # Short natural answers are allowed to continue the current interview.
-        looks_like_answer = len(text.split()) <= 35 and not text.endswith("?")
+    if active_research and active_research_status == "discovery" and _looks_like_discovery_answer(text):
         return OrchestrationDecision(
-            intent="research_continue" if looks_like_answer else "general",
-            continue_active_research=looks_like_answer,
-            detach_active_research=not looks_like_answer,
-            use_workspace_context=looks_like_answer,
-            specialist="research" if looks_like_answer else "general",
-            reason="A concise answer continues discovery; otherwise Auto mode starts a clean task.",
+            "research_continue", True, False, False, "research",
+            "The message is a concise answer to the current discovery question.",
         )
 
     return OrchestrationDecision(
-        intent="general",
-        continue_active_research=False,
-        detach_active_research=False,
-        use_workspace_context=True,
-        specialist="general",
-        reason="No specialist workflow was required.",
+        "general", False, active_research, True, "general",
+        "A standalone task starts cleanly outside guided research.",
     )

@@ -1,0 +1,53 @@
+GrowthOS Conversation Core - inspected update
+Date: 2026-07-31
+
+ACTUAL CODE CHANGES
+
+1. backend/app/services/conversation_orchestrator.py
+- Replaced the earlier sticky short-message routing rule.
+- Direct writing requests now interrupt research.
+- A bare "I have an idea" starts a new isolated discovery task.
+- Unrelated questions and commands pause active research in Auto mode.
+- Greetings no longer count as research answers.
+- Explicit research mode still continues the active discovery workflow.
+- Added explicit paused-research awareness for resume requests.
+
+2. backend/app/models/conversation.py
+- Added paused_research_project_id.
+
+3. backend/app/database/workspace_migration.py
+- Added a non-destructive SQLite migration for paused_research_project_id.
+
+4. backend/app/api/routes/conversations.py
+- Reads active and paused research state before routing.
+- Pauses an active research project rather than losing it.
+- Restores paused research when the user explicitly asks to resume.
+- Removes research chat history from a clean task switch so old discovery
+  messages cannot contaminate the new response.
+
+5. frontend/app/components/CofounderChat.tsx
+- Added a visible "Reset to Auto" control.
+- It resets executive routing, Research mode, and Search-all document scope.
+- This gives the user a direct recovery path from a stuck selection.
+
+6. backend/tests/test_conversation_orchestrator.py
+- Added six deterministic routing tests.
+
+VALIDATION COMPLETED
+- Python compileall: passed.
+- Conversation orchestrator unit tests: 6/6 passed.
+- Frontend dependency installation/build could not be completed in this
+  environment because the configured npm registry returned HTTP 404 for
+  zod-validation-error-4.0.2. No claim is made that a production Next.js build
+  was completed here.
+
+IMPORTANT TEST SEQUENCE
+1. Start a new conversation.
+2. Send: I have an idea.
+3. Answer one discovery question.
+4. Send: Write me a polite email to a supplier asking for a quotation.
+   Expected: a direct email draft, no research question.
+5. Send: Resume my research project.
+   Expected: the paused discovery project resumes.
+6. Select Research Lead or Search all intelligence, then click Reset to Auto.
+   Expected: Auto routing, Research mode off, Search all intelligence off.

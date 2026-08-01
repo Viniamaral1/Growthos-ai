@@ -5306,3 +5306,376 @@ button.executive-role:not(.active):hover {
     min-height: 560px;
   }
 }
+
+/* GrowthOS verified conversation + workspace layout */
+.app-shell,
+.sidebar,
+.main-area {
+  transition: width .22s ease, margin-left .22s ease, transform .22s ease;
+}
+
+.desktop-sidebar-toggle {
+  display: grid !important;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  place-items: center;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px;
+  background: rgba(255,255,255,.025) !important;
+  color: var(--muted) !important;
+  font-size: 18px !important;
+}
+.mobile-sidebar-close { display: none !important; }
+.menu-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.025); }
+
+.sidebar.collapsed { width: 72px; padding-inline: 10px; }
+.sidebar.collapsed .brand { justify-content: center; padding-inline: 0; }
+.sidebar.collapsed .brand > div,
+.sidebar.collapsed nav > p,
+.sidebar.collapsed nav button strong,
+.sidebar.collapsed .sidebar-footer,
+.sidebar.collapsed .desktop-sidebar-toggle { display: none !important; }
+.sidebar.collapsed nav button { grid-template-columns: 1fr; justify-items: center; padding: 11px 8px; }
+.sidebar.collapsed nav button span { font-size: 17px; }
+.navigation-collapsed .main-area { margin-left: 72px; }
+
+.workspace:has(.cofounder-shell) {
+  width: calc(100% - 24px);
+  max-width: none;
+  padding: 16px 0 24px;
+}
+
+.cofounder-shell {
+  height: calc(100vh - 104px);
+  min-height: 650px;
+  border-radius: 16px;
+}
+
+.cofounder-chat-panel {
+  display: flex !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.executive-team-selector {
+  flex: none;
+  padding: 10px 14px !important;
+}
+.executive-team-intro { margin-bottom: 0 !important; }
+.executive-team-mark { width: 28px !important; height: 28px !important; }
+.executive-team-intro strong { font-size: 8px !important; }
+.executive-router-actions { gap: 6px !important; }
+.executive-router-status {
+  min-width: 0 !important;
+  padding: 4px 7px !important;
+  font-size: 6px !important;
+}
+.team-selector-button,
+.reset-routing-button {
+  display: inline-grid;
+  min-width: 30px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+  color: var(--muted);
+  padding: 0 8px;
+  font-size: 7px !important;
+  font-weight: 700;
+}
+.reset-routing-button { padding: 0; font-size: 15px !important; }
+.executive-role-grid {
+  grid-template-columns: repeat(4, minmax(0,1fr)) !important;
+  gap: 7px !important;
+  margin-top: 9px;
+}
+.executive-role { min-height: 62px !important; padding: 9px !important; }
+.executive-role > span { width: 28px !important; height: 28px !important; }
+
+.cofounder-chat-header {
+  flex: none;
+  min-height: 70px;
+  padding: 11px 18px 11px 54px !important;
+}
+.cofounder-chat-header h1 { font-size: 15px !important; line-height: 1.2; }
+.cofounder-chat-header p { max-width: 720px; font-size: 7px !important; }
+.cofounder-scope-controls { flex: none; }
+
+.cofounder-message-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 22px clamp(20px, 7vw, 96px) 28px !important;
+  overflow-y: auto;
+}
+
+.executive-composer {
+  position: relative;
+  z-index: 10;
+  flex: none;
+  width: min(900px, calc(100% - 32px));
+  margin: 0 auto 14px !important;
+  padding: 10px 12px !important;
+  border-radius: 16px !important;
+  background: rgba(9,20,34,.97) !important;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.16);
+}
+.executive-composer textarea {
+  min-height: 76px !important;
+  max-height: 180px !important;
+  padding: 10px 2px !important;
+  resize: none;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+}
+.executive-composer footer { padding-top: 7px !important; }
+.composer-intent-tools { margin: 2px 0 4px !important; }
+.research-mode-toggle,
+.exit-research-button { min-height: 30px !important; }
+
+.conversation-sidebar-toggle {
+  top: 84px !important;
+  left: 12px !important;
+}
+
+:root[data-theme="light"] body { background: #edf2f6 !important; }
+:root[data-theme="light"] .cofounder-chat-panel,
+:root[data-theme="light"] .cofounder-shell,
+:root[data-theme="light"] .executive-team-selector { background: #f7fafc !important; }
+:root[data-theme="light"] .executive-composer { background: rgba(255,255,255,.98) !important; }
+:root[data-theme="light"] .team-selector-button,
+:root[data-theme="light"] .reset-routing-button,
+:root[data-theme="light"] .menu-button,
+:root[data-theme="light"] .desktop-sidebar-toggle { background: #fff !important; }
+
+@media (max-width: 1100px) {
+  .executive-role-grid { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .cofounder-chat-header { align-items: flex-start; flex-direction: column; }
+  .cofounder-scope-controls { width: 100%; align-items: stretch; }
+  .cofounder-scope-controls select { max-width: none; }
+}
+
+@media (max-width: 760px) {
+  .desktop-sidebar-toggle { display: none !important; }
+  .mobile-sidebar-close { display: block !important; }
+  .sidebar.collapsed { width: min(290px,86vw); padding: 22px 17px; }
+  .sidebar.collapsed .brand > div,
+  .sidebar.collapsed nav > p,
+  .sidebar.collapsed nav button strong,
+  .sidebar.collapsed .sidebar-footer { display: initial !important; }
+  .navigation-collapsed .main-area { margin-left: 0; }
+  .cofounder-shell { height: calc(100vh - 92px); min-height: 580px; }
+  .executive-team-intro > div:nth-child(2) strong { display: none; }
+  .executive-role-grid { grid-template-columns: 1fr !important; }
+  .cofounder-chat-header { padding-left: 48px !important; }
+  .executive-composer { width: calc(100% - 18px); margin-bottom: 8px !important; }
+  .executive-composer textarea { min-height: 68px !important; font-size: 11px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* Subtle live status motion; disabled by reduced-motion rule above */
+.cofounder-message.assistant .cofounder-message-avatar,
+.executive-team-mark {
+  animation: growthosStatusBreath 3.8s ease-in-out infinite;
+}
+@keyframes growthosStatusBreath {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(59,214,208,0); }
+  50% { transform: translateY(-1px); box-shadow: 0 0 0 5px rgba(59,214,208,.045); }
+}
+
+/* GrowthOS UX repair — continuous chat canvas and coordinated drawers */
+.workspace:has(.cofounder-shell) {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+.cofounder-shell {
+  display: grid !important;
+  grid-template-columns: 285px minmax(0, 1fr) !important;
+  align-items: start;
+  min-height: calc(100vh - 74px) !important;
+  height: auto !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.cofounder-shell.conversation-sidebar-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr) !important;
+}
+
+.cofounder-conversation-sidebar {
+  position: sticky;
+  top: 74px;
+  height: calc(100vh - 74px);
+  overflow: hidden;
+  border: 0 !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+.cofounder-chat-panel {
+  position: relative;
+  display: flex !important;
+  min-width: 0;
+  min-height: calc(100vh - 74px) !important;
+  height: auto !important;
+  flex-direction: column;
+  overflow: visible !important;
+  background: transparent !important;
+}
+
+.executive-team-selector {
+  position: sticky;
+  top: 74px;
+  z-index: 30;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.executive-role-grid {
+  max-height: min(46vh, 390px);
+  overflow-y: auto;
+}
+
+.cofounder-chat-header {
+  position: relative;
+  z-index: 5;
+  padding: 16px clamp(20px, 5vw, 72px) !important;
+}
+
+.cofounder-message-scroll {
+  display: block !important;
+  min-height: calc(100vh - 360px) !important;
+  flex: 0 0 auto !important;
+  overflow: visible !important;
+  padding: 28px clamp(20px, 8vw, 120px) 170px !important;
+}
+
+.cofounder-welcome {
+  min-height: clamp(320px, 52vh, 560px) !important;
+}
+
+.executive-composer {
+  position: sticky !important;
+  bottom: 14px;
+  z-index: 40;
+  width: min(920px, calc(100% - 32px)) !important;
+  margin: -142px auto 16px !important;
+  padding: 12px 14px !important;
+  border-radius: 18px !important;
+  background: color-mix(in srgb, var(--panel-strong) 96%, transparent) !important;
+  box-shadow: 0 18px 48px rgba(0,0,0,.30) !important;
+  backdrop-filter: blur(18px);
+}
+
+.executive-composer textarea {
+  min-height: 88px !important;
+  max-height: 220px !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+}
+
+.conversation-sidebar-toggle {
+  position: fixed !important;
+  top: 92px !important;
+  left: calc(var(--sidebar) + 14px) !important;
+  z-index: 70 !important;
+}
+
+.navigation-collapsed .conversation-sidebar-toggle {
+  left: 86px !important;
+}
+
+.sidebar.collapsed nav button {
+  position: relative;
+}
+
+.sidebar.collapsed nav button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  z-index: 120;
+  width: max-content;
+  max-width: 220px;
+  transform: translate(6px, -50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 8px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 12px 30px rgba(0,0,0,.28);
+  transition: opacity .15s ease, transform .15s ease;
+  white-space: nowrap;
+}
+
+.sidebar.collapsed nav button:hover::after,
+.sidebar.collapsed nav button:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+:root[data-theme="light"] .executive-team-selector,
+:root[data-theme="light"] .executive-composer {
+  background: rgba(248,251,253,.96) !important;
+}
+
+@media (max-width: 980px) {
+  .cofounder-shell {
+    grid-template-columns: 230px minmax(0, 1fr) !important;
+  }
+  .cofounder-shell.conversation-sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr) !important;
+  }
+  .executive-composer {
+    width: calc(100% - 20px) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .cofounder-shell,
+  .cofounder-shell.conversation-sidebar-collapsed {
+    display: block !important;
+    min-height: calc(100vh - 64px) !important;
+  }
+  .cofounder-conversation-sidebar {
+    position: fixed;
+    inset: 64px auto 0 0;
+    z-index: 80;
+    width: min(310px, 88vw);
+    height: calc(100vh - 64px);
+  }
+  .cofounder-shell.conversation-sidebar-collapsed .cofounder-conversation-sidebar {
+    display: none;
+  }
+  .executive-team-selector {
+    top: 64px;
+  }
+  .cofounder-message-scroll {
+    min-height: calc(100vh - 320px) !important;
+    padding: 22px 14px 165px !important;
+  }
+  .executive-composer {
+    bottom: 8px;
+    margin-top: -148px !important;
+  }
+  .conversation-sidebar-toggle,
+  .navigation-collapsed .conversation-sidebar-toggle {
+    top: 78px !important;
+    left: 12px !important;
+  }
+}

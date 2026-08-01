@@ -131,8 +131,12 @@ def migrate_research_chat_integration(engine: Engine) -> None:
     if "conversations" not in inspector.get_table_names():
         return
     existing = {column["name"] for column in inspector.get_columns("conversations")}
-    if "active_research_project_id" not in existing:
-        with engine.begin() as connection:
+    with engine.begin() as connection:
+        if "active_research_project_id" not in existing:
             connection.execute(text(
                 "ALTER TABLE conversations ADD COLUMN active_research_project_id INTEGER"
+            ))
+        if "paused_research_project_id" not in existing:
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN paused_research_project_id INTEGER"
             ))

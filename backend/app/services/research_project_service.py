@@ -1,4 +1,5 @@
 import json
+import re
 
 import httpx
 from pydantic import ValidationError
@@ -79,7 +80,85 @@ def _call_structured_model(*, system: str, user: str, schema: dict, max_tokens: 
         ) from error
 
 
+def _deterministic_discovery(goal: str) -> ResearchDiscovery | None:
+    """Safe first-step discovery for intents that must not inherit workspace assumptions."""
+    cleaned = " ".join(goal.lower().split()).strip(" .!?")
+    if cleaned in {"i have an idea", "i've got an idea", "i have a new idea"}:
+        return ResearchDiscovery(
+            title="New idea",
+            project_type="idea_discovery",
+            objective="Understand the user's new idea before selecting a research direction.",
+            questions=[
+                {
+                    "id": "idea_summary",
+                    "question": "Tell me about the idea in your own words — what are you thinking of creating or changing?",
+                    "why_it_matters": "GrowthOS must understand the new idea before connecting it to any workspace or research method.",
+                    "required": True,
+                    "suggested_answer": "A rough description is enough.",
+                },
+                {
+                    "id": "problem_or_opportunity",
+                    "question": "What problem or opportunity made you think this idea could be useful?",
+                    "why_it_matters": "The underlying need determines what should be validated first.",
+                    "required": True,
+                    "suggested_answer": "Something you noticed personally is a good starting point.",
+                },
+                {
+                    "id": "intended_user",
+                    "question": "Who do you imagine would use it or benefit from it first?",
+                    "why_it_matters": "A first user group makes the research specific enough to test.",
+                    "required": True,
+                    "suggested_answer": "A broad group is fine for now.",
+                },
+                {
+                    "id": "desired_outcome",
+                    "question": "What would you like GrowthOS to help you decide first — whether the idea is viable, how to build it, who would buy it, or something else?",
+                    "why_it_matters": "The desired decision determines the first research deliverable.",
+                    "required": True,
+                    "suggested_answer": "Choose the question that matters most right now.",
+                },
+            ],
+            assumptions=[],
+        )
+
+    if re.search(r"\b(?:courier|delivery|pallet|shipment|shipping|freight)\b", cleaned):
+        return ResearchDiscovery(
+            title="Delivery options comparison",
+            project_type="supplier_comparison",
+            objective="Compare suitable delivery services using the shipment details that affect eligibility, timing, and price.",
+            questions=[
+                {
+                    "id": "shipment_details",
+                    "question": "What are you sending, and approximately how heavy and large is it?",
+                    "why_it_matters": "Carriers price and accept freight based on contents, weight, dimensions, and pallet requirements.",
+                    "required": True,
+                    "suggested_answer": "For example: one pallet, 120 kg, 120 × 100 × 90 cm.",
+                },
+                {
+                    "id": "delivery_timing",
+                    "question": "When does it need to arrive?",
+                    "why_it_matters": "The deadline determines whether economy, next-day, or dedicated transport is appropriate.",
+                    "required": True,
+                    "suggested_answer": "A date or flexible window is enough.",
+                },
+                {
+                    "id": "priority",
+                    "question": "Should I optimise for the lowest price, the fastest service, or the best balance of price and reliability?",
+                    "why_it_matters": "The shortlist depends on the user's decision priority.",
+                    "required": True,
+                    "suggested_answer": "Cheapest, fastest, or balanced.",
+                },
+            ],
+            assumptions=[],
+        )
+    return None
+
+
 def create_discovery(company: Company, goal: str, context: str | None, *, use_workspace_context: bool = True) -> tuple[ResearchDiscovery, str]:
+    deterministic = _deterministic_discovery(goal)
+    if deterministic is not None:
+        return deterministic, "deterministic-discovery"
+
     system = """
 You are GrowthOS Research Architect. Convert an incomplete research request into a
 clear, topic-agnostic discovery interview.
@@ -252,20 +331,30 @@ def should_continue_research(*, message: str, explicit_research_mode: bool, acti
 
 
 def discovery_chat_reply(discovery: ResearchDiscovery, project_id: int) -> str:
-    del project_id  # Internal identifier; never expose it in the conversation.
+    del project_id
     if not discovery.questions:
         return (
-            "I understand the direction. Before I shape the research plan, "
-            "add any boundary that matters most — budget, location, timing, "
-            "or what a successful answer should help you decide. Otherwise, "
-            "say **build the plan** and I’ll move ahead."
+            "I understand the direction. What would a useful outcome look like for you — "
+            "a recommendation, a shortlist, a feasibility view, or something else?"
         )
 
     first = discovery.questions[0]
+    if discovery.project_type == "idea_discovery":
+        return (
+            "That sounds like a good place to start. You do not need a polished plan yet.\n\n"
+            f"{first.question}\n\n"
+            "A few sentences are enough — I’ll help you shape it from there."
+        )
+    if discovery.project_type == "supplier_comparison":
+        return (
+            "I can help compare the right delivery options. I just need the shipment basics first.\n\n"
+            f"{first.question}\n\n"
+            "An estimate is completely fine."
+        )
     return (
-        "Let’s explore that properly without rushing to a conclusion.\n\n"
-        f"**{first.question}**\n\n"
-        "A rough answer is fine. I’ll ask only what materially changes the research."
+        "Let’s work through it together, one useful detail at a time.\n\n"
+        f"{first.question}\n\n"
+        "A rough answer is fine."
     )
 
 
@@ -280,6 +369,9 @@ def extract_discovery_answers(
     outstanding = [q for q in questions if not existing_answers.get(str(q.get("id", "")), "").strip()]
     if not outstanding:
         return {}, get_ollama_model()
+    # Only the currently asked question may be filled by this turn.
+    # This prevents one vague reply from completing the whole interview.
+    outstanding = outstanding[:1]
     schema = {
         "type": "object",
         "properties": {
@@ -317,31 +409,24 @@ USER REPLY
 
 
 def remaining_questions_chat_reply(title: str, questions: list[dict], answers: dict[str, str], project_id: int) -> str:
-    del title, project_id  # Retained for API compatibility; not shown to users.
+    del title, project_id
     remaining = [
-        q for q in questions
-        if q.get("required", True) and not answers.get(str(q.get("id", "")), "").strip()
+        question for question in questions
+        if question.get("required", True)
+        and not answers.get(str(question.get("id", "")), "").strip()
     ]
     if not remaining:
-        return (
-            "That gives me enough context to build a focused research plan. "
-            "I’ll organise the evidence needed, comparisons, risks, and the final deliverable now."
-        )
+        return "I have enough context now. I’ll organise the research scope and evidence needed next."
 
     next_question = remaining[0].get("question", "What outcome would make this useful for you?")
-    transitions = (
-        "That helps.",
-        "I see the direction more clearly now.",
-        "Good — that changes what we should investigate.",
-        "Understood. Let’s narrow one more thing.",
-    )
     answered_count = sum(1 for value in answers.values() if str(value).strip())
-    transition = transitions[answered_count % len(transitions)]
-    return (
-        f"{transition}\n\n**{next_question}**\n\n"
-        "Answer naturally. If you are unsure, say so and I’ll treat it as something to investigate."
+    transitions = (
+        "Thanks — that gives me a clearer picture.",
+        "That helps. There’s one more detail that changes the options.",
+        "Got it. Let’s narrow the next part.",
+        "Understood. I can build on that.",
     )
-
+    return f"{transitions[answered_count % len(transitions)]}\n\n{next_question}"
 
 
 def create_isolated_writing_reply(user_request: str) -> tuple[str, str]:
@@ -367,4 +452,26 @@ written deliverable, with a brief heading only when it improves clarity.
     content = str(raw.get("content", "")).strip()
     if not content:
         raise ResearchProjectGenerationError("The writing assistant returned an empty response.")
+    return content, model
+
+
+def create_isolated_utility_reply(user_request: str) -> tuple[str, str]:
+    """Handle standalone utility/current-information requests without project leakage."""
+    cleaned = " ".join(user_request.lower().split())
+    if "weather" in cleaned:
+        return (
+            "I can help with the weather, but this local build does not yet have a live weather provider connected. "
+            "Tell me the location you want to check, and GrowthOS can use it once the weather integration is enabled.",
+            "growthos-utility",
+        )
+    system = """
+You are GrowthOS Utility Assistant. Answer the standalone request directly.
+Do not mention the active workspace, executive strategy, research projects, or
+previous business context unless the user explicitly included it. Return JSON only.
+""".strip()
+    schema = {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}
+    raw, model = _call_structured_model(system=system, user=user_request.strip(), schema=schema, max_tokens=900)
+    content = str(raw.get("content", "")).strip()
+    if not content:
+        raise ResearchProjectGenerationError("The utility assistant returned an empty response.")
     return content, model

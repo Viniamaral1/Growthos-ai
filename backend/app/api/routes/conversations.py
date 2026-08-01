@@ -63,6 +63,7 @@ from app.services.research_project_service import (
     should_continue_research,
     remaining_questions_chat_reply,
     create_isolated_writing_reply,
+    create_isolated_utility_reply,
 )
 from app.services.conversation_orchestrator import decide as orchestrate_message
 from app.services.cofounder_chat_service import (
@@ -673,13 +674,27 @@ def stream_message(
         model_name = get_ollama_model()
 
         initial_research_project_id = getattr(conversation, "active_research_project_id", None)
+        paused_research_project_id = getattr(conversation, "paused_research_project_id", None)
+        active_research_project = (
+            database.get(ResearchProject, initial_research_project_id)
+            if initial_research_project_id is not None
+            else None
+        )
         orchestration = orchestrate_message(
             payload.content,
             active_research=initial_research_project_id is not None,
+            paused_research=paused_research_project_id is not None,
             explicit_research_mode=payload.research_mode,
+            active_research_status=(
+                active_research_project.status
+                if active_research_project is not None
+                else None
+            ),
         )
         if orchestration.specialist == "writer":
             resolved_executive_role = "writer"
+        elif orchestration.intent == "utility":
+            resolved_executive_role = "assistant"
         elif orchestration.specialist == "research":
             resolved_executive_role = "research"
         else:
@@ -732,12 +747,26 @@ def stream_message(
         research_project_id = initial_research_project_id
         research_requested = orchestration.continue_active_research
 
-        # Detach only the conversation pointer; the research project remains saved
-        # and can be resumed deliberately later.
+        # A deliberate resume restores the paused project before the research
+        # workflow runs. The project itself was never deleted.
+        if orchestration.intent == "resume_research" and research_project_id is None:
+            research_project_id = paused_research_project_id
+            if research_project_id is not None:
+                with SessionLocal() as mode_database:
+                    saved_conversation = mode_database.get(Conversation, conversation.id)
+                    if saved_conversation is not None:
+                        saved_conversation.active_research_project_id = research_project_id
+                        saved_conversation.paused_research_project_id = None
+                        mode_database.add(saved_conversation)
+                        mode_database.commit()
+
+        # Pause the active project instead of deleting its link. A later
+        # "resume my research" turn can restore it explicitly.
         if research_project_id is not None and orchestration.detach_active_research:
             with SessionLocal() as mode_database:
                 saved_conversation = mode_database.get(Conversation, conversation.id)
                 if saved_conversation is not None:
+                    saved_conversation.paused_research_project_id = research_project_id
                     saved_conversation.active_research_project_id = None
                     mode_database.add(saved_conversation)
                     mode_database.commit()
@@ -775,6 +804,47 @@ def stream_message(
                     "type": "done",
                     "memory_proposal": None,
                     "context_mode": "isolated_writing",
+                    "context_sources": [],
+                    "context_reason": orchestration.reason,
+                    "assistant_message": _message_response(assistant_message).model_dump(mode="json"),
+                }, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
+            except ResearchProjectGenerationError as error:
+                yield json.dumps({"type": "error", "message": str(error)}, ensure_ascii=False) + "\n"
+                finish_generation(conversation.id, cancellation_event)
+                return
+
+        if orchestration.intent == "utility":
+            try:
+                with SessionLocal() as utility_database:
+                    assistant_text, model_name = create_isolated_utility_reply(payload.content)
+                    assistant_message = ChatMessage(
+                        **_supported_chat_message_kwargs(
+                            conversation_id=conversation.id,
+                            role="assistant",
+                            content=assistant_text,
+                            model=model_name,
+                            executive_role="assistant",
+                            confidence_level="high",
+                            confidence_score=90,
+                            confidence_reason="Standalone utility request handled without project context.",
+                            sources_json="[]",
+                        )
+                    )
+                    utility_database.add(assistant_message)
+                    saved_conversation = utility_database.get(Conversation, conversation.id)
+                    if saved_conversation is not None:
+                        saved_conversation.message_count += 1
+                        saved_conversation.updated_at = datetime.now(timezone.utc)
+                        utility_database.add(saved_conversation)
+                    utility_database.commit()
+                    utility_database.refresh(assistant_message)
+                yield json.dumps({"type": "token", "content": assistant_text}, ensure_ascii=False) + "\n"
+                yield json.dumps({
+                    "type": "done",
+                    "memory_proposal": None,
+                    "context_mode": "isolated_utility",
                     "context_sources": [],
                     "context_reason": orchestration.reason,
                     "assistant_message": _message_response(assistant_message).model_dump(mode="json"),
@@ -960,7 +1030,11 @@ def stream_message(
                 for token in stream_cofounder_reply(
                     database=brain_database,
                     company=company,
-                    previous_messages=previous_messages,
+                    previous_messages=(
+                        []
+                        if orchestration.detach_active_research
+                        else previous_messages
+                    ),
                     user_message=payload.content.strip(),
                     sources=sources,
                     document_scope_enabled=(

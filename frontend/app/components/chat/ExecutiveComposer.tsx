@@ -37,6 +37,8 @@ export default function ExecutiveComposer({
 }) {
   const inputRef =
     useRef<HTMLInputElement | null>(null);
+  const textareaRef =
+    useRef<HTMLTextAreaElement | null>(null);
 
   function selectFiles() {
     inputRef.current?.click();
@@ -148,13 +150,16 @@ export default function ExecutiveComposer({
       </div>
 
       <textarea
+        ref={textareaRef}
         id="cofounder-message"
         name="cofounder-message"
         autoComplete="off"
         value={draft}
-        onChange={(event) =>
-          onDraftChange(event.target.value)
-        }
+        onChange={(event) => {
+          onDraftChange(event.target.value);
+          event.currentTarget.style.height = "auto";
+          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
+        }}
         onKeyDown={handleKeyDown}
         placeholder={
           attachments.length > 0
@@ -163,7 +168,7 @@ export default function ExecutiveComposer({
               ? "Describe an idea, opportunity, question, or problem — even if it is still vague..."
               : "Message your Executive Team..."
         }
-        rows={2}
+        rows={3}
         disabled={false}
       />
 

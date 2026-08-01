@@ -717,6 +717,35 @@ function MessageBubble({
   display: block;
 }
 
+
+.executive-router-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.reset-routing-button {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  color: var(--muted);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.reset-routing-button:hover:not(:disabled) {
+  border-color: rgba(59, 214, 208, 0.45);
+  color: var(--text);
+}
+
+.reset-routing-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .executive-team-intro small {
   color: var(--cyan);
   font-size: 6px;
@@ -1264,6 +1293,7 @@ export default function CofounderChat({
   const [draft, setDraft] = useState("");
   const [researchMode, setResearchMode] = useState(false);
   const [conversationSidebarCollapsed, setConversationSidebarCollapsed] = useState(false);
+  const [executiveSelectorOpen, setExecutiveSelectorOpen] = useState(false);
   const [loadingList, setLoadingList] =
     useState(false);
   const [loadingConversation, setLoadingConversation] =
@@ -2992,7 +3022,10 @@ async function saveDecisionFromMessage(
         <button
           type="button"
           className="conversation-sidebar-toggle"
-          onClick={() => setConversationSidebarCollapsed((current) => !current)}
+          onClick={() => {
+            setExecutiveSelectorOpen(false);
+            setConversationSidebarCollapsed((current) => !current);
+          }}
           aria-label={conversationSidebarCollapsed ? "Show conversations" : "Hide conversations"}
           title={conversationSidebarCollapsed ? "Show conversations" : "Focus mode"}
         >
@@ -3012,13 +3045,44 @@ async function saveDecisionFromMessage(
       </strong>
     </div>
 
-    {executiveRole === "auto" && (
-      <span className="executive-router-status">
-        Routed to {resolvedExecutiveRole.toUpperCase()}
-      </span>
-    )}
+    <div className="executive-router-actions">
+      {executiveRole === "auto" && (
+        <span className="executive-router-status">
+          {resolvedExecutiveRole.toUpperCase()}
+        </span>
+      )}
+      <button
+        type="button"
+        className="team-selector-button"
+        onClick={() => {
+          setConversationSidebarCollapsed(true);
+          setExecutiveSelectorOpen((current) => !current);
+        }}
+        aria-expanded={executiveSelectorOpen}
+        title="Choose an executive perspective"
+      >
+        Team {executiveSelectorOpen ? "▴" : "▾"}
+      </button>
+      <button
+        type="button"
+        className="reset-routing-button"
+        onClick={() => {
+          setExecutiveRole("auto");
+          setResolvedExecutiveRole("ceo");
+          setResearchMode(false);
+          onScopeChange(false);
+          onDocumentChange(null);
+        }}
+        disabled={sending}
+        aria-label="Reset routing to Auto"
+        title="Reset routing, research mode, and document scope"
+      >
+        ↺
+      </button>
+    </div>
   </div>
 
+  {executiveSelectorOpen && (
   <div className="executive-role-grid">
     {(
       [
@@ -3090,9 +3154,10 @@ async function saveDecisionFromMessage(
             .join(" ")}
           aria-pressed={active}
           key={executive.role}
-          onClick={() =>
-            setExecutiveRole(executive.role)
-          }
+          onClick={() => {
+            setExecutiveRole(executive.role);
+            setExecutiveSelectorOpen(false);
+          }}
         >
           <span>{executive.icon}</span>
 
@@ -3106,6 +3171,7 @@ async function saveDecisionFromMessage(
       );
     })}
   </div>
+  )}
 </section>
 
         <header className="cofounder-chat-header">

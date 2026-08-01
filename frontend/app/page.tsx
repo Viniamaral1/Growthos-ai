@@ -2425,6 +2425,8 @@ export default function Home() {
     useState<View>("overview");
   const [mobileNav, setMobileNav] =
     useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] =
+    useState(false);
   const [theme, setTheme] =
     useState<ThemePreference>("dark");
   const [now, setNow] = useState(() => new Date());
@@ -3405,11 +3407,12 @@ async function handleGenerateBusinessPlan(
   }).format(now);
 
   return (
-    <main className="app-shell">
+    <main className={cx("app-shell", navigationCollapsed && "navigation-collapsed")}>
       <aside
         className={cx(
           "sidebar",
           mobileNav && "open",
+          navigationCollapsed && "collapsed",
         )}
       >
         <div className="brand">
@@ -3420,6 +3423,16 @@ async function handleGenerateBusinessPlan(
           </div>
           <button
             type="button"
+            className="desktop-sidebar-toggle"
+            onClick={() => setNavigationCollapsed((current) => !current)}
+            aria-label={navigationCollapsed ? "Expand main navigation" : "Collapse main navigation"}
+            title={navigationCollapsed ? "Expand navigation" : "Collapse navigation"}
+          >
+            {navigationCollapsed ? "›" : "‹"}
+          </button>
+          <button
+            type="button"
+            className="mobile-sidebar-close"
             onClick={() => setMobileNav(false)}
           >
             ×
@@ -3436,6 +3449,9 @@ async function handleGenerateBusinessPlan(
                 view === item.id && "active",
               )}
               onClick={() => openView(item.id)}
+              aria-label={item.label}
+              data-tooltip={item.label}
+              title={navigationCollapsed ? item.label : undefined}
             >
               <span>{item.icon}</span>
               <strong>{item.label}</strong>
@@ -3472,7 +3488,14 @@ async function handleGenerateBusinessPlan(
             <button
               className="menu-button"
               type="button"
-              onClick={() => setMobileNav(true)}
+              onClick={() => {
+                if (window.matchMedia("(max-width: 760px)").matches) {
+                  setMobileNav(true);
+                } else {
+                  setNavigationCollapsed((current) => !current);
+                }
+              }}
+              aria-label="Toggle navigation"
             >
               ☰
             </button>
