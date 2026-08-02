@@ -12,6 +12,7 @@ from app.models.knowledge_space import KnowledgeSpace
 from app.schemas.knowledge import (
     KnowledgeItemCreate,
     KnowledgeItemResponse,
+    KnowledgeItemUpdate,
     KnowledgeSpaceCreate,
     KnowledgeSpaceResponse,
     KnowledgeSpaceSummary,
@@ -129,3 +130,36 @@ def summarize_space(space_id: int, database: DatabaseSession):
         summary=summary,
         open_questions=[],
     )
+
+
+@router.patch("/items/{item_id}", response_model=KnowledgeItemResponse)
+def update_item(item_id: int, payload: KnowledgeItemUpdate, database: DatabaseSession):
+    item = database.get(KnowledgeItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    values = payload.model_dump(exclude_unset=True)
+    if "space_id" in values and values["space_id"] is not None:
+        destination = database.get(KnowledgeSpace, values["space_id"])
+        if destination is None or destination.company_id != item.company_id:
+            raise HTTPException(status_code=404, detail="Destination knowledge space not found.")
+    tags = values.pop("tags", None)
+    if tags is not None:
+        item.tags_json = json.dumps([tag.strip() for tag in tags if tag.strip()])
+    for field, value in values.items():
+        if value is not None and isinstance(value, str):
+            value = value.strip()
+        setattr(item, field, value)
+    database.add(item)
+    database.commit()
+    database.refresh(item)
+    return item
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_item(item_id: int, database: DatabaseSession):
+    item = database.get(KnowledgeItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    database.delete(item)
+    database.commit()
+    return None

@@ -1537,3 +1537,28 @@ export async function getKnowledgeItems(spaceId: number, search = ""): Promise<K
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }
+
+
+export async function updateKnowledgeItem(itemId: number, payload: {
+  item_type?: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  tags?: string[];
+  space_id?: number;
+}): Promise<KnowledgeItem> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/items/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function deleteKnowledgeItem(itemId: number): Promise<void> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/items/${itemId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}

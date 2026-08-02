@@ -70,6 +70,29 @@ function isImmediateTask(message: string): boolean {
 const CONTINUE_INSTRUCTION =
   "Continue the previous response from exactly where it stopped. Do not repeat completed sections.";
 
+function inferKnowledgeType(content: string): string {
+  const text = content.toLowerCase();
+  if (/\b(subject:|dear |kind regards|sincerely|email|letter)\b/.test(text)) return "email";
+  if (/\b(decided|decision|approved|we will|we chose)\b/.test(text)) return "decision";
+  if (/\b(research|evidence|findings|assumption|market analysis)\b/.test(text)) return "research";
+  if (/\b(strategy|positioning|roadmap|objective|priority)\b/.test(text)) return "strategy";
+  if (/\b(next action|task|todo|to-do|owner|deadline)\b/.test(text)) return "task";
+  if (/\b(idea|concept|opportunity|what if)\b/.test(text)) return "idea";
+  return "note";
+}
+
+function suggestKnowledgeSpaceId(content: string, spaces: KnowledgeSpace[]): number | null {
+  const text = content.toLowerCase();
+  const exact = spaces.find((space) => text.includes(space.name.toLowerCase()));
+  if (exact) return exact.id;
+  const words = new Set(text.split(/[^a-z0-9]+/).filter((word) => word.length > 3));
+  const scored = spaces.map((space) => ({
+    id: space.id,
+    score: space.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).filter((word) => words.has(word)).length,
+  })).sort((a, b) => b.score - a.score);
+  return scored[0]?.score ? scored[0].id : spaces[0]?.id ?? null;
+}
+
 function normalizeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
   const normalized: ChatMessage[] = [];
   for (let index = 0; index < messages.length; index += 1) {
@@ -1412,6 +1435,8 @@ export default function CofounderChat({
     useRef<number | null>(null);
   const activeTemporaryAssistantIdRef =
     useRef<number | null>(null);
+  const continueTargetMessageIdRef = useRef<number | null>(null);
+  const continuationBaseTextRef = useRef("");
   const activeStreamHasTextRef = useRef(false);
   const copyTimerRef = useRef<
     ReturnType<typeof setTimeout> | null
@@ -2099,7 +2124,11 @@ async function refreshConversationAfterStop(
         lastMessage?.role === "assistant" ||
         delay === 500
       ) {
-        setActiveConversation(normalizeConversation(detail));
+        const normalizedDetail = normalizeConversation(detail);
+        const finalAssistant = [...normalizedDetail.messages].reverse().find((message) => message.role === "assistant");
+        continueTargetMessageIdRef.current = finalAssistant?.id ?? null;
+        continuationBaseTextRef.current = finalAssistant?.content ?? "";
+        setActiveConversation(normalizedDetail);
         setConversations((current) => {
           const selected = current.find(
             (item) => item.id === detail.id,
@@ -2655,6 +2684,11 @@ async function saveDecisionFromMessage(
     );
 
     const internalContinuation = options?.internalContinuation === true;
+    if (!internalContinuation) {
+      setCanContinueAfterStop(false);
+      continueTargetMessageIdRef.current = null;
+      continuationBaseTextRef.current = "";
+    }
     const temporaryUser: ChatMessage = {
       id: -Date.now(),
       conversation_id: conversation.id,
@@ -2665,11 +2699,13 @@ async function saveDecisionFromMessage(
       created_at: new Date().toISOString(),
     };
 
+    const continuationTargetId = internalContinuation ? continueTargetMessageIdRef.current : null;
+    const continuationBase = internalContinuation ? continuationBaseTextRef.current : "";
     const temporaryAssistant: ChatMessage = {
-      id: -(Date.now() + 1),
+      id: continuationTargetId ?? -(Date.now() + 1),
       conversation_id: conversation.id,
       role: "assistant",
-      content: "",
+      content: continuationBase,
       model: null,
       sources: [],
       created_at: new Date().toISOString(),
@@ -2680,12 +2716,14 @@ async function saveDecisionFromMessage(
       return {
         ...current,
         messages: internalContinuation
-          ? [...current.messages, temporaryAssistant]
+          ? (continuationTargetId !== null
+              ? current.messages.map((message) => message.id === continuationTargetId ? temporaryAssistant : message)
+              : [...current.messages, temporaryAssistant])
           : [...current.messages, temporaryUser, temporaryAssistant],
       };
     });
 
-    let streamedText = "";
+    let streamedText = continuationBase;
 
     const {
       signal: streamSignal,
@@ -2802,6 +2840,9 @@ async function saveDecisionFromMessage(
           }
 
           if (streamEvent.type === "token") {
+            if (internalContinuation && streamedText === continuationBase && continuationBase.trim() && streamEvent.content.trim()) {
+              streamedText += "\n\n";
+            }
             streamedText += streamEvent.content;
             activeStreamHasTextRef.current =
               streamedText.trim().length > 0;
@@ -2828,6 +2869,9 @@ async function saveDecisionFromMessage(
 
           if (streamEvent.type === "done") {
             setAttachedDocuments([]);
+            setCanContinueAfterStop(false);
+            continueTargetMessageIdRef.current = null;
+            continuationBaseTextRef.current = "";
             if (streamEvent.research_project_id) {
               setResolvedExecutiveRole("research");
               setResearchMode(streamEvent.research_project_status !== "planned");
@@ -2835,35 +2879,19 @@ async function saveDecisionFromMessage(
             setActiveConversation((current) => {
               if (!current) return current;
               if (internalContinuation) {
-                const temporaryIndex = current.messages.findIndex(
-                  (message) => message.id === temporaryAssistant.id,
-                );
-                const previousAssistantIndex = [...current.messages]
-                  .slice(0, temporaryIndex)
-                  .map((message, index) => ({ message, index }))
-                  .reverse()
-                  .find(({ message }) => message.role === "assistant")?.index;
-                if (previousAssistantIndex !== undefined) {
-                  const messages = current.messages.filter(
-                    (message) => message.id !== temporaryAssistant.id,
-                  );
-                  const adjustedIndex =
-                    previousAssistantIndex > temporaryIndex
-                      ? previousAssistantIndex - 1
-                      : previousAssistantIndex;
-                  const previous = messages[adjustedIndex];
-                  messages[adjustedIndex] = {
-                    ...previous,
-                    content: `${previous.content.trimEnd()}${previous.content.trim() ? "\n\n" : ""}${streamEvent.assistant_message.content.trimStart()}`,
-                    created_at: streamEvent.assistant_message.created_at,
-                  };
-                  return {
-                    ...current,
-                    updated_at: streamEvent.assistant_message.created_at,
-                    message_count: current.message_count + 2,
-                    messages,
-                  };
-                }
+                return {
+                  ...current,
+                  updated_at: streamEvent.assistant_message.created_at,
+                  messages: current.messages.map((message) =>
+                    message.id === temporaryAssistant.id
+                      ? {
+                          ...message,
+                          content: `${continuationBase.trimEnd()}${continuationBase.trim() && streamEvent.assistant_message.content.trim() ? "\n\n" : ""}${streamEvent.assistant_message.content.trimStart()}`,
+                          created_at: streamEvent.assistant_message.created_at,
+                        }
+                      : message,
+                  ),
+                };
               }
               return {
                 ...current,
@@ -3520,7 +3548,8 @@ async function saveDecisionFromMessage(
                   }
                   onCaptureKnowledge={() => {
                     setCaptureMessage(message);
-                    setCaptureSpaceId(knowledgeSpaces[0]?.id ?? null);
+                    setCaptureType(inferKnowledgeType(message.content));
+                    setCaptureSpaceId(suggestKnowledgeSpaceId(message.content, knowledgeSpaces));
                   }}
                   onMemorySaved={() => {
                     setActiveConversation((current) =>
@@ -3723,7 +3752,6 @@ async function saveDecisionFromMessage(
   onResearchModeChange={setResearchMode}
   canContinue={canContinueAfterStop}
   onContinue={() => {
-    setCanContinueAfterStop(false);
     void sendMessage(CONTINUE_INSTRUCTION, undefined, { internalContinuation: true });
   }}
 />

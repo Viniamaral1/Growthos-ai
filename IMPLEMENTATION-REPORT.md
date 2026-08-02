@@ -1,88 +1,31 @@
-# GrowthOS Full Project Review — Implemented Changes
+# GrowthOS Knowledge UX and Streaming Polish
 
-This report describes changes actually made to the uploaded `GrowthOS-AI-FULL-PROJECT.zip` snapshot.
+## Implemented in this build
 
-## Files changed
+### Executive Team
+- Continue Response now appends into the interrupted assistant message in the live UI instead of creating a visible continuation prompt.
+- A normal new user prompt clears any stale Continue Response state.
+- The stopped assistant message is tracked after cancellation so the continuation targets the correct message.
+- Conversation scrolling keeps native wheel/touch behaviour enabled while streaming.
+- Capture Knowledge now preselects a likely content type and suggests an existing Knowledge Space when the message mentions it.
 
-- `frontend/app/page.tsx`
-- `frontend/app/components/SettingsPanel.tsx`
-- `frontend/app/components/CofounderChat.tsx`
-- `frontend/app/globals.css`
-- `frontend/lib/ui-storage.ts`
+### Main navigation and forms
+- Restored a metallic-blue glass tooltip for collapsed navigation.
+- Increased left spacing for expanded sidebar labels.
+- Fixed dark/light select option contrast in Capture Knowledge and Knowledge edit forms.
 
-## Navigation and page state
+### Knowledge
+- Rebuilt Knowledge as a subject-and-category browser.
+- Added type categories with counts: All, Emails, Ideas, Research, Decisions, Strategy, Tasks, Notes.
+- Added a readable full-item preview.
+- Added Copy, Word download, Print/Save PDF, Email, Edit, Move, and Delete actions.
+- Added persistent backend PATCH and DELETE endpoints for knowledge items.
+- Improved search copy so it is clear that search covers title, content, and tags.
 
-- Added a persisted first-launch flag.
-- A completely new browser profile opens on Intelligence Dashboard.
-- After first launch, refresh restores the last visited GrowthOS page.
-- Moved Knowledge near the top of the main navigation so it is visible without reaching the bottom of the menu.
-- Made the main navigation list independently scrollable on shorter screens.
-
-## Knowledge
-
-- Confirmed the project already contained:
-  - `KnowledgeSpacesPanel.tsx`
-  - `/api/v1/knowledge-spaces` backend routes
-  - `KnowledgeSpace` and `KnowledgeItem` database models
-  - Capture Knowledge controls beneath assistant messages
-- Fixed the main navigation integration so the Knowledge page is directly accessible.
-- Kept creating subject spaces, capturing messages, and saved-item search connected to the existing backend.
-
-## Settings
-
-- Rebuilt Settings around a professional card layout.
-- Profile fields: name, company, email, phone, and avatar.
-- Saved name remains the dashboard greeting source.
-- Theme and accent controls now preview immediately without persisting.
-- Added an embedded live website preview card.
-- Added `Discard preview` and `Save changes` actions.
-- Leaving Settings without saving restores the previously saved theme/accent.
-- Saving persists both the profile and theme.
-
-## Executive Team drawers
-
-- Conversation history and Team selection are temporary drawers/popovers.
-- Clicking outside closes the open drawer.
-- Escape closes both drawers.
-- Opening one closes the other.
-- Selecting or creating a conversation closes history.
-- Selecting an executive closes Team.
-- Sending a message closes both.
-
-## Continue after Stop
-
-- Continue no longer appears as a visible user instruction in the UI.
-- Continuation output is appended to the interrupted assistant response in the current session.
-- On conversation reload, stored internal continuation turns are normalised and merged into the preceding assistant response.
-
-## Streaming and layout
-
-- Preserved user-controlled scrolling during response generation.
-- Kept the composer sticky and readable.
-- Main conversation history is an overlay and no longer permanently squeezes the page.
-- Team choices appear as a popover.
-- Added safer bottom spacing across workspace pages.
-- Moved GrowthOS Guide access to the top navigation and removed the floating trigger that covered content.
-- Kept a single custom tooltip implementation for collapsed navigation.
-
-## Existing functionality verified in source
-
-The current project already contained duplicate PDF checks:
-
-- duplicate filename in the composer is rejected;
-- same filename and file size in the workspace prompts before uploading another version;
-- attachments are cleared only after a successful generation completion.
-
-## Not implemented in this delivery
-
-These plans are intentionally not described as complete:
-
-- voice commands;
-- email sending;
-- calendar integration;
-- semantic global chat search;
-- automatic topic-change folder prompts;
-- AI-generated Knowledge Space reports/PDFs;
-- genuine Cache-Augmented Generation (CAG).
-
-The existing system uses retrieval, embeddings, workspace context planning, Executive Memory, and Knowledge Spaces. That is not sufficient evidence to label it a true CAG implementation.
+## Deliberately not claimed as implemented
+- Automatic topic-change banners before every reply.
+- Semantic/LLM global search across every chat and document.
+- Direct SMTP/Gmail sending (the Email action opens the user's configured mail client with content prepared).
+- Native PDF generation on the server (Print / PDF uses the browser print dialog).
+- Voice commands.
+- True CAG.

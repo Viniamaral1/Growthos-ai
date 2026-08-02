@@ -40,6 +40,17 @@ class KnowledgeItemCreate(BaseModel):
     source_message_id: int | None = None
 
 
+
+
+class KnowledgeItemUpdate(BaseModel):
+    item_type: str | None = Field(default=None, max_length=40)
+    title: str | None = Field(default=None, min_length=2, max_length=200)
+    summary: str | None = Field(default=None, min_length=2, max_length=5000)
+    content: str | None = Field(default=None, min_length=2)
+    tags: list[str] | None = Field(default=None, max_length=20)
+    space_id: int | None = None
+
+
 class KnowledgeItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
