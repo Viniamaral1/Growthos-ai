@@ -64,6 +64,8 @@ export default function KnowledgeSpacesPanel({
   const [spaceName, setSpaceName] = useState("");
   const [spaceItemCount, setSpaceItemCount] = useState(0);
   const [spaceSaving, setSpaceSaving] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [typeMenuCollapsed, setTypeMenuCollapsed] = useState(false);
 
   useEffect(() => {
     if (!company) {
@@ -251,15 +253,34 @@ export default function KnowledgeSpacesPanel({
       {!company ? (
         <div className="empty-panel">Select a workspace first.</div>
       ) : (
-        <div className="knowledge-spaces-layout">
+        <div className={`knowledge-spaces-layout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
           <aside className="knowledge-space-sidebar">
-            <div className="knowledge-space-sidebar-title">Subjects</div>
+            <div className="knowledge-space-sidebar-title">
+              <span>Subjects</span>
+            </div>
             {spaces.length === 0 ? <p>No spaces yet. Capture a message from Executive Team or create one above.</p> : spaces.map((space) => (
-              <button key={space.id} type="button" className={active?.id === space.id ? "active" : ""} onClick={() => { setActive(space); setActiveType("all"); setSelected(null); }}>
+              <button
+                key={space.id}
+                type="button"
+                className={active?.id === space.id ? "active" : ""}
+                aria-label={space.name}
+                data-tooltip={sidebarCollapsed ? space.name : undefined}
+                onClick={() => { setActive(space); setActiveType("all"); setSelected(null); }}
+              >
                 <span>▦</span><div><strong>{space.name}</strong><small>{space.description ?? "Saved business knowledge"}</small></div>
               </button>
             ))}
           </aside>
+
+          <button
+            type="button"
+            className="knowledge-project-collapse"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            aria-label={sidebarCollapsed ? "Expand knowledge projects" : "Collapse knowledge projects"}
+            data-tooltip={sidebarCollapsed ? "Expand projects" : "Collapse projects"}
+          >
+            {sidebarCollapsed ? "›" : "‹"}
+          </button>
 
           <main className="knowledge-browser">
             {active ? (
@@ -285,12 +306,26 @@ export default function KnowledgeSpacesPanel({
                   </div>
                 </header>
 
-                <nav className="knowledge-type-tabs" aria-label="Knowledge categories">
-                  <button type="button" className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}><span>▦</span><strong>All</strong><small>{items.length}</small></button>
-                  {Object.entries(TYPE_META).map(([type, meta]) => (
-                    <button key={type} type="button" className={activeType === type ? "active" : ""} onClick={() => setActiveType(type)}><span>{meta.icon}</span><strong>{meta.label}</strong><small>{grouped.get(type)?.length ?? 0}</small></button>
-                  ))}
-                </nav>
+                <div className="knowledge-type-menu-header">
+                  <strong>Categories</strong>
+                  <button
+                    type="button"
+                    onClick={() => setTypeMenuCollapsed((current) => !current)}
+                    aria-label={typeMenuCollapsed ? "Expand knowledge categories" : "Collapse knowledge categories"}
+                    data-tooltip={typeMenuCollapsed ? "Show All, Emails and other categories" : "Hide category menu"}
+                  >
+                    {typeMenuCollapsed ? "⌄" : "⌃"}
+                  </button>
+                </div>
+
+                {!typeMenuCollapsed && (
+                  <nav className="knowledge-type-tabs" aria-label="Knowledge categories">
+                    <button type="button" className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}><span>▦</span><strong>All</strong><small>{items.length}</small></button>
+                    {Object.entries(TYPE_META).map(([type, meta]) => (
+                      <button key={type} type="button" className={activeType === type ? "active" : ""} onClick={() => setActiveType(type)}><span>{meta.icon}</span><strong>{meta.label}</strong><small>{grouped.get(type)?.length ?? 0}</small></button>
+                    ))}
+                  </nav>
+                )}
 
                 {visibleItems.length === 0 ? <div className="empty-panel">Nothing has been captured in this category yet.</div> : (
                   <div className="knowledge-item-grid">
@@ -368,6 +403,108 @@ export default function KnowledgeSpacesPanel({
           </section>
         </div>
       )}
+
+      <style jsx>{`
+        .knowledge-spaces-layout {
+          position: relative;
+        }
+
+        .knowledge-space-sidebar-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .knowledge-project-collapse {
+          position: absolute;
+          z-index: 4;
+          top: 18px;
+          left: calc(var(--knowledge-sidebar-width, 260px) - 15px);
+          display: grid;
+          width: 30px;
+          height: 30px;
+          place-items: center;
+          border: 1px solid rgba(59, 214, 208, 0.26);
+          border-radius: 9px;
+          background: rgba(7, 20, 34, 0.96);
+          color: var(--cyan);
+          box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+          cursor: pointer;
+          transition: left 180ms ease, background 180ms ease;
+        }
+
+        .knowledge-type-menu-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin: 4px 0 10px;
+        }
+
+        .knowledge-type-menu-header strong {
+          color: var(--muted);
+          font-size: 8px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .knowledge-type-menu-header button {
+          display: grid;
+          width: 30px;
+          height: 30px;
+          place-items: center;
+          border: 1px solid rgba(59, 214, 208, 0.18);
+          border-radius: 8px;
+          background: rgba(59, 214, 208, 0.06);
+          color: var(--cyan);
+          cursor: pointer;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed) {
+          grid-template-columns: 62px minmax(0, 1fr);
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-project-collapse) {
+          left: 47px;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar) {
+          padding-inline: 9px;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar-title) {
+          min-height: 28px;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar-title > span),
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar > p),
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar button > div) {
+          display: none;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar > button) {
+          display: grid;
+          min-height: 42px;
+          place-items: center;
+          padding: 0;
+        }
+
+        :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-space-sidebar > button > span) {
+          margin: 0;
+          font-size: 15px;
+        }
+
+        @media (max-width: 850px) {
+          :global(.knowledge-spaces-layout.sidebar-collapsed) {
+            grid-template-columns: 54px minmax(0, 1fr);
+          }
+
+          :global(.knowledge-spaces-layout.sidebar-collapsed .knowledge-project-collapse) {
+            left: 39px;
+          }
+        }
+      `}</style>
 
       {selected && (
         <div className="knowledge-preview-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>

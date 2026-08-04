@@ -70,6 +70,35 @@ function isImmediateTask(message: string): boolean {
 const CONTINUE_INSTRUCTION =
   "Continue the previous response from exactly where it stopped. Do not repeat completed sections.";
 
+type CapturePreference = "manual" | "important" | "everything";
+
+type CaptureSuggestion = {
+  itemType: string;
+  icon: string;
+  label: string;
+  spaceId: number | null;
+  spaceName: string | null;
+};
+
+const CAPTURE_PREFERENCE_KEY = "growthos:capture-preference";
+const CAPTURE_PREFERENCE_EVENT = "growthos:capture-preference-changed";
+
+const KNOWLEDGE_TYPE_META: Record<string, { icon: string; label: string }> = {
+  email: { icon: "✉", label: "Email" },
+  idea: { icon: "✦", label: "Idea" },
+  research: { icon: "⌕", label: "Research" },
+  decision: { icon: "◇", label: "Decision" },
+  strategy: { icon: "◆", label: "Strategy" },
+  task: { icon: "✓", label: "Task" },
+  note: { icon: "▤", label: "Note" },
+};
+
+function readCapturePreference(): CapturePreference {
+  if (typeof window === "undefined") return "important";
+  const stored = window.localStorage.getItem(CAPTURE_PREFERENCE_KEY);
+  return stored === "manual" || stored === "everything" ? stored : "important";
+}
+
 function inferKnowledgeType(content: string): string {
   const text = content.toLowerCase();
   if (/\b(subject:|dear |kind regards|sincerely|email|letter)\b/.test(text)) return "email";
@@ -90,7 +119,50 @@ function suggestKnowledgeSpaceId(content: string, spaces: KnowledgeSpace[]): num
     id: space.id,
     score: space.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).filter((word) => words.has(word)).length,
   })).sort((a, b) => b.score - a.score);
-  return scored[0]?.score ? scored[0].id : spaces[0]?.id ?? null;
+  return scored[0]?.score ? scored[0].id : null;
+}
+
+function buildCaptureSuggestion(
+  message: ChatMessage,
+  spaces: KnowledgeSpace[],
+  preference: CapturePreference,
+): CaptureSuggestion | null {
+  if (preference === "manual" || message.role !== "assistant" || !message.content.trim()) {
+    return null;
+  }
+
+  const content = message.content.trim();
+  const normalized = content.toLowerCase().replace(/\s+/g, " ");
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  const genericAssistantReply =
+    wordCount < 18 ||
+    /^(hello|hi|hey|good (morning|afternoon|evening))[!,. ]/.test(normalized) ||
+    /how can i help/.test(normalized) ||
+    /you can ask (me )?about/.test(normalized);
+
+  const itemType = inferKnowledgeType(content);
+  const hasDurableStructure =
+    /(^|\n)#{1,3}\s|(^|\n)[-*]\s|(^|\n)\d+[.)]\s/m.test(content) ||
+    /\b(subject:|dear |kind regards|sincerely|decision|approved|recommendation|roadmap|strategy|next steps?|action items?|deadline|owner|findings|evidence|sources?)\b/i.test(content);
+
+  if (
+    preference === "important" &&
+    (genericAssistantReply || itemType === "note" || (!hasDurableStructure && wordCount < 45))
+  ) {
+    return null;
+  }
+
+  const spaceId = suggestKnowledgeSpaceId(message.content, spaces);
+  const space = spaces.find((candidate) => candidate.id === spaceId) ?? null;
+  const meta = KNOWLEDGE_TYPE_META[itemType] ?? KNOWLEDGE_TYPE_META.note;
+
+  return {
+    itemType,
+    icon: meta.icon,
+    label: meta.label,
+    spaceId,
+    spaceName: space?.name ?? null,
+  };
 }
 
 function normalizeConversationMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -379,6 +451,10 @@ function MessageBubble({
   onSaveDecision,
   onSaveMemory,
   onCaptureKnowledge,
+  captureSuggestion,
+  onSaveCaptureSuggestion,
+  onChangeCaptureSuggestion,
+  onDismissCaptureSuggestion,
   onFeedback,
   onRetryOption,
   retryMenuOpen,
@@ -403,6 +479,10 @@ function MessageBubble({
   onSaveDecision?: () => void;
   onSaveMemory?: () => void;
   onCaptureKnowledge?: () => void;
+  captureSuggestion?: CaptureSuggestion | null;
+  onSaveCaptureSuggestion?: () => void;
+  onChangeCaptureSuggestion?: () => void;
+  onDismissCaptureSuggestion?: () => void;
   onFeedback?: (
     rating: "useful" | "not_useful",
   ) => void;
@@ -424,6 +504,14 @@ function MessageBubble({
   onMemoryError: (message: string) => void;
 }) {
   const assistant = message.role === "assistant";
+  const [captureIdle, setCaptureIdle] = useState(false);
+
+  useEffect(() => {
+    setCaptureIdle(false);
+    if (!captureSuggestion) return;
+    const timer = window.setTimeout(() => setCaptureIdle(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [captureSuggestion, message.id]);
 
   return (
     <article
@@ -440,7 +528,7 @@ function MessageBubble({
               ? "You"
               : `GrowthOS ${
                   messageExecutiveRole
-                    ? {
+                    ? ({
                         auto: "CEO",
                         ceo: "CEO",
                         cfo: "CFO",
@@ -448,8 +536,8 @@ function MessageBubble({
                         coo: "COO",
                         research: "Research Lead",
                         board: "Decision Room",
-                      }[messageExecutiveRole]
-                    : executiveName
+                      }[messageExecutiveRole] ?? executiveName ?? "CEO")
+                    : executiveName ?? "CEO"
                 }`}
           </strong>
 
@@ -516,7 +604,7 @@ function MessageBubble({
           message.confidence_score !== null && (
             <section
               className={`message-confidence ${message.confidence_level}`}
-              title={
+              data-tooltip={
                 message.confidence_reason ??
                 "Grounding confidence"
               }
@@ -542,7 +630,7 @@ function MessageBubble({
           message.context_sources.length > 0 && (
             <section
               className="message-context-selection"
-              title={
+              data-tooltip={
                 message.context_reason ??
                 "Intelligent context selection"
               }
@@ -584,6 +672,30 @@ function MessageBubble({
               onDismissed={onMemoryDismissed}
               onError={onMemoryError}
             />
+          )}
+
+        {assistant &&
+          !streaming &&
+          message.content &&
+          captureSuggestion && (
+            <aside
+              className={`intelligent-capture-suggestion ${captureIdle ? "is-idle" : ""}`}
+              aria-label="Knowledge capture suggestion"
+            >
+              <span className="intelligent-capture-suggestion-icon" aria-hidden="true">
+                {captureSuggestion.icon}
+              </span>
+              <div className="intelligent-capture-suggestion-copy">
+                <strong>{captureSuggestion.label} detected</strong>
+                <small>Suggested Knowledge Space</small>
+                <span>{captureSuggestion.spaceName ? `▦ ${captureSuggestion.spaceName}` : "Choose a space before saving"}</span>
+              </div>
+              <div className="intelligent-capture-suggestion-actions">
+                <button type="button" onClick={onSaveCaptureSuggestion}>Save</button>
+                <button type="button" className="subtle" onClick={onChangeCaptureSuggestion}>Change</button>
+                <button type="button" className="subtle" onClick={onDismissCaptureSuggestion}>Dismiss</button>
+              </div>
+            </aside>
           )}
 
         {!assistant &&
@@ -1053,6 +1165,113 @@ function MessageBubble({
           color: var(--muted);
         }
 
+        .intelligent-capture-suggestion {
+          display: grid;
+          grid-template-columns: 30px minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 10px;
+          width: min(100%, 720px);
+          margin-top: 12px;
+          border: 1px solid rgba(59, 214, 208, 0.16);
+          border-radius: 12px;
+          background: linear-gradient(135deg, rgba(15, 38, 58, 0.62), rgba(7, 20, 34, 0.46));
+          padding: 10px 11px;
+          opacity: 0.62;
+          transform: translateY(0);
+          transition: opacity 180ms ease, border-color 180ms ease, transform 180ms ease;
+        }
+
+        .intelligent-capture-suggestion.is-idle {
+          opacity: 0.26;
+        }
+
+        .intelligent-capture-suggestion:hover,
+        .intelligent-capture-suggestion:focus-within {
+          border-color: rgba(59, 214, 208, 0.36);
+          opacity: 1;
+          transform: translateY(-1px);
+        }
+
+        .intelligent-capture-suggestion-icon {
+          display: grid;
+          width: 30px;
+          height: 30px;
+          place-items: center;
+          border-radius: 9px;
+          background: rgba(59, 214, 208, 0.1);
+          color: var(--cyan);
+          font-size: 15px;
+        }
+
+        .intelligent-capture-suggestion-copy {
+          min-width: 0;
+        }
+
+        .intelligent-capture-suggestion-copy strong,
+        .intelligent-capture-suggestion-copy small,
+        .intelligent-capture-suggestion-copy span {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .intelligent-capture-suggestion-copy strong {
+          color: var(--text);
+          font-size: 9px;
+          line-height: 1.3;
+        }
+
+        .intelligent-capture-suggestion-copy small {
+          margin-top: 2px;
+          color: var(--muted);
+          font-size: 7px;
+          line-height: 1.3;
+        }
+
+        .intelligent-capture-suggestion-copy span {
+          margin-top: 4px;
+          color: var(--text-soft);
+          font-size: 8px;
+          font-weight: 750;
+        }
+
+        .intelligent-capture-suggestion-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          white-space: nowrap;
+        }
+
+        .intelligent-capture-suggestion-actions button {
+          min-height: 30px;
+          border: 1px solid rgba(59, 214, 208, 0.22);
+          border-radius: 8px;
+          background: rgba(59, 214, 208, 0.1);
+          padding: 0 10px;
+          color: var(--text);
+          font-size: 7px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .intelligent-capture-suggestion-actions button.subtle {
+          border-color: rgba(148, 163, 184, 0.14);
+          background: rgba(255, 255, 255, 0.025);
+          color: var(--muted);
+        }
+
+        @media (max-width: 760px) {
+          .intelligent-capture-suggestion {
+            grid-template-columns: 30px minmax(0, 1fr);
+          }
+
+          .intelligent-capture-suggestion-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-end;
+          }
+        }
+
         .professional-message-actions {
           display: flex;
           min-height: 33px;
@@ -1408,6 +1627,13 @@ export default function CofounderChat({
   const [captureNewSpace, setCaptureNewSpace] = useState("");
   const [captureType, setCaptureType] = useState("note");
   const [capturingKnowledge, setCapturingKnowledge] = useState(false);
+  const [capturePreference, setCapturePreference] = useState<CapturePreference>("important");
+  const [dismissedCaptureSuggestions, setDismissedCaptureSuggestions] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [savedCaptureSuggestions, setSavedCaptureSuggestions] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [retryMenuMessageId, setRetryMenuMessageId] =
     useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] =
@@ -1464,6 +1690,20 @@ export default function CofounderChat({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    function syncCapturePreference() {
+      setCapturePreference(readCapturePreference());
+    }
+
+    syncCapturePreference();
+    window.addEventListener("storage", syncCapturePreference);
+    window.addEventListener(CAPTURE_PREFERENCE_EVENT, syncCapturePreference);
+    return () => {
+      window.removeEventListener("storage", syncCapturePreference);
+      window.removeEventListener(CAPTURE_PREFERENCE_EVENT, syncCapturePreference);
+    };
+  }, []);
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -1565,6 +1805,69 @@ export default function CofounderChat({
       .map((message, index) => ({ message, index }))
       .filter(({ message }) => message.content.toLowerCase().includes(query));
   }, [activeConversation, messageSearchQuery]);
+
+  const intelligentCaptureSuggestion = useMemo(() => {
+    if (!activeConversation || capturePreference === "manual") return null;
+
+    const message = [...activeConversation.messages]
+      .reverse()
+      .find((candidate) => candidate.role === "assistant" && candidate.id > 0 && candidate.content.trim());
+
+    if (
+      !message ||
+      dismissedCaptureSuggestions.has(message.id) ||
+      savedCaptureSuggestions.has(message.id)
+    ) {
+      return null;
+    }
+
+    const suggestion = buildCaptureSuggestion(message, knowledgeSpaces, capturePreference);
+    return suggestion ? { messageId: message.id, suggestion } : null;
+  }, [
+    activeConversation,
+    capturePreference,
+    dismissedCaptureSuggestions,
+    knowledgeSpaces,
+    savedCaptureSuggestions,
+  ]);
+
+  useEffect(() => {
+    function handleCaptureAndRetryInteraction(event: MouseEvent | KeyboardEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+
+      if (event instanceof KeyboardEvent && event.key === "Escape") {
+        setRetryMenuMessageId(null);
+        if (intelligentCaptureSuggestion) {
+          setDismissedCaptureSuggestions((current) =>
+            new Set(current).add(intelligentCaptureSuggestion.messageId),
+          );
+        }
+        return;
+      }
+
+      if (!(event instanceof MouseEvent) || !target) return;
+
+      if (!target.closest(".retry-action")) {
+        setRetryMenuMessageId(null);
+      }
+
+      const isComposerInteraction = Boolean(
+        target.closest("textarea, input, [contenteditable='true']"),
+      );
+      if (isComposerInteraction && !target.closest(".intelligent-capture-suggestion") && intelligentCaptureSuggestion) {
+        setDismissedCaptureSuggestions((current) =>
+          new Set(current).add(intelligentCaptureSuggestion.messageId),
+        );
+      }
+    }
+
+    document.addEventListener("mousedown", handleCaptureAndRetryInteraction);
+    document.addEventListener("keydown", handleCaptureAndRetryInteraction);
+    return () => {
+      document.removeEventListener("mousedown", handleCaptureAndRetryInteraction);
+      document.removeEventListener("keydown", handleCaptureAndRetryInteraction);
+    };
+  }, [intelligentCaptureSuggestion]);
 
   useEffect(() => {
     setActiveMessageSearchIndex(0);
@@ -2636,39 +2939,96 @@ async function saveDecisionFromMessage(
     }
   }
 
+  async function captureMessageInKnowledge(
+    message: ChatMessage,
+    itemType: string,
+    requestedSpaceId: number | null,
+    newSpaceName = "",
+  ) {
+    if (!company || !activeConversation) return false;
+
+    let spaceId = requestedSpaceId;
+    if (newSpaceName.trim()) {
+      const created = await createKnowledgeSpace({
+        company_id: company.id,
+        name: newSpaceName.trim(),
+        description: "Created from an Executive Team conversation.",
+        color: "cyan",
+      });
+      setKnowledgeSpaces((current) => [created, ...current]);
+      spaceId = created.id;
+    }
+
+    if (!spaceId) {
+      onError("Choose an existing Knowledge Space or create a new one.");
+      return false;
+    }
+
+    const firstLine =
+      message.content
+        .split("\n")
+        .map((line) => line.replace(/^#+\s*/, "").trim())
+        .find(Boolean) ?? "Captured conversation knowledge";
+
+    await captureKnowledgeItem(spaceId, {
+      company_id: company.id,
+      item_type: itemType,
+      title: firstLine.slice(0, 200),
+      summary: message.content.slice(0, 1200),
+      content: message.content,
+      tags: [],
+      source_conversation_id: activeConversation.id,
+      source_message_id: message.id > 0 ? message.id : null,
+    });
+
+    if (message.id > 0) {
+      setSavedCaptureSuggestions((current) => new Set(current).add(message.id));
+    }
+    return true;
+  }
+
   async function saveCapturedKnowledge() {
-    if (!company || !activeConversation || !captureMessage) return;
+    if (!captureMessage) return;
     setCapturingKnowledge(true);
     try {
-      let spaceId = captureSpaceId;
-      if (captureNewSpace.trim()) {
-        const created = await createKnowledgeSpace({
-          company_id: company.id,
-          name: captureNewSpace.trim(),
-          description: "Created from an Executive Team conversation.",
-          color: "cyan",
-        });
-        setKnowledgeSpaces((current) => [created, ...current]);
-        spaceId = created.id;
-      }
-      if (!spaceId) {
-        onError("Choose an existing Knowledge Space or create a new one.");
-        return;
-      }
-      const firstLine = captureMessage.content.split("\n").map((line) => line.replace(/^#+\s*/, "").trim()).find(Boolean) ?? "Captured conversation knowledge";
-      await captureKnowledgeItem(spaceId, {
-        company_id: company.id,
-        item_type: captureType,
-        title: firstLine.slice(0, 200),
-        summary: captureMessage.content.slice(0, 1200),
-        content: captureMessage.content,
-        tags: [],
-        source_conversation_id: activeConversation.id,
-        source_message_id: captureMessage.id > 0 ? captureMessage.id : null,
-      });
+      const saved = await captureMessageInKnowledge(
+        captureMessage,
+        captureType,
+        captureSpaceId,
+        captureNewSpace,
+      );
+      if (!saved) return;
       setCaptureMessage(null);
       setCaptureNewSpace("");
       onSuccess("Captured in Knowledge Spaces.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The message could not be captured.");
+    } finally {
+      setCapturingKnowledge(false);
+    }
+  }
+
+  async function saveSuggestedKnowledge(
+    message: ChatMessage,
+    suggestion: CaptureSuggestion,
+  ) {
+    if (!suggestion.spaceId) {
+      setCaptureMessage(message);
+      setCaptureType(suggestion.itemType);
+      setCaptureSpaceId(null);
+      return;
+    }
+
+    setCapturingKnowledge(true);
+    try {
+      const saved = await captureMessageInKnowledge(
+        message,
+        suggestion.itemType,
+        suggestion.spaceId,
+      );
+      if (saved) {
+        onSuccess(`Saved to ${suggestion.spaceName ?? "Knowledge"}.`);
+      }
     } catch (error) {
       onError(error instanceof Error ? error.message : "The message could not be captured.");
     } finally {
@@ -3770,6 +4130,37 @@ async function saveDecisionFromMessage(
                     setCaptureType(inferKnowledgeType(message.content));
                     setCaptureSpaceId(suggestKnowledgeSpaceId(message.content, knowledgeSpaces));
                   }}
+                  captureSuggestion={
+                    intelligentCaptureSuggestion?.messageId === message.id
+                      ? intelligentCaptureSuggestion.suggestion
+                      : null
+                  }
+                  onSaveCaptureSuggestion={
+                    intelligentCaptureSuggestion?.messageId === message.id
+                      ? () =>
+                          void saveSuggestedKnowledge(
+                            message,
+                            intelligentCaptureSuggestion.suggestion,
+                          )
+                      : undefined
+                  }
+                  onChangeCaptureSuggestion={
+                    intelligentCaptureSuggestion?.messageId === message.id
+                      ? () => {
+                          setCaptureMessage(message);
+                          setCaptureType(intelligentCaptureSuggestion.suggestion.itemType);
+                          setCaptureSpaceId(intelligentCaptureSuggestion.suggestion.spaceId);
+                        }
+                      : undefined
+                  }
+                  onDismissCaptureSuggestion={
+                    intelligentCaptureSuggestion?.messageId === message.id
+                      ? () =>
+                          setDismissedCaptureSuggestions(
+                            (current) => new Set(current).add(message.id),
+                          )
+                      : undefined
+                  }
                   onMemorySaved={() => {
                     setActiveConversation((current) =>
                       current
@@ -3951,7 +4342,15 @@ async function saveDecisionFromMessage(
   sending={sending || stopping}
   attaching={attaching}
   attachments={attachedDocuments}
-  onDraftChange={setDraft}
+  onDraftChange={(value) => {
+    setDraft(value);
+    if (intelligentCaptureSuggestion) {
+      setDismissedCaptureSuggestions((current) =>
+        new Set(current).add(intelligentCaptureSuggestion.messageId),
+      );
+    }
+    setRetryMenuMessageId(null);
+  }}
   onAttachFiles={(files) => {
     void attachFiles(files);
   }}
@@ -3980,6 +4379,89 @@ async function saveDecisionFromMessage(
       </div>
 
       <style jsx>{`
+
+.intelligent-capture-suggestion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid rgba(59, 214, 208, 0.15);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(15, 38, 58, 0.58), rgba(7, 20, 34, 0.42));
+  padding: 10px 11px;
+  opacity: 0.58;
+  transition: opacity 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.intelligent-capture-suggestion:hover,
+.intelligent-capture-suggestion:focus-within {
+  border-color: rgba(59, 214, 208, 0.34);
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.intelligent-capture-suggestion-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(59, 214, 208, 0.1);
+  color: var(--cyan);
+  font-size: 15px;
+}
+
+.intelligent-capture-suggestion strong,
+.intelligent-capture-suggestion small {
+  display: block;
+}
+
+.intelligent-capture-suggestion strong {
+  color: var(--text);
+  font-size: 9px;
+}
+
+.intelligent-capture-suggestion small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.intelligent-capture-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.intelligent-capture-suggestion-actions button {
+  min-height: 30px;
+  border: 1px solid rgba(59, 214, 208, 0.22);
+  border-radius: 8px;
+  background: rgba(59, 214, 208, 0.1);
+  padding: 0 10px;
+  color: var(--text);
+  font-size: 7px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.intelligent-capture-suggestion-actions button.subtle {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .intelligent-capture-suggestion {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .intelligent-capture-suggestion-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
 
 .cofounder-header-actions {
   position: relative;

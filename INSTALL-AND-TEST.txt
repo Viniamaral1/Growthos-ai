@@ -1,38 +1,78 @@
-GrowthOS — Knowledge Space Management
+GrowthOS — Intelligent Capture + Collapsible Knowledge Subjects
 
-Changed project files only:
-1. frontend/app/components/KnowledgeSpacesPanel.tsx
-2. frontend/lib/api.ts
-3. backend/app/api/routes/knowledge_spaces.py
+CHANGED PROJECT FILES
+1. frontend/app/components/CofounderChat.tsx
+2. frontend/app/components/SettingsPanel.tsx
+3. frontend/app/components/KnowledgeSpacesPanel.tsx
 
-Install
-1. Stop frontend and backend.
-2. Copy the three files into the matching project paths and overwrite them.
-3. From the project root, clear generated caches only:
+NO OTHER PROJECT FILES WERE CHANGED.
 
-   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
-   Get-ChildItem . -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-   Get-ChildItem . -Recurse -Include *.pyc,*.pyo | Remove-Item -Force -ErrorAction SilentlyContinue
+INSTALL
+Copy the three files into the matching paths in your GrowthOS project.
+Stop the frontend, then from the project root run:
 
-4. Start backend, then frontend.
-5. Hard-refresh the browser with Ctrl+Shift+R.
+Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+cd frontend
+npm run dev
 
-Test only this sprint
-A. Rename an empty Knowledge Space.
-   Expected: the new name appears immediately and remains after refresh.
+Hard-refresh the browser with Ctrl + Shift + R.
 
-B. Rename a space to the name of another existing space.
-   Expected: GrowthOS rejects the duplicate name and keeps the old name.
+WHAT WAS ADDED
+- A quiet, faded capture suggestion under the latest qualifying assistant response.
+- Default preference: Important items only.
+- Suggestions identify Email, Idea, Research, Decision, Strategy, Task, or Note.
+- Existing Knowledge Space is suggested only when the message actually matches its name/words.
+- Save: saves directly when a confident existing Space is found.
+- Change: opens the existing Capture Knowledge dialog with type and Space pre-filled.
+- Dismiss: removes the suggestion for that message during the current app session.
+- Existing manual Capture button remains unchanged.
+- Settings now includes Manual only / Important items only / Suggest everything.
+- Knowledge Subjects sidebar can collapse to an icon rail and expand again.
 
-C. Delete an empty Knowledge Space.
-   Expected: a confirmation dialog appears; after confirmation the space disappears and stays deleted after refresh.
+TEST ORDER
+1. Settings > AI preferences
+   - Confirm Important items only is selected by default.
+   - Switch to Manual only, Save, and confirm no automatic suggestion appears.
+   - Switch to Suggest everything, Save, and confirm a suggestion appears after a normal completed response.
+   - Return to Important items only and Save.
 
-D. Delete a non-empty Knowledge Space.
-   Expected: the dialog states the exact number of saved items and warns that the space and all contained items will be permanently deleted.
+2. Important email suggestion
+   - In Executive Team ask: "Write a supplier quotation email for the Meat Farm project."
+   - Expected: one faded suggestion beneath the completed assistant response.
+   - Expected type: Email.
+   - Expected Space: Meat Farm, if that Space exists.
 
-E. Cancel both rename and delete dialogs.
-   Expected: no changes are made.
+3. Suggestion controls
+   - Hover the suggestion: opacity becomes stronger.
+   - Dismiss: it disappears.
+   - Change: existing Capture Knowledge dialog opens with suggested values.
+   - Save: saves directly only when an existing Space was confidently matched.
+   - If no Space is matched, Save opens the Capture dialog so the user chooses safely.
 
-Scope
-- No Executive Team files changed.
-- No Dashboard, Settings, tooltip, scrolling, routing, AI, or Knowledge item behaviour changed.
+4. Low-value response
+   - With Important items only selected, send "Hi".
+   - Expected: no capture suggestion.
+
+5. Manual Capture regression
+   - Use the existing Capture action under a response.
+   - Expected: current Capture dialog and saving workflow still work.
+
+6. Knowledge sidebar
+   - Open Knowledge.
+   - Click the arrow beside Subjects.
+   - Expected: subjects collapse to a narrow icon rail and the document area gains width.
+   - Click again to expand.
+   - Existing filters, previews, rename/delete, edit/move, Word/PDF/email actions must remain unchanged.
+
+VALIDATION PERFORMED
+- TypeScript syntax parsing completed; only unresolved imports were reported because this focused ZIP does not include the full project dependencies/path aliases.
+- No backend files, API routes, global CSS, Executive Composer, routing, scrolling, search, dashboard, or Knowledge item-management logic were modified.
+
+SECOND-PASS LAYOUT FIXES
+- Try Again menu now closes on Escape and on any click outside the Try Again control/menu.
+- The intelligent capture suggestion is styled inside the message component so its layout/opacity rules actually apply.
+- Capture suggestion starts at 62% opacity, fades to 26% after 6.5 seconds, and restores to 100% on hover/focus.
+- Capture suggestion is dismissed when the user focuses/types in an input/composer or presses Escape.
+- Only the latest completed assistant message can display an intelligent capture suggestion.
+- Capture wording is compact: detected type, suggested Knowledge Space, then Save / Change / Dismiss.
+- Knowledge Subjects now collapses completely (not to an icon rail), allowing the Knowledge browser to use the full width. A small expand control remains inside the browser.

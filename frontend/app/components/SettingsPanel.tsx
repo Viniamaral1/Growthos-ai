@@ -4,6 +4,16 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { writeProfile, type GrowthOSProfile } from "@/lib/profile";
 
 type Theme = "light" | "dark";
+type CapturePreference = "manual" | "important" | "everything";
+
+const CAPTURE_PREFERENCE_KEY = "growthos:capture-preference";
+const CAPTURE_PREFERENCE_EVENT = "growthos:capture-preference-changed";
+
+function readCapturePreference(): CapturePreference {
+  if (typeof window === "undefined") return "important";
+  const stored = window.localStorage.getItem(CAPTURE_PREFERENCE_KEY);
+  return stored === "manual" || stored === "everything" ? stored : "important";
+}
 
 type Props = {
   theme: Theme;
@@ -30,7 +40,12 @@ export default function SettingsPanel({
 }: Props) {
   const [draftProfile, setDraftProfile] = useState(profile);
   const [draftTheme, setDraftTheme] = useState<Theme>(theme);
-  const originalRef = useRef({ profile, theme });
+  const [capturePreference, setCapturePreference] = useState<CapturePreference>("important");
+  const originalRef = useRef({
+    profile,
+    theme,
+    capturePreference: "important" as CapturePreference,
+  });
   const savedRef = useRef(false);
   const previewCallbackRef = useRef(onPreviewAppearance);
 
@@ -39,9 +54,15 @@ export default function SettingsPanel({
   }, [onPreviewAppearance]);
 
   useEffect(() => {
-    originalRef.current = { profile, theme };
+    const savedCapturePreference = readCapturePreference();
+    originalRef.current = {
+      profile,
+      theme,
+      capturePreference: savedCapturePreference,
+    };
     setDraftProfile(profile);
     setDraftTheme(theme);
+    setCapturePreference(savedCapturePreference);
     savedRef.current = false;
   }, [profile, theme]);
 
@@ -89,8 +110,14 @@ export default function SettingsPanel({
       phone: draftProfile.phone.trim(),
     };
     writeProfile(cleaned);
+    window.localStorage.setItem(CAPTURE_PREFERENCE_KEY, capturePreference);
+    window.dispatchEvent(new Event(CAPTURE_PREFERENCE_EVENT));
     savedRef.current = true;
-    originalRef.current = { profile: cleaned, theme: draftTheme };
+    originalRef.current = {
+      profile: cleaned,
+      theme: draftTheme,
+      capturePreference,
+    };
     onSave(cleaned, draftTheme);
     onSuccess("Settings saved. Your dashboard greeting and appearance were updated.");
   }
@@ -99,6 +126,7 @@ export default function SettingsPanel({
     const original = originalRef.current;
     setDraftProfile(original.profile);
     setDraftTheme(original.theme);
+    setCapturePreference(original.capturePreference);
     onPreviewAppearance(original.theme, original.profile.accent);
   }
 
@@ -213,6 +241,40 @@ export default function SettingsPanel({
             <input type="checkbox" checked={draftProfile.notifications} onChange={(e) => patch("notifications", e.target.checked)} />
             <span><strong>Browser notifications</strong><small>For research completion and future workflow alerts.</small></span>
           </label>
+          <fieldset className="capture-preference-fieldset">
+            <legend>Knowledge capture suggestions</legend>
+            <p>Choose how often GrowthOS quietly suggests saving useful responses.</p>
+            <label className={capturePreference === "manual" ? "active" : ""}>
+              <input
+                type="radio"
+                name="capture-preference"
+                value="manual"
+                checked={capturePreference === "manual"}
+                onChange={() => setCapturePreference("manual")}
+              />
+              <span><strong>Manual only</strong><small>Use the existing Capture button whenever you choose.</small></span>
+            </label>
+            <label className={capturePreference === "important" ? "active" : ""}>
+              <input
+                type="radio"
+                name="capture-preference"
+                value="important"
+                checked={capturePreference === "important"}
+                onChange={() => setCapturePreference("important")}
+              />
+              <span><strong>Important items only</strong><small>Quiet suggestions for emails, decisions, research, tasks, ideas, and strategy.</small></span>
+            </label>
+            <label className={capturePreference === "everything" ? "active" : ""}>
+              <input
+                type="radio"
+                name="capture-preference"
+                value="everything"
+                checked={capturePreference === "everything"}
+                onChange={() => setCapturePreference("everything")}
+              />
+              <span><strong>Suggest everything</strong><small>Show a capture suggestion for every completed assistant response.</small></span>
+            </label>
+          </fieldset>
         </article>
 
         <article className="settings-card">
@@ -225,6 +287,70 @@ export default function SettingsPanel({
           </div>
         </article>
       </div>
+
+      <style jsx>{`
+        .capture-preference-fieldset {
+          display: grid;
+          gap: 8px;
+          margin: 0;
+          border: 0;
+          padding: 0;
+        }
+
+        .capture-preference-fieldset legend {
+          margin-bottom: 2px;
+          color: var(--text);
+          font-size: 9px;
+          font-weight: 850;
+        }
+
+        .capture-preference-fieldset > p {
+          margin: 0 0 4px;
+          color: var(--muted);
+          font-size: 7px;
+          line-height: 1.5;
+        }
+
+        .capture-preference-fieldset label {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: start;
+          gap: 9px;
+          border: 1px solid var(--border);
+          border-radius: 11px;
+          background: rgba(255, 255, 255, 0.02);
+          padding: 10px;
+          cursor: pointer;
+          transition: border-color 150ms ease, background 150ms ease;
+        }
+
+        .capture-preference-fieldset label.active {
+          border-color: rgba(59, 214, 208, 0.34);
+          background: rgba(59, 214, 208, 0.07);
+        }
+
+        .capture-preference-fieldset input {
+          margin-top: 2px;
+          accent-color: var(--cyan);
+        }
+
+        .capture-preference-fieldset strong,
+        .capture-preference-fieldset small {
+          display: block;
+        }
+
+        .capture-preference-fieldset strong {
+          color: var(--text);
+          font-size: 8px;
+        }
+
+        .capture-preference-fieldset small {
+          margin-top: 3px;
+          color: var(--muted);
+          font-size: 7px;
+          line-height: 1.45;
+        }
+      `}</style>
     </section>
   );
 }
