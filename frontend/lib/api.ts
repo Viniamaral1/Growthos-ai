@@ -1512,6 +1512,33 @@ export async function createKnowledgeSpace(payload: {
   return response.json();
 }
 
+
+
+export async function updateKnowledgeSpace(
+  spaceId: number,
+  payload: {
+    name?: string;
+    description?: string | null;
+    color?: string;
+    is_archived?: boolean;
+  },
+): Promise<KnowledgeSpace> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/${spaceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function deleteKnowledgeSpace(spaceId: number): Promise<void> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/${spaceId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
+
 export async function captureKnowledgeItem(spaceId: number, payload: {
   company_id: number;
   item_type: string;

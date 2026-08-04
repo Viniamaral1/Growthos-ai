@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createKnowledgeSpace,
   deleteKnowledgeItem,
+  deleteKnowledgeSpace,
   getKnowledgeItems,
   getKnowledgeSpaces,
   updateKnowledgeItem,
+  updateKnowledgeSpace,
   type Company,
   type KnowledgeItem,
   type KnowledgeSpace,
@@ -58,6 +60,10 @@ export default function KnowledgeSpacesPanel({
   const [editType, setEditType] = useState("note");
   const [editSpaceId, setEditSpaceId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [spaceAction, setSpaceAction] = useState<"rename" | "delete" | null>(null);
+  const [spaceName, setSpaceName] = useState("");
+  const [spaceItemCount, setSpaceItemCount] = useState(0);
+  const [spaceSaving, setSpaceSaving] = useState(false);
 
   useEffect(() => {
     if (!company) {
@@ -104,6 +110,62 @@ export default function KnowledgeSpacesPanel({
       onSuccess("Knowledge space created.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Knowledge space could not be created.");
+    }
+  }
+
+
+
+  function openRenameSpace() {
+    if (!active) return;
+    setSpaceName(active.name);
+    setSpaceAction("rename");
+  }
+
+  async function openDeleteSpace() {
+    if (!active) return;
+    try {
+      const allItems = await getKnowledgeItems(active.id);
+      setSpaceItemCount(allItems.length);
+      setSpaceAction("delete");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Knowledge space details could not be loaded.");
+    }
+  }
+
+  async function renameSpace() {
+    if (!active || spaceName.trim().length < 2) return;
+    setSpaceSaving(true);
+    try {
+      const updated = await updateKnowledgeSpace(active.id, { name: spaceName.trim() });
+      setSpaces((current) => current.map((space) => (space.id === updated.id ? updated : space)));
+      setActive(updated);
+      setSpaceAction(null);
+      onSuccess("Knowledge space renamed.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Knowledge space could not be renamed.");
+    } finally {
+      setSpaceSaving(false);
+    }
+  }
+
+  async function removeSpace() {
+    if (!active) return;
+    setSpaceSaving(true);
+    try {
+      await deleteKnowledgeSpace(active.id);
+      const remaining = spaces.filter((space) => space.id !== active.id);
+      setSpaces(remaining);
+      setActive(remaining[0] ?? null);
+      setItems([]);
+      setSelected(null);
+      setSearch("");
+      setActiveType("all");
+      setSpaceAction(null);
+      onSuccess("Knowledge space deleted.");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Knowledge space could not be deleted.");
+    } finally {
+      setSpaceSaving(false);
     }
   }
 
@@ -204,7 +266,23 @@ export default function KnowledgeSpacesPanel({
               <>
                 <header className="knowledge-browser-header">
                   <div><span className="knowledge-space-color" aria-hidden="true" /><div><small>Knowledge space</small><h2>{active.name}</h2></div></div>
-                  <label className="knowledge-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search titles, content, tags…" /></label>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                    <label className="knowledge-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search titles, content, tags…" /></label>
+                    <button
+                      type="button"
+                      onClick={openRenameSpace}
+                      style={{ minHeight: 36, border: "1px solid var(--border)", borderRadius: 9, background: "transparent", padding: "0 11px", color: "var(--text-soft)", fontSize: 8, fontWeight: 800 }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openDeleteSpace()}
+                      style={{ minHeight: 36, border: "1px solid rgba(255,106,121,.28)", borderRadius: 9, background: "rgba(255,106,121,.08)", padding: "0 11px", color: "#ff7f8c", fontSize: 8, fontWeight: 800 }}
+                    >
+                      Delete space
+                    </button>
+                  </div>
                 </header>
 
                 <nav className="knowledge-type-tabs" aria-label="Knowledge categories">
@@ -229,6 +307,65 @@ export default function KnowledgeSpacesPanel({
               </>
             ) : <div className="empty-panel">Create or select a knowledge space.</div>}
           </main>
+        </div>
+      )}
+
+
+
+      {spaceAction && active && (
+        <div className="knowledge-preview-backdrop" role="presentation" onMouseDown={() => !spaceSaving && setSpaceAction(null)}>
+          <section className="knowledge-preview" role="dialog" aria-modal="true" aria-label={spaceAction === "rename" ? "Rename knowledge space" : "Delete knowledge space"} onMouseDown={(event) => event.stopPropagation()} style={{ width: "min(560px, 100%)", gridTemplateRows: "auto auto auto" }}>
+            <header>
+              <div>
+                <span>{spaceAction === "rename" ? "✎" : "×"}</span>
+                <div>
+                  <small>Knowledge space</small>
+                  <h2>{spaceAction === "rename" ? "Rename space" : "Delete space"}</h2>
+                </div>
+              </div>
+              <button type="button" onClick={() => setSpaceAction(null)} disabled={spaceSaving}>×</button>
+            </header>
+
+            {spaceAction === "rename" ? (
+              <div className="knowledge-edit-form">
+                <label>
+                  Space name
+                  <input
+                    autoFocus
+                    value={spaceName}
+                    onChange={(event) => setSpaceName(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter") void renameSpace(); }}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="knowledge-preview-content" style={{ paddingBlock: 26 }}>
+                <p style={{ marginTop: 0 }}>Delete <strong>{active.name}</strong>?</p>
+                <p style={{ color: "var(--text-soft)" }}>
+                  {spaceItemCount === 0
+                    ? "This space is empty."
+                    : `This space contains ${spaceItemCount} saved ${spaceItemCount === 1 ? "item" : "items"}. Deleting it will permanently remove the space and everything inside it.`}
+                </p>
+                <p style={{ color: "#ff7f8c", marginBottom: 0 }}>This cannot be undone.</p>
+              </div>
+            )}
+
+            <footer>
+              <div />
+              <div>
+                <button type="button" className="subtle" onClick={() => setSpaceAction(null)} disabled={spaceSaving}>Cancel</button>
+                {spaceAction === "rename" ? (
+                  <button type="button" onClick={() => void renameSpace()} disabled={spaceSaving || spaceName.trim().length < 2}>
+                    {spaceSaving ? "Saving…" : "Save name"}
+                  </button>
+                ) : (
+                  <button type="button" className="danger" onClick={() => void removeSpace()} disabled={spaceSaving}>
+                    {spaceSaving ? "Deleting…" : spaceItemCount > 0 ? `Delete space and ${spaceItemCount} ${spaceItemCount === 1 ? "item" : "items"}` : "Delete space"}
+                  </button>
+                )}
+              </div>
+            </footer>
+          </section>
         </div>
       )}
 

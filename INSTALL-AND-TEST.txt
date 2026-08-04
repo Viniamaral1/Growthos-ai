@@ -1,20 +1,38 @@
-GrowthOS — Chat Search Layout Fix
+GrowthOS — Knowledge Space Management
 
-Replace this project file:
-frontend/app/components/CofounderChat.tsx
+Changed project files only:
+1. frontend/app/components/KnowledgeSpacesPanel.tsx
+2. frontend/lib/api.ts
+3. backend/app/api/routes/knowledge_spaces.py
 
-Then from the project root:
-1. Stop the frontend server.
-2. Delete the Next.js cache:
+Install
+1. Stop frontend and backend.
+2. Copy the three files into the matching project paths and overwrite them.
+3. From the project root, clear generated caches only:
+
    Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
-3. Start the frontend:
-   cd frontend
-   npm run dev
-4. Hard refresh the browser with Ctrl + Shift + R.
+   Get-ChildItem . -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+   Get-ChildItem . -Recurse -Include *.pyc,*.pyo | Remove-Item -Force -ErrorAction SilentlyContinue
 
-Test only:
-- Hover Search: navy tooltip appears below the button and is fully visible.
-- Open Search: the normal chat composer is hidden.
-- Search panel appears in the lower workspace area and does not sit behind the composer.
-- Close Search by clicking outside or pressing Esc: the normal composer returns immediately.
-- Existing search, Context, scrolling, Capture and routing still work.
+4. Start backend, then frontend.
+5. Hard-refresh the browser with Ctrl+Shift+R.
+
+Test only this sprint
+A. Rename an empty Knowledge Space.
+   Expected: the new name appears immediately and remains after refresh.
+
+B. Rename a space to the name of another existing space.
+   Expected: GrowthOS rejects the duplicate name and keeps the old name.
+
+C. Delete an empty Knowledge Space.
+   Expected: a confirmation dialog appears; after confirmation the space disappears and stays deleted after refresh.
+
+D. Delete a non-empty Knowledge Space.
+   Expected: the dialog states the exact number of saved items and warns that the space and all contained items will be permanently deleted.
+
+E. Cancel both rename and delete dialogs.
+   Expected: no changes are made.
+
+Scope
+- No Executive Team files changed.
+- No Dashboard, Settings, tooltip, scrolling, routing, AI, or Knowledge item behaviour changed.

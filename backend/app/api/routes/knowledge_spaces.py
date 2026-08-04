@@ -2,7 +2,7 @@ import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete as sql_delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
@@ -62,12 +62,41 @@ def update_space(space_id: int, payload: KnowledgeSpaceUpdate, database: Databas
     space = database.get(KnowledgeSpace, space_id)
     if space is None:
         raise HTTPException(status_code=404, detail="Knowledge space not found.")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    values = payload.model_dump(exclude_unset=True)
+    requested_name = values.get("name")
+    if requested_name is not None:
+        normalized_name = requested_name.strip()
+        duplicate = database.scalar(
+            select(KnowledgeSpace).where(
+                KnowledgeSpace.company_id == space.company_id,
+                KnowledgeSpace.id != space_id,
+                func.lower(KnowledgeSpace.name) == normalized_name.lower(),
+                KnowledgeSpace.is_archived.is_(False),
+            )
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="A knowledge space with this name already exists.")
+        values["name"] = normalized_name
+
+    for field, value in values.items():
         setattr(space, field, value.strip() if isinstance(value, str) else value)
     database.add(space)
     database.commit()
     database.refresh(space)
     return space
+
+
+@router.delete("/{space_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_space(space_id: int, database: DatabaseSession):
+    space = database.get(KnowledgeSpace, space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail="Knowledge space not found.")
+
+    database.execute(sql_delete(KnowledgeItem).where(KnowledgeItem.space_id == space_id))
+    database.delete(space)
+    database.commit()
+    return None
 
 
 @router.post("/{space_id}/items", response_model=KnowledgeItemResponse, status_code=status.HTTP_201_CREATED)
