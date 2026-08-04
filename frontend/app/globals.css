@@ -5868,17 +5868,6 @@ button.executive-role:not(.active):hover {
 }
 
 
-/* Natural document flow: the Executive Team is one page, not a scroll box inside a box. */
-.workspace:has(.cofounder-shell) { overflow: visible !important; }
-.cofounder-shell { height: auto !important; min-height: calc(100vh - 72px) !important; overflow: visible !important; }
-.cofounder-chat-panel { display: block !important; height: auto !important; min-height: calc(100vh - 72px) !important; overflow: visible !important; }
-.executive-team-selector { position: sticky !important; top: 0 !important; }
-.cofounder-chat-header { position: sticky !important; top: 53px !important; z-index: 38 !important; }
-.cofounder-message-scroll { min-height: calc(100vh - 270px) !important; overflow: visible !important; padding-bottom: 36px !important; }
-.executive-composer { position: sticky !important; bottom: 12px !important; margin: 0 auto 14px !important; }
-.cofounder-scroll-controls { display: none !important; }
-.growthos-guide.cofounder-guide { display: none !important; }
-
 /* v5.2 workspace reliability, settings, and knowledge spaces */
 :root[data-accent="blue"] { --cyan: #5a9cff; }
 :root[data-accent="violet"] { --cyan: #9b87f5; }
@@ -6263,3 +6252,259 @@ button.executive-role:not(.active):hover {
   .knowledge-preview > footer button { flex: 1; }
   .knowledge-edit-row { grid-template-columns: 1fr; }
 }
+
+/* ===== Executive Team: current-layout correction =====
+   Scoped to the visible Executive Team host. This leaves every other page,
+   the main sidebar, routing, and application behaviour unchanged. */
+.workspace:has(> .cofounder-view-host:not([hidden])) {
+  width: 100% !important;
+  max-width: none !important;
+  height: calc(100dvh - 70px) !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.cofounder-view-host:not([hidden]) {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.cofounder-view-host > .cofounder-shell,
+.cofounder-view-host > .cofounder-shell.conversation-sidebar-collapsed {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.cofounder-view-host .cofounder-chat-panel {
+  position: relative !important;
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  background: var(--bg) !important;
+}
+
+/* Keep the Executive Team bar compact and align every control on one line. */
+.cofounder-view-host .executive-team-selector {
+  position: relative !important;
+  top: auto !important;
+  z-index: 45 !important;
+  margin: 0 !important;
+  padding: 10px clamp(16px, 3vw, 28px) !important;
+}
+
+.cofounder-view-host .executive-team-intro {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-height: 42px !important;
+}
+
+.cofounder-view-host .executive-team-intro > div:nth-child(2) {
+  min-width: 0 !important;
+}
+
+.cofounder-view-host .executive-router-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  margin-left: auto !important;
+}
+
+.cofounder-view-host .conversation-history-button,
+.cofounder-view-host .team-selector-button,
+.cofounder-view-host .reset-routing-button {
+  flex: 0 0 auto !important;
+}
+
+.cofounder-view-host .cofounder-chat-header {
+  display: flex !important;
+  min-height: 54px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  padding: 8px clamp(18px, 6vw, 92px) !important;
+}
+
+/* This is the only scrolling region inside Executive Team. */
+.cofounder-view-host .cofounder-message-scroll {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain !important;
+  scrollbar-gutter: stable !important;
+  scroll-behavior: auto !important;
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding: 22px clamp(20px, 7vw, 110px) 28px !important;
+}
+
+/* Compact ChatGPT-style composer: visible below messages, never covering controls. */
+.cofounder-view-host .executive-composer {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 35 !important;
+  width: min(920px, calc(100% - 32px)) !important;
+  max-height: 250px !important;
+  margin: 10px auto 14px !important;
+  padding: 10px 12px !important;
+  overflow: visible !important;
+}
+
+.cofounder-view-host .executive-composer textarea {
+  min-height: 58px !important;
+  max-height: 160px !important;
+  padding: 8px 4px !important;
+}
+
+.cofounder-view-host .executive-composer footer {
+  margin-top: 2px !important;
+  padding-top: 7px !important;
+}
+
+/* Keep the jump controls and guide clear of the composer. */
+.cofounder-view-host .cofounder-scroll-controls {
+  position: absolute !important;
+  right: 18px !important;
+  bottom: 154px !important;
+  z-index: 60 !important;
+}
+
+.growthos-guide.cofounder-guide {
+  right: 18px !important;
+  bottom: 210px !important;
+  z-index: 61 !important;
+}
+
+/* Conversation history remains an overlay and never changes the chat width. */
+.cofounder-view-host .cofounder-conversation-sidebar {
+  position: absolute !important;
+  inset: 0 auto 0 0 !important;
+  z-index: 70 !important;
+  width: min(320px, 88vw) !important;
+  height: 100% !important;
+  max-height: none !important;
+  overflow: hidden !important;
+}
+
+.cofounder-view-host .cofounder-shell.conversation-sidebar-collapsed .cofounder-conversation-sidebar {
+  transform: translateX(-104%) !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Executive Team tooltips: one consistent navy tooltip above each control. */
+.cofounder-view-host [data-tooltip] {
+  position: relative !important;
+}
+
+.cofounder-view-host [data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  z-index: 150;
+  width: max-content;
+  max-width: 230px;
+  transform: translate(-50%, 5px);
+  border: 1px solid rgba(120, 190, 235, .48);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(25, 55, 82, .98), rgba(12, 31, 51, .98));
+  padding: 7px 9px;
+  color: #e8f7ff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .10);
+  backdrop-filter: blur(16px);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+}
+
+.cofounder-view-host [data-tooltip]:hover::after,
+.cofounder-view-host [data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+/* Header controls sit against the top edge, so their navy tooltips open below. */
+.cofounder-view-host .executive-router-actions [data-tooltip]::after,
+.cofounder-view-host .chat-context-menu > summary[data-tooltip]::after {
+  top: calc(100% + 9px) !important;
+  bottom: auto !important;
+  transform: translate(-50%, -5px) !important;
+}
+
+.cofounder-view-host .executive-router-actions [data-tooltip]:hover::after,
+.cofounder-view-host .executive-router-actions [data-tooltip]:focus-visible::after,
+.cofounder-view-host .chat-context-menu > summary[data-tooltip]:hover::after,
+.cofounder-view-host .chat-context-menu > summary[data-tooltip]:focus-visible::after {
+  transform: translate(-50%, 0) !important;
+}
+
+/* Keep the Context summary compatible with the shared tooltip component. */
+.cofounder-view-host .chat-context-menu > summary {
+  position: relative !important;
+}
+
+/* Keep every non-Executive page on its existing normal document scrollbar. */
+.workspace:not(:has(> .cofounder-view-host:not([hidden]))) {
+  height: auto !important;
+  min-height: calc(100vh - 70px) !important;
+  overflow: visible !important;
+}
+
+@media (max-width: 760px) {
+  .workspace:has(> .cofounder-view-host:not([hidden])) {
+    height: calc(100dvh - 64px) !important;
+  }
+
+  .cofounder-view-host .executive-team-selector {
+    padding-inline: 10px !important;
+  }
+
+  .cofounder-view-host .executive-team-intro > div:nth-child(2) strong {
+    display: none !important;
+  }
+
+  .cofounder-view-host .cofounder-message-scroll {
+    padding: 18px 14px 22px !important;
+  }
+
+  .cofounder-view-host .executive-composer {
+    width: calc(100% - 18px) !important;
+    margin: 8px auto 10px !important;
+  }
+
+  .cofounder-view-host .cofounder-scroll-controls {
+    right: 9px !important;
+    bottom: 146px !important;
+  }
+}
+

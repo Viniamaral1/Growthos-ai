@@ -1,0 +1,17 @@
+GrowthOS current scroll + composer repair
+
+Only one project file is included:
+frontend/app/globals.css
+
+Install:
+1. Stop the frontend server.
+2. Replace frontend/app/globals.css with the file from this ZIP.
+3. From the project root, delete frontend/.next.
+4. Restart the frontend with npm run dev.
+5. Hard refresh with Ctrl+Shift+R.
+
+Test only:
+- Other pages scroll normally with the mouse wheel.
+- Inside Executive Team, the conversation area scrolls freely with the mouse wheel.
+- The composer remains visible at the bottom of the Executive Team page.
+- The navy Executive Team tooltips remain unchanged.

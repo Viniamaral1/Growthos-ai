@@ -1,0 +1,24 @@
+GrowthOS layout architecture fix
+
+Changed project files:
+- frontend/app/page.tsx
+- frontend/app/globals.css
+
+What was fixed:
+- Executive Team now has one native scroll region: the conversation messages.
+- The composer remains visible as the final row at the bottom.
+- The conversation drawer remains an overlay and does not create a second scrollbar.
+- Other GrowthOS pages retain normal browser/page scrolling.
+- Existing tooltip styling and application features were not redesigned.
+
+Install:
+1. Copy the frontend folder from this ZIP over the matching frontend folder in the project.
+2. From the project root, remove the Next.js cache:
+   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+3. Start the frontend normally and hard refresh with Ctrl+Shift+R.
+
+Verify only:
+1. Dashboard and other non-chat pages scroll normally.
+2. Executive Team shows exactly one scrollbar in the message region.
+3. Mouse wheel works while the pointer is over the conversation.
+4. Composer remains visible at the bottom while messages scroll above it.

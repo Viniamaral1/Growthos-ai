@@ -138,7 +138,7 @@ export default function ExecutiveComposer({
             disabled={sending || attaching}
             onClick={selectFiles}
             aria-label="Attach PDFs"
-            title="Attach PDFs"
+            data-tooltip="Attach PDFs"
           >
             ⎘
           </button>
@@ -148,7 +148,7 @@ export default function ExecutiveComposer({
             aria-pressed={researchMode}
             disabled={sending}
             onClick={() => onResearchModeChange(!researchMode)}
-            title="Guided research"
+            data-tooltip="Guided research"
           >
             ⌕ <span>{researchMode ? "Research" : "Explore"}</span>
           </button>

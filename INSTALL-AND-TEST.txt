@@ -1,75 +1,24 @@
-GrowthOS AI v3.4.1 — Guided Research Discovery
-Baseline: GrowthOS-AI-DEV(7).zip
+GrowthOS — Context popover and header tooltip correction
 
-WHAT THIS FIXES
-- Research is now integrated into Executive Team chat instead of existing only on the Research page.
-- Adds a visible “Explore an idea” control above the chat composer.
-- Users can begin with a vague idea, opportunity, problem, or open question.
-- No PDF, business plan, existing workspace profile, or finished idea is required.
-- Automatic research-intent detection is conservative and topic-agnostic.
-- Guided discovery creates a persistent Research Project in the active workspace.
-- Natural-language replies are mapped to outstanding discovery questions.
-- Once required context is collected, “Build the research plan” creates the structured plan.
-- Research responses do not create Executive Memory proposals.
-- Turning Research Discovery off returns the conversation to normal Executive Team routing without deleting the saved project.
+Replace only these files in the project:
 
-INSTALL
-1. Stop backend and frontend.
-2. Copy this ZIP’s backend and frontend folders over the project root; replace matching files.
-3. From the project root, clean temporary caches:
+frontend/app/components/CofounderChat.tsx
+frontend/app/globals.css
 
-   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
-   Get-ChildItem .\backend -Directory -Recurse -Filter "__pycache__" | Remove-Item -Recurse -Force
-   Remove-Item -Recurse -Force .\.pytest_cache -ErrorAction SilentlyContinue
+Then, from the project root:
 
-4. Backend terminal:
+Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+cd frontend
+npm run dev
 
-   cd backend
-   .\.venv\Scripts\Activate
-   uvicorn app.main:app --reload
+Hard-refresh the browser with Ctrl + Shift + R.
 
-5. Frontend terminal:
+Test only:
+1. Hover Context: a navy tooltip appears.
+2. Open Context, then click outside: it closes.
+3. Open Context, then press Esc: it closes.
+4. Open Context, then open Team or conversation history: Context closes.
+5. Change the Context scope: the menu closes after selection.
+6. Hover the top header controls: their navy tooltips open below the buttons and are not clipped by the top edge.
 
-   cd frontend
-   npm run dev
-
-6. Hard-refresh browser with Ctrl+Shift+R and create a new conversation.
-
-PRIMARY TEST
-1. Select any workspace. Leave Search All Intelligence OFF and attach no documents.
-2. Click “Explore an idea”. The control should display “Research discovery on”.
-3. Send: “I have an idea but I’m not sure where to begin.”
-4. Expected:
-   - response comes from Research Lead;
-   - GrowthOS opens a named research project;
-   - it explicitly says no complete idea or document is required;
-   - it asks adaptive discovery questions;
-   - no Executive Memory proposal appears.
-5. Reply naturally in one paragraph. Include “not sure” for any unknowns.
-6. Expected: GrowthOS records supplied answers and asks only the remaining required questions.
-7. Once complete, send: “Build the research plan”.
-8. Expected: GrowthOS confirms the plan was created. Open Research to review it.
-
-AUTOMATIC ROUTING TESTS
-Without clicking the control, start a new conversation and try:
-- “Help me explore a new opportunity.”
-- “Research whether opening a private clinic would be viable.”
-- “I’m considering a career change but don’t know which direction.”
-These should enter discovery automatically.
-
-NORMAL CHAT REGRESSION
-With Research Discovery OFF, verify:
-- “Hi” gives a natural greeting.
-- “Explain SWOT analysis” gives normal executive advice.
-- Existing PDF attachment and Search All Intelligence flows still work.
-- Background streaming, Stop, inline Edit, Save Memory, and Track Decision still work.
-
-EXIT TEST
-During an active research conversation, turn “Research discovery on” OFF and send a normal business question. It should return to ordinary Executive Team routing. The saved research project remains available in Research.
-
-VALIDATION COMPLETED
-- Backend Python compilation passed.
-- Topic-agnostic intent tests passed.
-- No farm/Brazil-specific branching is present.
-- Frontend bracket/parser sanity checks passed.
-- A full Next.js build was not run because node_modules was excluded from the uploaded development ZIP.
+No chat scrolling, composer layout, backend, routing, Knowledge, Dashboard, Settings, or other page logic was changed.

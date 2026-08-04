@@ -3681,6 +3681,7 @@ async function handleGenerateBusinessPlan(
             )}
 
           <div
+            className="cofounder-view-host"
             hidden={view !== "cofounder"}
             aria-hidden={view !== "cofounder"}
           >

@@ -1,0 +1,14 @@
+GrowthOS Executive Team layout correction
+
+Changed project file:
+- frontend/app/globals.css
+
+Only the current Executive Team layout rules were corrected:
+- compact, aligned Executive Team header controls
+- one existing scrollable message region preserved
+- smaller composer below the messages
+- scroll controls and guide moved above the composer
+- navy tooltips above Executive Team controls
+- all non-Executive pages keep their existing scrolling/layout
+
+No TSX, backend, routing, AI, Knowledge, Settings, Dashboard, or data files changed.

@@ -1,0 +1,17 @@
+ONLY ONE PROJECT FILE IS INCLUDED:
+frontend/app/globals.css
+
+From the GrowthOS project root:
+1. Stop the frontend with Ctrl+C.
+2. Replace frontend/app/globals.css with the file in this ZIP.
+3. Delete the Next.js cache:
+   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+4. Start the frontend:
+   cd frontend
+   npm run dev
+5. Hard refresh with Ctrl+Shift+R.
+
+TEST ONLY:
+- The composer is visible at the bottom of Executive Team.
+- Mouse-wheel scrolling works while the cursor is over the chat messages.
+- Tooltips remain unchanged.

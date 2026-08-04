@@ -595,7 +595,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={onEdit}
-                title="Edit this prompt in the composer"
+                data-tooltip="Edit this prompt in the composer"
               >
                 <span aria-hidden="true">✎</span>
                 <strong>Edit prompt</strong>
@@ -610,7 +610,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={() => onCopy(message)}
-                title="Copy response"
+                data-tooltip="Copy response"
               >
                 <span aria-hidden="true">⧉</span>
                 <strong>Copy</strong>
@@ -620,7 +620,7 @@ function MessageBubble({
                 <button
                   type="button"
                   onClick={onCaptureKnowledge}
-                  title="Capture this message in a Knowledge Space"
+                  data-tooltip="Capture this message in a Knowledge Space"
                 >
                   <span aria-hidden="true">▧</span>
                   <strong>Capture</strong>
@@ -631,7 +631,7 @@ function MessageBubble({
                 <button
                   type="button"
                   onClick={onSaveMemory}
-                  title="Save this response to Executive Memory"
+                  data-tooltip="Save this response to Executive Memory"
                 >
                   <span aria-hidden="true">✦</span>
                   <strong>Save Memory</strong>
@@ -642,7 +642,7 @@ function MessageBubble({
                 <button
                   type="button"
                   onClick={onSaveDecision}
-                  title="Save as a tracked decision"
+                  data-tooltip="Save as a tracked decision"
                 >
                   <span aria-hidden="true">◇</span>
                   <strong>Track Decision</strong>
@@ -656,7 +656,7 @@ function MessageBubble({
                     onClick={() =>
                       onFeedback("useful")
                     }
-                    title="This answer was useful"
+                    data-tooltip="This answer was useful"
                     aria-label="Mark answer useful"
                   >
                     <span aria-hidden="true">👍</span>
@@ -668,7 +668,7 @@ function MessageBubble({
                     onClick={() =>
                       onFeedback("not_useful")
                     }
-                    title="This answer needs improvement"
+                    data-tooltip="This answer needs improvement"
                     aria-label="Mark answer not useful"
                   >
                     <span aria-hidden="true">👎</span>
@@ -685,7 +685,7 @@ function MessageBubble({
                       onToggleRetryMenu ??
                       onRegenerate
                     }
-                    title="Try the answer again"
+                    data-tooltip="Try the answer again"
                   >
                     <span aria-hidden="true">↻</span>
                     <strong>Try Again</strong>
@@ -1391,6 +1391,8 @@ export default function CofounderChat({
     useState<ExecutiveRole>("auto");
   const [resolvedExecutiveRole, setResolvedExecutiveRole] =
     useState<ExecutiveRole>("ceo");
+  const [contextMenuOpen, setContextMenuOpen] =
+    useState(false);
   const [copiedMessageId, setCopiedMessageId] =
     useState<number | null>(null);
   const [attaching, setAttaching] = useState(false);
@@ -1419,6 +1421,7 @@ export default function CofounderChat({
   const conversationTriggerRef = useRef<HTMLButtonElement | null>(null);
   const executiveMenuRef = useRef<HTMLDivElement | null>(null);
   const executiveTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const contextMenuRef = useRef<HTMLDetailsElement | null>(null);
 
   const [canScrollUp, setCanScrollUp] =
     useState(false);
@@ -1451,6 +1454,7 @@ export default function CofounderChat({
       if (event.key !== "Escape") return;
       setConversationSidebarCollapsed(true);
       setExecutiveSelectorOpen(false);
+      setContextMenuOpen(false);
       setRetryMenuMessageId(null);
     }
 
@@ -1470,6 +1474,12 @@ export default function CofounderChat({
       ) {
         setExecutiveSelectorOpen(false);
       }
+      if (
+        contextMenuOpen &&
+        !contextMenuRef.current?.contains(target)
+      ) {
+        setContextMenuOpen(false);
+      }
     }
 
     document.addEventListener("keydown", closeOnEscape);
@@ -1478,7 +1488,7 @@ export default function CofounderChat({
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("mousedown", closeOnOutsidePointer);
     };
-  }, [conversationSidebarCollapsed, executiveSelectorOpen]);
+  }, [conversationSidebarCollapsed, executiveSelectorOpen, contextMenuOpen]);
 
   const companyId = company?.id ?? null;
 
@@ -1723,10 +1733,7 @@ const executiveIdentity = {
       shouldAutoScrollRef.current &&
       !userInterruptedScrollRef.current
     ) {
-      bottomRef.current?.scrollIntoView({
-        block: "end",
-        behavior: "auto",
-      });
+      container.scrollTop = container.scrollHeight;
     }
 
     const frame = window.requestAnimationFrame(
@@ -3277,11 +3284,12 @@ async function saveDecisionFromMessage(
         className="conversation-history-button"
         onClick={() => {
           setExecutiveSelectorOpen(false);
+          setContextMenuOpen(false);
           setConversationSidebarCollapsed((current) => !current);
         }}
         aria-expanded={!conversationSidebarCollapsed}
         aria-label={conversationSidebarCollapsed ? "Open conversation history" : "Close conversation history"}
-        title="Conversation history"
+        data-tooltip="Conversation history"
       >
         ☰
       </button>
@@ -3296,10 +3304,11 @@ async function saveDecisionFromMessage(
         className="team-selector-button"
         onClick={() => {
           setConversationSidebarCollapsed(true);
+          setContextMenuOpen(false);
           setExecutiveSelectorOpen((current) => !current);
         }}
         aria-expanded={executiveSelectorOpen}
-        title="Choose an executive perspective"
+        data-tooltip="Choose an executive perspective"
       >
         Team {executiveSelectorOpen ? "▴" : "▾"}
       </button>
@@ -3315,7 +3324,7 @@ async function saveDecisionFromMessage(
         }}
         disabled={sending}
         aria-label="Reset routing to Auto"
-        title="Reset routing, research mode, and document scope"
+        data-tooltip="Reset routing, research mode, and document scope"
       >
         ↺
       </button>
@@ -3420,8 +3429,20 @@ async function saveDecisionFromMessage(
             <h1>{activeConversation?.title ?? "New conversation"}</h1>
           </div>
 
-          <details className="chat-context-menu">
-            <summary>Context</summary>
+          <details
+            ref={contextMenuRef}
+            className="chat-context-menu"
+            open={contextMenuOpen}
+            onToggle={(event) =>
+              setContextMenuOpen(event.currentTarget.open)
+            }
+          >
+            <summary
+              data-tooltip="Choose intelligence context"
+              aria-label="Choose intelligence context"
+            >
+              Context
+            </summary>
             <div>
               <label>
                 <input
@@ -3429,7 +3450,10 @@ async function saveDecisionFromMessage(
                   name="cofounder-search-all"
                   type="checkbox"
                   checked={useAllDocuments}
-                  onChange={(event) => onScopeChange(event.target.checked)}
+                  onChange={(event) => {
+                    onScopeChange(event.target.checked);
+                    setContextMenuOpen(false);
+                  }}
                 />
                 Search all intelligence
               </label>
@@ -3438,9 +3462,12 @@ async function saveDecisionFromMessage(
                   id="cofounder-document-scope"
                   name="cofounder-document-scope"
                   value={activeDocumentId ?? ""}
-                  onChange={(event) =>
-                    onDocumentChange(event.target.value ? Number(event.target.value) : null)
-                  }
+                  onChange={(event) => {
+                    onDocumentChange(
+                      event.target.value ? Number(event.target.value) : null,
+                    );
+                    setContextMenuOpen(false);
+                  }}
                 >
                   <option value="">Workspace only</option>
                   {readyDocuments.map((document) => (
@@ -3683,7 +3710,7 @@ async function saveDecisionFromMessage(
             onClick={jumpToConversationStart}
             disabled={!canScrollUp}
             aria-label="Jump to beginning of conversation"
-            title="Go to beginning"
+            data-tooltip="Go to beginning"
           >
             ↑
           </button>
@@ -3698,7 +3725,7 @@ async function saveDecisionFromMessage(
               )
             }
             aria-label="Jump to latest message"
-            title="Go to latest message"
+            data-tooltip="Go to latest message"
           >
             ↓
           </button>
