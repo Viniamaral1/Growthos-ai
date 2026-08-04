@@ -1,24 +1,20 @@
-GrowthOS — Context popover and header tooltip correction
+GrowthOS — Chat Search Layout Fix
 
-Replace only these files in the project:
-
+Replace this project file:
 frontend/app/components/CofounderChat.tsx
-frontend/app/globals.css
 
-Then, from the project root:
-
-Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
-cd frontend
-npm run dev
-
-Hard-refresh the browser with Ctrl + Shift + R.
+Then from the project root:
+1. Stop the frontend server.
+2. Delete the Next.js cache:
+   Remove-Item -Recurse -Force .\frontend\.next -ErrorAction SilentlyContinue
+3. Start the frontend:
+   cd frontend
+   npm run dev
+4. Hard refresh the browser with Ctrl + Shift + R.
 
 Test only:
-1. Hover Context: a navy tooltip appears.
-2. Open Context, then click outside: it closes.
-3. Open Context, then press Esc: it closes.
-4. Open Context, then open Team or conversation history: Context closes.
-5. Change the Context scope: the menu closes after selection.
-6. Hover the top header controls: their navy tooltips open below the buttons and are not clipped by the top edge.
-
-No chat scrolling, composer layout, backend, routing, Knowledge, Dashboard, Settings, or other page logic was changed.
+- Hover Search: navy tooltip appears below the button and is fully visible.
+- Open Search: the normal chat composer is hidden.
+- Search panel appears in the lower workspace area and does not sit behind the composer.
+- Close Search by clicking outside or pressing Esc: the normal composer returns immediately.
+- Existing search, Context, scrolling, Capture and routing still work.

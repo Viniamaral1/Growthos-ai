@@ -1387,6 +1387,10 @@ export default function CofounderChat({
     useState("");
   const [conversationSearch, setConversationSearch] =
     useState("");
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [activeMessageSearchIndex, setActiveMessageSearchIndex] = useState(0);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [executiveRole, setExecutiveRole] =
     useState<ExecutiveRole>("auto");
   const [resolvedExecutiveRole, setResolvedExecutiveRole] =
@@ -1422,6 +1426,10 @@ export default function CofounderChat({
   const executiveMenuRef = useRef<HTMLDivElement | null>(null);
   const executiveTriggerRef = useRef<HTMLButtonElement | null>(null);
   const contextMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const messageSearchRef = useRef<HTMLDivElement | null>(null);
+  const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const messageNodeRefs = useRef(new Map<number, HTMLDivElement>());
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [canScrollUp, setCanScrollUp] =
     useState(false);
@@ -1446,6 +1454,14 @@ export default function CofounderChat({
   >(null);
 
   useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
 
@@ -1455,6 +1471,7 @@ export default function CofounderChat({
       setConversationSidebarCollapsed(true);
       setExecutiveSelectorOpen(false);
       setContextMenuOpen(false);
+      setMessageSearchOpen(false);
       setRetryMenuMessageId(null);
     }
 
@@ -1480,6 +1497,12 @@ export default function CofounderChat({
       ) {
         setContextMenuOpen(false);
       }
+      if (
+        messageSearchOpen &&
+        !messageSearchRef.current?.contains(target)
+      ) {
+        setMessageSearchOpen(false);
+      }
     }
 
     document.addEventListener("keydown", closeOnEscape);
@@ -1488,7 +1511,7 @@ export default function CofounderChat({
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("mousedown", closeOnOutsidePointer);
     };
-  }, [conversationSidebarCollapsed, executiveSelectorOpen, contextMenuOpen]);
+  }, [conversationSidebarCollapsed, executiveSelectorOpen, contextMenuOpen, messageSearchOpen]);
 
   const companyId = company?.id ?? null;
 
@@ -1531,6 +1554,58 @@ export default function CofounderChat({
       ),
     );
   }, [conversationSearch, conversations]);
+
+  const messageSearchResults = useMemo(() => {
+    const query = messageSearchQuery.trim().toLowerCase();
+    if (!query || !activeConversation) {
+      return [];
+    }
+
+    return activeConversation.messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.content.toLowerCase().includes(query));
+  }, [activeConversation, messageSearchQuery]);
+
+  useEffect(() => {
+    setActiveMessageSearchIndex(0);
+  }, [messageSearchQuery, activeConversation?.id]);
+
+  useEffect(() => {
+    if (messageSearchOpen) {
+      requestAnimationFrame(() => messageSearchInputRef.current?.focus());
+    }
+  }, [messageSearchOpen]);
+
+  function jumpToMessageSearchResult(resultIndex: number) {
+    const result = messageSearchResults[resultIndex];
+    if (!result) return;
+
+    setActiveMessageSearchIndex(resultIndex);
+    setHighlightedMessageId(result.message.id);
+    shouldAutoScrollRef.current = false;
+    userInterruptedScrollRef.current = true;
+
+    messageNodeRefs.current.get(result.message.id)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+    }, 2200);
+  }
+
+  function searchResultExcerpt(content: string) {
+    const query = messageSearchQuery.trim();
+    if (!query) return content.slice(0, 140);
+    const lowerContent = content.toLowerCase();
+    const start = Math.max(0, lowerContent.indexOf(query.toLowerCase()) - 52);
+    const excerpt = content.slice(start, start + 150).trim();
+    return `${start > 0 ? "…" : ""}${excerpt}${start + 150 < content.length ? "…" : ""}`;
+  }
 
 
 const executiveIdentity = {
@@ -3285,6 +3360,7 @@ async function saveDecisionFromMessage(
         onClick={() => {
           setExecutiveSelectorOpen(false);
           setContextMenuOpen(false);
+          setMessageSearchOpen(false);
           setConversationSidebarCollapsed((current) => !current);
         }}
         aria-expanded={!conversationSidebarCollapsed}
@@ -3305,6 +3381,7 @@ async function saveDecisionFromMessage(
         onClick={() => {
           setConversationSidebarCollapsed(true);
           setContextMenuOpen(false);
+          setMessageSearchOpen(false);
           setExecutiveSelectorOpen((current) => !current);
         }}
         aria-expanded={executiveSelectorOpen}
@@ -3429,56 +3506,161 @@ async function saveDecisionFromMessage(
             <h1>{activeConversation?.title ?? "New conversation"}</h1>
           </div>
 
-          <details
-            ref={contextMenuRef}
-            className="chat-context-menu"
-            open={contextMenuOpen}
-            onToggle={(event) =>
-              setContextMenuOpen(event.currentTarget.open)
-            }
-          >
-            <summary
-              data-tooltip="Choose intelligence context"
-              aria-label="Choose intelligence context"
-            >
-              Context
-            </summary>
-            <div>
-              <label>
-                <input
-                  id="cofounder-search-all"
-                  name="cofounder-search-all"
-                  type="checkbox"
-                  checked={useAllDocuments}
-                  onChange={(event) => {
-                    onScopeChange(event.target.checked);
-                    setContextMenuOpen(false);
-                  }}
-                />
-                Search all intelligence
-              </label>
-              {!useAllDocuments && (
-                <select
-                  id="cofounder-document-scope"
-                  name="cofounder-document-scope"
-                  value={activeDocumentId ?? ""}
-                  onChange={(event) => {
-                    onDocumentChange(
-                      event.target.value ? Number(event.target.value) : null,
-                    );
-                    setContextMenuOpen(false);
-                  }}
-                >
-                  <option value="">Workspace only</option>
-                  {readyDocuments.map((document) => (
-                    <option key={document.id} value={document.id}>
-                      {document.original_filename}
-                    </option>
-                  ))}
-                </select>
+          <div className="cofounder-header-actions">
+            <div ref={messageSearchRef} className="cofounder-message-search">
+              <button
+                type="button"
+                className="cofounder-message-search-toggle"
+                aria-expanded={messageSearchOpen}
+                aria-label="Search messages in this conversation"
+                onClick={() => {
+                  setConversationSidebarCollapsed(true);
+                  setExecutiveSelectorOpen(false);
+                  setContextMenuOpen(false);
+                  setMessageSearchOpen((current) => !current);
+                }}
+              >
+                ⌕
+                <span className="cofounder-message-search-tooltip" role="tooltip">
+                  Search this conversation
+                </span>
+              </button>
+
+              {messageSearchOpen && (
+                <section className="cofounder-message-search-panel" aria-label="Search this conversation">
+                  <div className="cofounder-message-search-input">
+                    <span aria-hidden="true">⌕</span>
+                    <input
+                      ref={messageSearchInputRef}
+                      value={messageSearchQuery}
+                      onChange={(event) => setMessageSearchQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && messageSearchResults.length > 0) {
+                          event.preventDefault();
+                          const direction = event.shiftKey ? -1 : 1;
+                          const next = (activeMessageSearchIndex + direction + messageSearchResults.length) % messageSearchResults.length;
+                          jumpToMessageSearchResult(next);
+                        }
+                      }}
+                      placeholder="Find a word or phrase…"
+                      aria-label="Search messages"
+                    />
+                    {messageSearchQuery && (
+                      <button type="button" onClick={() => setMessageSearchQuery("")} aria-label="Clear message search">×</button>
+                    )}
+                  </div>
+
+                  <div className="cofounder-message-search-summary">
+                    <span>
+                      {messageSearchQuery.trim()
+                        ? `${messageSearchResults.length} match${messageSearchResults.length === 1 ? "" : "es"}`
+                        : "Search the current conversation"}
+                    </span>
+                    {messageSearchResults.length > 0 && (
+                      <div>
+                        <button
+                          type="button"
+                          aria-label="Previous match"
+                          onClick={() => {
+                            const previous = (activeMessageSearchIndex - 1 + messageSearchResults.length) % messageSearchResults.length;
+                            jumpToMessageSearchResult(previous);
+                          }}
+                        >
+                          ↑
+                        </button>
+                        <strong>{activeMessageSearchIndex + 1}/{messageSearchResults.length}</strong>
+                        <button
+                          type="button"
+                          aria-label="Next match"
+                          onClick={() => {
+                            const next = (activeMessageSearchIndex + 1) % messageSearchResults.length;
+                            jumpToMessageSearchResult(next);
+                          }}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {messageSearchQuery.trim() && (
+                    <div className="cofounder-message-search-results">
+                      {messageSearchResults.length === 0 ? (
+                        <p>No messages found.</p>
+                      ) : (
+                        messageSearchResults.map((result, resultIndex) => (
+                          <button
+                            type="button"
+                            className={resultIndex === activeMessageSearchIndex ? "active" : ""}
+                            key={result.message.id}
+                            onClick={() => jumpToMessageSearchResult(resultIndex)}
+                          >
+                            <span>{result.message.role === "user" ? "You" : "GrowthOS"}</span>
+                            <small>{searchResultExcerpt(result.message.content)}</small>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </section>
               )}
             </div>
-          </details>
+
+            <details
+              ref={contextMenuRef}
+              className="chat-context-menu"
+              open={contextMenuOpen}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setContextMenuOpen(open);
+                if (open) {
+                  setMessageSearchOpen(false);
+                }
+              }}
+            >
+              <summary
+                data-tooltip="Choose intelligence context"
+                aria-label="Choose intelligence context"
+              >
+                Context
+              </summary>
+              <div>
+                <label>
+                  <input
+                    id="cofounder-search-all"
+                    name="cofounder-search-all"
+                    type="checkbox"
+                    checked={useAllDocuments}
+                    onChange={(event) => {
+                      onScopeChange(event.target.checked);
+                      setContextMenuOpen(false);
+                    }}
+                  />
+                  Search all intelligence
+                </label>
+                {!useAllDocuments && (
+                  <select
+                    id="cofounder-document-scope"
+                    name="cofounder-document-scope"
+                    value={activeDocumentId ?? ""}
+                    onChange={(event) => {
+                      onDocumentChange(
+                        event.target.value ? Number(event.target.value) : null,
+                      );
+                      setContextMenuOpen(false);
+                    }}
+                  >
+                    <option value="">Workspace only</option>
+                    {readyDocuments.map((document) => (
+                      <option key={document.id} value={document.id}>
+                        {document.original_filename}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </details>
+          </div>
         </header>
 
         <div
@@ -3532,8 +3714,18 @@ async function saveDecisionFromMessage(
           ) : (
             activeConversation.messages.map(
               (message, index) => (
-                <MessageBubble
+                <div
                   key={message.id}
+                  ref={(node) => {
+                    if (node) {
+                      messageNodeRefs.current.set(message.id, node);
+                    } else {
+                      messageNodeRefs.current.delete(message.id);
+                    }
+                  }}
+                  className={`cofounder-search-message-anchor${highlightedMessageId === message.id ? " is-highlighted" : ""}`}
+                >
+                <MessageBubble
                   message={message}
                   streaming={
                     sending &&
@@ -3676,6 +3868,7 @@ async function saveDecisionFromMessage(
                       : undefined
                   }
                 />
+                </div>
               ),
             )
           )}
@@ -3752,6 +3945,7 @@ async function saveDecisionFromMessage(
   </div>
 )}
 
+{!messageSearchOpen && (
 <ExecutiveComposer
   draft={draft}
   sending={sending || stopping}
@@ -3782,10 +3976,168 @@ async function saveDecisionFromMessage(
     void sendMessage(CONTINUE_INSTRUCTION, undefined, { internalContinuation: true });
   }}
 />
+)}
       </div>
 
       <style jsx>{`
 
+.cofounder-header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.cofounder-message-search {
+  position: relative;
+}
+
+.cofounder-message-search-toggle {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255,255,255,.025);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.cofounder-message-search-toggle:hover,
+.cofounder-message-search-toggle[aria-expanded="true"] {
+  border-color: var(--border-strong);
+  background: rgba(56,189,248,.08);
+  color: var(--cyan);
+}
+
+.cofounder-message-search-tooltip {
+  position: absolute;
+  z-index: 130;
+  top: calc(100% + 8px);
+  left: 50%;
+  width: max-content;
+  max-width: 220px;
+  transform: translate(-50%, -4px);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: 0 12px 30px rgba(0,0,0,.34);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+}
+
+.cofounder-message-search-toggle:hover .cofounder-message-search-tooltip,
+.cofounder-message-search-toggle:focus-visible .cofounder-message-search-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.cofounder-message-search-panel {
+  position: fixed;
+  z-index: 95;
+  right: clamp(22px, 5vw, 84px);
+  bottom: 22px;
+  width: min(620px, calc(100vw - 44px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--panel-strong);
+  box-shadow: 0 24px 64px rgba(0,0,0,.44);
+}
+
+.cofounder-message-search-input {
+  display: grid;
+  grid-template-columns: 22px minmax(0,1fr) 28px;
+  align-items: center;
+  gap: 6px;
+  margin: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(4,12,22,.42);
+  padding: 5px 7px;
+}
+
+.cofounder-message-search-input > span { color: var(--cyan); text-align: center; }
+.cofounder-message-search-input input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); padding: 7px 2px; font-size: 8px; }
+.cofounder-message-search-input input::placeholder { color: var(--muted); }
+.cofounder-message-search-input button { width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.cofounder-message-search-input button:hover { background: rgba(255,255,255,.05); color: var(--text); }
+
+.cofounder-message-search-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.cofounder-message-search-summary > div { display: flex; align-items: center; gap: 7px; }
+.cofounder-message-search-summary button { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-soft); cursor: pointer; }
+.cofounder-message-search-summary strong { color: var(--text-soft); font-size: 7px; }
+
+.cofounder-message-search-results {
+  display: grid;
+  max-height: min(330px, 50vh);
+  overflow-y: auto;
+  padding: 7px;
+}
+
+.cofounder-message-search-results > button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  padding: 9px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cofounder-message-search-results > button:hover,
+.cofounder-message-search-results > button.active {
+  background: rgba(56,189,248,.08);
+}
+
+.cofounder-message-search-results span { color: var(--cyan); font-size: 7px; font-weight: 800; }
+.cofounder-message-search-results small { color: var(--text-soft); font-size: 7px; line-height: 1.45; }
+.cofounder-message-search-results p { margin: 0; padding: 26px 12px; color: var(--muted); font-size: 8px; text-align: center; }
+
+.cofounder-search-message-anchor {
+  border-radius: 14px;
+}
+
+:global(.cofounder-search-message-anchor.is-highlighted .cofounder-message-body) {
+  animation: cofounder-search-highlight 2.2s ease;
+}
+
+@keyframes cofounder-search-highlight {
+  0%, 100% { box-shadow: none; background: transparent; }
+  15%, 70% { box-shadow: 0 0 0 1px rgba(56,189,248,.50), 0 0 34px rgba(56,189,248,.16); background: rgba(56,189,248,.06); }
+}
+
+@media (max-width: 760px) {
+  .cofounder-chat-header { align-items: flex-start; }
+  .cofounder-header-actions { align-self: flex-end; }
+  .cofounder-message-search-panel { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+}
 
 .cofounder-conversation-search {
   display: grid;
