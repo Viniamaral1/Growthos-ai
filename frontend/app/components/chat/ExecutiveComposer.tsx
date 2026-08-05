@@ -82,7 +82,7 @@ export default function ExecutiveComposer({
         id="cofounder-attachment"
         name="cofounder-attachment"
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,.docx,.xlsx,.csv,.tsv,.json,.txt,.md,.rtf,.html,.htm,.eml,.png,.jpg,.jpeg,.webp,.bmp,.gif"
         multiple
         hidden
         onChange={(event) => {
@@ -137,8 +137,8 @@ export default function ExecutiveComposer({
             className="composer-icon-button"
             disabled={sending || attaching}
             onClick={selectFiles}
-            aria-label="Attach PDFs"
-            data-tooltip="Attach PDFs"
+            aria-label="Attach business files"
+            data-tooltip="Attach business files"
           >
             ⎘
           </button>

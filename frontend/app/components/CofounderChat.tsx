@@ -2244,14 +2244,21 @@ async function attachFiles(
     return;
   }
 
-  const candidatePdfFiles = files.filter(
-    (file) =>
-      file.type === "application/pdf" ||
-      file.name.toLowerCase().endsWith(".pdf"),
-  );
+  const supportedExtensions = new Set([
+    ".pdf", ".docx", ".xlsx", ".csv", ".tsv", ".json",
+    ".txt", ".md", ".rtf", ".html", ".htm", ".eml",
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif",
+  ]);
 
-  const pdfFiles: File[] = [];
-  for (const file of candidatePdfFiles) {
+  const candidateBusinessFiles = files.filter((file) => {
+    const dotIndex = file.name.lastIndexOf(".");
+    const extension =
+      dotIndex >= 0 ? file.name.slice(dotIndex).toLowerCase() : "";
+    return supportedExtensions.has(extension);
+  });
+
+  const businessFiles: File[] = [];
+  for (const file of candidateBusinessFiles) {
     const duplicateInComposer = attachedDocuments.some(
       (attachment) => attachment.fileName.toLowerCase() === file.name.toLowerCase(),
     );
@@ -2275,31 +2282,31 @@ async function attachFiles(
       }
     }
 
-    pdfFiles.push(file);
+    businessFiles.push(file);
   }
 
-  if (candidatePdfFiles.length !== files.length) {
+  if (candidateBusinessFiles.length !== files.length) {
     onError(
-      "Only PDF files are supported in this release. Unsupported files were skipped.",
+      "Some files were skipped. Supported: PDF, Word, Excel, CSV, JSON, text, HTML, email and common images.",
     );
   }
 
-  if (pdfFiles.length === 0) {
+  if (businessFiles.length === 0) {
     return;
   }
 
   if (
     attachedDocuments.length +
-    pdfFiles.length >
+    businessFiles.length >
     6
   ) {
     onError(
-      "Attach up to six PDFs to one conversation.",
+      "Attach up to six business files to one conversation.",
     );
     return;
   }
 
-  const pending = pdfFiles.map((file, index) => ({
+  const pending = businessFiles.map((file, index) => ({
     file,
     clientId:
       `${Date.now()}-${index}-${file.name}`,
@@ -2412,7 +2419,7 @@ async function attachFiles(
 
   if (successful.length > 0) {
     onSuccess(
-      `${successful.length} PDF${
+      `${successful.length} file${
         successful.length === 1 ? "" : "s"
       } ready${
         failedCount > 0
@@ -2422,7 +2429,7 @@ async function attachFiles(
     );
   } else {
     onError(
-      "None of the selected PDFs could be processed.",
+      "None of the selected files could be processed.",
     );
   }
 }
@@ -3072,7 +3079,7 @@ async function saveDecisionFromMessage(
 
     if (content.length < 2) {
       onError(
-        "Enter a message or attach a PDF.",
+        "Enter a message or attach a business file.",
       );
       return;
     }
