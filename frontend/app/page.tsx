@@ -36,6 +36,8 @@ import {
   getBusinessPlan,
   getCompanies,
   getDocuments,
+  getDocumentText,
+  deleteDocument,
   processDocument,
   uploadDocument,
   type AnswerSource,
@@ -299,6 +301,8 @@ function KnowledgeView({
   onSelectDocument,
   onAskDocument,
   onMarketingDocument,
+  onDocumentsChanged,
+  onError,
 }: {
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
@@ -309,69 +313,70 @@ function KnowledgeView({
   onUpload: (event: FormEvent<HTMLFormElement>) => void;
   onSelectDocument: (documentId: number) => void;
   onAskDocument: (document: DocumentRecord) => void;
-  onMarketingDocument: (
-    document: DocumentRecord,
-  ) => void;
+  onMarketingDocument: (document: DocumentRecord) => void;
+  onDocumentsChanged: (documents: DocumentRecord[]) => void;
+  onError: (message: string) => void;
 }) {
-  const formats = [
-    {
-      name: "PDF",
-      icon: "PDF",
-      extensions: ".pdf",
-      status: "Available now",
-      ready: true,
-    },
-    {
-      name: "Word",
-      icon: "W",
-      extensions: ".docx · .doc · .rtf · .txt",
-      status: "Next release",
-      ready: false,
-    },
-    {
-      name: "Excel",
-      icon: "X",
-      extensions: ".xlsx · .xls",
-      status: "Structured data",
-      ready: false,
-    },
-    {
-      name: "CSV",
-      icon: "CSV",
-      extensions: ".csv",
-      status: "Structured data",
-      ready: false,
-    },
-    {
-      name: "PowerPoint",
-      icon: "P",
-      extensions: ".pptx · .ppt",
-      status: "Planned",
-      ready: false,
-    },
-    {
-      name: "Images",
-      icon: "IMG",
-      extensions: ".png · .jpg · .jpeg",
-      status: "OCR planned",
-      ready: false,
-    },
+  const [formatFilter, setFormatFilter] = useState<string>("ALL");
+  const [preview, setPreview] = useState<{
+    document: DocumentRecord;
+    text: string;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const formatDefinitions = [
+    { name: "PDF", icon: "PDF", extensions: ".pdf", keys: ["PDF"] },
+    { name: "Word", icon: "W", extensions: ".docx · .doc · .rtf · .txt", keys: ["DOCX", "DOC", "RTF", "TXT", "MD"] },
+    { name: "Excel", icon: "X", extensions: ".xlsx · .xls", keys: ["XLSX", "XLS"] },
+    { name: "CSV", icon: "CSV", extensions: ".csv · .tsv", keys: ["CSV", "TSV"] },
+    { name: "Email / JSON", icon: "DATA", extensions: ".eml · .json · .html", keys: ["EML", "JSON", "HTML", "HTM"] },
+    { name: "Images", icon: "IMG", extensions: ".png · .jpg · .jpeg · .webp", keys: ["PNG", "JPG", "JPEG", "WEBP", "BMP", "GIF"] },
   ];
 
-  const selectedExtension =
-    selectedFile?.name.split(".").pop()?.toLowerCase() ?? "";
-
-  const selectedFileSupported =
-    selectedFile === null || selectedExtension === "pdf";
-
   function fileTypeLabel(document: DocumentRecord) {
-    const extension =
-      document.original_filename
-        .split(".")
-        .pop()
-        ?.toUpperCase();
+    return document.original_filename.split(".").pop()?.toUpperCase() || "FILE";
+  }
 
-    return extension || "FILE";
+  const formatCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const document of documents) {
+      const type = fileTypeLabel(document);
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+    return counts;
+  }, [documents]);
+
+  const visibleDocuments = useMemo(() => {
+    if (formatFilter === "ALL") return documents;
+    const definition = formatDefinitions.find((format) => format.name === formatFilter);
+    if (!definition) return documents;
+    return documents.filter((document) => definition.keys.includes(fileTypeLabel(document)));
+  }, [documents, formatFilter]);
+
+  async function openPreview(document: DocumentRecord) {
+    setPreviewLoading(true);
+    try {
+      const detail = await getDocumentText(document.id);
+      setPreview({
+        document,
+        text: detail.extracted_text?.trim() || "No readable text was extracted from this asset.",
+      });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The asset preview could not be opened.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function removeAsset(document: DocumentRecord) {
+    if (!window.confirm(`Delete “${document.original_filename}”?\n\nThis removes the asset and its search index.`)) return;
+    try {
+      await deleteDocument(document.id);
+      onDocumentsChanged(documents.filter((candidate) => candidate.id !== document.id));
+      if (preview?.document.id === document.id) setPreview(null);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The asset could not be deleted.");
+    }
   }
 
   return (
@@ -379,320 +384,97 @@ function KnowledgeView({
       <PageHeading
         eyebrow="Business intelligence"
         title="One hub for every business asset"
-        description="Build the evidence layer behind your AI co-founder. PDF intelligence is available now; documents, spreadsheets, presentations, and images are next."
+        description="Import documents, spreadsheets, structured data, email, and images into the evidence layer behind your AI co-founder."
       />
 
-      <section className="intelligence-format-grid">
-        {formats.map((format) => (
-          <article
-            key={format.name}
-            className={cx(
-              "format-card",
-              format.ready && "available",
-            )}
-          >
-            <span>{format.icon}</span>
-            <div>
-              <strong>{format.name}</strong>
-              <small>{format.extensions}</small>
-            </div>
-            <em>
-              <i />
-              {format.status}
-            </em>
-          </article>
-        ))}
+      <section className="intelligence-format-grid" aria-label="Filter assets by file type">
+        {formatDefinitions.map((format) => {
+          const count = format.keys.reduce((total, key) => total + (formatCounts.get(key) ?? 0), 0);
+          const active = formatFilter === format.name;
+          return (
+            <button
+              type="button"
+              key={format.name}
+              className={cx("format-card", "available", active && "selected")}
+              onClick={() => setFormatFilter(active ? "ALL" : format.name)}
+            >
+              <span>{format.icon}</span>
+              <div>
+                <strong>{format.name}</strong>
+                <small>{format.extensions}</small>
+              </div>
+              <em><i />{count} asset{count === 1 ? "" : "s"}</em>
+            </button>
+          );
+        })}
       </section>
 
       <section className="intelligence-upload-layout">
-        <form
-          className="panel intelligence-upload-panel"
-          onSubmit={onUpload}
-        >
+        <form className="panel intelligence-upload-panel" onSubmit={onUpload}>
           <div className="panel-heading">
             <span className="panel-icon cyan">⇧</span>
-            <div>
-              <h2>Upload business intelligence</h2>
-              <p>
-                GrowthOS detects the file type before indexing.
-              </p>
-            </div>
+            <div><h2>Upload business intelligence</h2><p>GrowthOS detects the file type before indexing.</p></div>
           </div>
-
-          <label
-            className={cx(
-              "intelligence-dropzone",
-              selectedFile && "has-file",
-              !selectedFileSupported && "unsupported",
-            )}
-            htmlFor="document-file"
-          >
+          <label className={cx("intelligence-dropzone", selectedFile && "has-file")} htmlFor="document-file">
             <input
               id="document-file"
               name="document-file"
               type="file"
-              accept=".pdf,.docx,.doc,.txt,.rtf,.xlsx,.xls,.csv,.pptx,.ppt,.png,.jpg,.jpeg"
-              onChange={(event) =>
-                onFileChange(
-                  event.target.files?.[0] ?? null,
-                )
-              }
+              accept=".pdf,.docx,.doc,.txt,.md,.rtf,.xlsx,.xls,.csv,.tsv,.json,.html,.htm,.eml,.png,.jpg,.jpeg,.webp,.bmp,.gif"
+              onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
             />
-
             <div className="dropzone-icon">⇧</div>
-
-            <strong>
-              {selectedFile
-                ? selectedFile.name
-                : "Drag a business asset here"}
-            </strong>
-
-            <p>
-              {selectedFile
-                ? `${(
-                    selectedFile.size /
-                    1024 /
-                    1024
-                  ).toFixed(2)} MB · ${
-                    selectedFileSupported
-                      ? "Ready to index"
-                      : "Format preview only"
-                  }`
-                : "or click to browse your computer"}
-            </p>
-
-            <span className="dropzone-limit">
-              PDF up to 10 MB · Other formats are shown as
-              product roadmap previews
-            </span>
+            <strong>{selectedFile ? selectedFile.name : "Drag a business asset here"}</strong>
+            <p>{selectedFile ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB · Ready to index` : "or click to browse your computer"}</p>
+            <span className="dropzone-limit">Supported assets up to 10 MB</span>
           </label>
-
-          {!selectedFileSupported && (
-            <div className="format-roadmap-notice">
-              <span>Coming soon</span>
-              <p>
-                This format is visible in the Universal Knowledge
-                roadmap but is not indexed yet. Select a PDF to
-                continue today.
-              </p>
-            </div>
-          )}
-
-          <button
-            className="primary-button full-button"
-            type="submit"
-            disabled={
-              uploadingDocument ||
-              selectedCompanyId === null ||
-              selectedFile === null ||
-              !selectedFileSupported
-            }
-          >
-            {uploadingDocument
-              ? "Extracting, chunking, and embedding..."
-              : "Index asset for AI"}
+          <button className="primary-button full-button" type="submit" disabled={uploadingDocument || selectedCompanyId === null || selectedFile === null}>
+            {uploadingDocument ? "Extracting, chunking, and embedding..." : "Index asset for AI"}
           </button>
-
-          {uploadingDocument && (
-            <div className="upload-progress">
-              <i />
-            </div>
-          )}
+          {uploadingDocument && <div className="upload-progress"><i /></div>}
         </form>
 
         <aside className="panel intelligence-pipeline-panel">
-          <div className="panel-heading">
-            <span className="panel-icon violet">◎</span>
-            <div>
-              <h2>Universal ingestion pipeline</h2>
-              <p>
-                A shared architecture for every future file type.
-              </p>
-            </div>
-          </div>
-
+          <div className="panel-heading"><span className="panel-icon violet">◎</span><div><h2>Universal ingestion pipeline</h2><p>A shared architecture for every supported file type.</p></div></div>
           <div className="process-list">
             {[
-              [
-                "Detect asset type",
-                "The extractor factory identifies the correct parser.",
-              ],
-              [
-                "Extract structure",
-                "Pages, text, tables, sheets, or slides are normalised.",
-              ],
-              [
-                "Create evidence chunks",
-                "Context is split into searchable passages.",
-              ],
-              [
-                "Generate embeddings",
-                "Meaning becomes searchable across the workspace.",
-              ],
-              [
-                "Activate intelligence",
-                "The asset becomes available to AI and campaigns.",
-              ],
-            ].map(([title, description], index) => (
-              <article key={title}>
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{title}</strong>
-                  <p>{description}</p>
-                </div>
-              </article>
-            ))}
+              ["Detect asset type", "The extractor factory identifies the correct parser."],
+              ["Extract structure", "Pages, text, tables, sheets, and metadata are normalised."],
+              ["Create evidence chunks", "Context is split into searchable passages."],
+              ["Generate embeddings", "Meaning becomes searchable across the workspace."],
+              ["Activate intelligence", "The asset becomes available to AI and semantic search."],
+            ].map(([title, description], index) => <article key={title}><span>{index + 1}</span><div><strong>{title}</strong><p>{description}</p></div></article>)}
           </div>
-
-          <div className="pipeline-truth">
-            <span>Live today</span>
-            <strong>PDF text intelligence</strong>
-            <p>
-              Word, spreadsheet, presentation, and image
-              extractors will plug into the same pipeline.
-            </p>
-          </div>
+          <div className="pipeline-truth"><span>Important</span><strong>Images use metadata only</strong><p>Visual content and OCR are not analysed in this local release. GrowthOS will not infer that an image lacks business value.</p></div>
         </aside>
       </section>
 
       <section className="panel asset-library">
         <div className="panel-heading library-heading">
           <span className="panel-icon cyan">▦</span>
-          <div>
-            <h2>Intelligence library</h2>
-            <p>
-              Review indexed assets and send the exact source to
-              your AI co-founder or Marketing Studio.
-            </p>
-          </div>
-          <small>{documents.length} asset(s)</small>
+          <div><h2>Intelligence library</h2><p>Open, use, ask about, filter, or delete imported assets.</p></div>
+          <small>{visibleDocuments.length} of {documents.length} asset(s)</small>
         </div>
-
-        {documents.length === 0 ? (
-          <div className="empty-library asset-empty">
-            <span>▤</span>
-            <strong>No intelligence assets yet</strong>
-            <p>
-              Upload a trusted PDF to create the first grounded
-              evidence source for this workspace.
-            </p>
-          </div>
+        {visibleDocuments.length === 0 ? (
+          <div className="empty-library asset-empty"><span>▤</span><strong>No matching assets</strong><p>Upload a file or choose another file-type filter.</p></div>
         ) : (
           <div className="asset-card-grid">
-            {documents.map((document) => {
-              const ready =
-                document.processing_status === "processed";
-              const active =
-                document.id === activeDocumentId;
-
+            {visibleDocuments.map((document) => {
+              const ready = document.processing_status === "processed";
+              const active = document.id === activeDocumentId;
               return (
-                <article
-                  className={cx(
-                    "asset-card",
-                    active && "active",
-                  )}
-                  key={document.id}
-                >
-                  <header>
-                    <span className="asset-type">
-                      {fileTypeLabel(document)}
-                    </span>
-                    <span
-                      className={cx(
-                        "document-status",
-                        ready ? "ready" : "pending",
-                      )}
-                    >
-                      {ready
-                        ? "AI Ready"
-                        : document.processing_status}
-                    </span>
-                  </header>
-
-                  <button
-                    type="button"
-                    className="asset-title"
-                    onClick={() =>
-                      onSelectDocument(document.id)
-                    }
-                    disabled={!ready}
-                  >
-                    <span>▤</span>
-                    <div>
-                      <strong>
-                        {document.original_filename}
-                      </strong>
-                      <small>
-                        Uploaded{" "}
-                        {new Date(
-                          document.uploaded_at,
-                        ).toLocaleDateString()}
-                      </small>
-                    </div>
+                <article className={cx("asset-card", active && "active")} key={document.id}>
+                  <header><span className="asset-type">{fileTypeLabel(document)}</span><span className={cx("document-status", ready ? "ready" : "pending")}>{ready ? "AI Ready" : document.processing_status}</span></header>
+                  <button type="button" className="asset-title" onClick={() => void openPreview(document)} disabled={!ready || previewLoading}>
+                    <span>▤</span><div><strong>{document.original_filename}</strong><small>Uploaded {new Date(document.uploaded_at).toLocaleDateString()}</small></div>
                   </button>
-
-                  <div className="asset-metadata">
-                    <div>
-                      <span>Size</span>
-                      <strong>
-                        {(
-                          document.file_size /
-                          1024 /
-                          1024
-                        ).toFixed(2)}{" "}
-                        MB
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Pages</span>
-                      <strong>
-                        {document.page_count ?? "—"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Characters</span>
-                      <strong>
-                        {document.character_count
-                          ? document.character_count.toLocaleString()
-                          : "—"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {document.processing_error && (
-                    <p className="asset-error">
-                      {document.processing_error}
-                    </p>
-                  )}
-
+                  <div className="asset-metadata"><div><span>Size</span><strong>{(document.file_size / 1024 / 1024).toFixed(2)} MB</strong></div><div><span>Pages</span><strong>{document.page_count ?? "—"}</strong></div><div><span>Characters</span><strong>{document.character_count ? document.character_count.toLocaleString() : "—"}</strong></div></div>
+                  {document.processing_error && <p className="asset-error">{document.processing_error}</p>}
                   <footer>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onSelectDocument(document.id)
-                      }
-                      disabled={!ready}
-                    >
-                      {active ? "✓ Active" : "Use source"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onAskDocument(document)
-                      }
-                      disabled={!ready}
-                    >
-                      ✦ Ask AI
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onMarketingDocument(document)
-                      }
-                      disabled={!ready}
-                    >
-                      ◈ Campaign
-                    </button>
+                    <button type="button" onClick={() => void openPreview(document)} disabled={!ready}>Open</button>
+                    <button type="button" onClick={() => onAskDocument(document)} disabled={!ready}>✦ Ask AI</button>
+                    <button type="button" onClick={() => onSelectDocument(document.id)} disabled={!ready}>{active ? "✓ Active" : "Use source"}</button>
+                    <button type="button" className="danger" onClick={() => void removeAsset(document)}>Delete</button>
                   </footer>
                 </article>
               );
@@ -700,6 +482,16 @@ function KnowledgeView({
           </div>
         )}
       </section>
+
+      {preview && (
+        <div className="asset-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
+          <section className="asset-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${preview.document.original_filename}`}>
+            <header><div><span>{fileTypeLabel(preview.document)} · Asset preview</span><h2>{preview.document.original_filename}</h2></div><button type="button" aria-label="Close preview" onClick={() => setPreview(null)}>×</button></header>
+            <div className="asset-preview-body"><pre>{preview.text}</pre></div>
+            <footer><button type="button" onClick={() => onAskDocument(preview.document)}>Ask AI</button><button type="button" className="danger" onClick={() => void removeAsset(preview.document)}>Delete</button><button type="button" onClick={() => setPreview(null)}>Close</button></footer>
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -3010,21 +2802,6 @@ async function handleGenerateBusinessPlan(
       return;
     }
 
-    const selectedExtension =
-      selectedFile.name
-        .split(".")
-        .pop()
-        ?.toLowerCase();
-
-    if (selectedExtension !== "pdf") {
-      setError(
-        "PDF intelligence is available now. "
-          + "This file type is part of the upcoming "
-          + "Universal Knowledge roadmap.",
-      );
-      return;
-    }
-
     setUploadingDocument(true);
     clearFeedback();
 
@@ -3241,6 +3018,8 @@ async function handleGenerateBusinessPlan(
         onMarketingDocument={
           openMarketingForDocument
         }
+        onDocumentsChanged={setDocuments}
+        onError={setError}
       />
     );
   } else if (view === "assistant") {

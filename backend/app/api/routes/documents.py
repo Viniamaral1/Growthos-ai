@@ -543,3 +543,41 @@ def get_document_chunks(
     return list(
         chunks
     )
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_document(
+    document_id: int,
+    database: DatabaseSession,
+) -> None:
+    """Delete an uploaded asset, its chunks, and its stored file."""
+
+    document = database.get(Document, document_id)
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    file_path = Path(document.file_path)
+
+    try:
+        database.execute(
+            delete(DocumentChunk).where(
+                DocumentChunk.document_id == document_id
+            )
+        )
+        database.delete(document)
+        database.commit()
+    except Exception:
+        database.rollback()
+        raise
+
+    try:
+        if file_path.exists():
+            file_path.unlink()
+    except OSError:
+        # The database deletion is authoritative; an orphaned local file can
+        # be cleaned up separately without making the user-facing deletion fail.
+        pass

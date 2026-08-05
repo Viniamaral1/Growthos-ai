@@ -525,6 +525,44 @@ export async function getDocuments(
 }
 
 
+
+export type DocumentTextRecord = {
+  id: number;
+  original_filename: string;
+  processing_status: string;
+  page_count: number | null;
+  character_count: number | null;
+  extracted_text: string | null;
+};
+
+export async function getDocumentText(
+  documentId: number,
+): Promise<DocumentTextRecord> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/text`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+export async function deleteDocument(
+  documentId: number,
+): Promise<void> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}`,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+}
+
 export async function uploadDocument(
   companyId: number,
   file: File,

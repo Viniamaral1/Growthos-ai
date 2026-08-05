@@ -112,7 +112,13 @@ function inferKnowledgeType(content: string): string {
 
 function suggestKnowledgeSpaceId(content: string, spaces: KnowledgeSpace[]): number | null {
   const text = content.toLowerCase();
-  const exact = spaces.find((space) => text.includes(space.name.toLowerCase()));
+  const exact = spaces.find((space) => {
+    const name = space.name.toLowerCase();
+    if (!text.includes(name)) return false;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const negated = new RegExp(`(?:not|nothing|unrelated|irrelevant|no connection|does not relate).{0,45}${escaped}|${escaped}.{0,45}(?:not relevant|unrelated|irrelevant)`, "i");
+    return !negated.test(text);
+  });
   if (exact) return exact.id;
   const words = new Set(text.split(/[^a-z0-9]+/).filter((word) => word.length > 3));
   const scored = spaces.map((space) => ({
@@ -3125,6 +3131,9 @@ async function saveDecisionFromMessage(
     userInterruptedScrollRef.current = false;
     setConversationSidebarCollapsed(true);
     setExecutiveSelectorOpen(false);
+    if (requestDocumentIds.length > 0) {
+      setAttachedDocuments([]);
+    }
     setSending(true);
     setFailedMessage(null);
     setDraft("");
