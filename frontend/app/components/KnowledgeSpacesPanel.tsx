@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import SemanticWorkspaceSearch from "@/app/components/SemanticWorkspaceSearch";
 import {
   createKnowledgeSpace,
   deleteKnowledgeItem,
@@ -289,6 +290,7 @@ export default function KnowledgeSpacesPanel({
                   <div><span className="knowledge-space-color" aria-hidden="true" /><div><small>Knowledge space</small><h2>{active.name}</h2></div></div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
                     <label className="knowledge-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search titles, content, tags…" /></label>
+                    <SemanticWorkspaceSearch company={company} activeSpaceId={active.id} onError={onError} />
                     <button
                       type="button"
                       onClick={openRenameSpace}

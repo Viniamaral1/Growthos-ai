@@ -1589,3 +1589,55 @@ export async function deleteKnowledgeItem(itemId: number): Promise<void> {
   });
   if (!response.ok) throw new Error(await readError(response));
 }
+
+export type WorkspaceSemanticSearchResult = {
+  source_type: "knowledge" | "chat";
+  source_id: number;
+  title: string;
+  snippet: string;
+  content: string;
+  similarity_score: number;
+  created_at: string;
+  space_id: number | null;
+  space_name: string | null;
+  item_type: string | null;
+  conversation_id: number | null;
+  conversation_title: string | null;
+  message_role: string | null;
+};
+
+export type WorkspaceSemanticSearchResponse = {
+  company_id: number;
+  query: string;
+  result_count: number;
+  searched_knowledge: boolean;
+  searched_chat: boolean;
+  search_strategy: "semantic" | "safe_summary";
+  indexed_history_available: boolean;
+  results: WorkspaceSemanticSearchResult[];
+};
+
+export async function searchWorkspaceSemantically(
+  payload: {
+    company_id: number;
+    query: string;
+    active_space_id?: number | null;
+    scope: "knowledge" | "chat";
+    current_space_only?: boolean;
+    chat_mode?: "summaries" | "current" | "recent_5" | "recent_20" | "saved" | "full_history";
+    performance_mode?: "safe" | "balanced" | "deep";
+    current_conversation_id?: number | null;
+    limit?: number;
+    minimum_score?: number;
+  },
+  signal?: AbortSignal,
+): Promise<WorkspaceSemanticSearchResponse> {
+  const response = await fetch(`${API_URL}/search/workspace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

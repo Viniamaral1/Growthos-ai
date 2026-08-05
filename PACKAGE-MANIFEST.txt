@@ -1,0 +1,22 @@
+﻿GrowthOS clean source package
+Created: 2026-08-04 23:31:59
+Original project folder: C:\Users\Vinic\Desktop\website\public\GrowthOS-AI
+Files included: 121
+
+Included:
+- backend source
+- frontend source
+- documentation, when present
+- package and dependency files
+- schemas and migrations
+- example environment files
+
+Excluded:
+- node_modules
+- build output
+- Git history
+- caches
+- uploaded documents
+- local databases
+- real environment files
+- logs
