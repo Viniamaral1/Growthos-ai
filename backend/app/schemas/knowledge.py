@@ -73,3 +73,21 @@ class KnowledgeSpaceSummary(BaseModel):
     counts_by_type: dict[str, int]
     summary: str
     open_questions: list[str]
+
+
+class CaptureRecommendationRequest(BaseModel):
+    company_id: int
+    content: str = Field(min_length=2, max_length=20000)
+    item_type: str = Field(default="note", max_length=40)
+    active_space_id: int | None = None
+
+
+class CaptureRecommendationResponse(BaseModel):
+    item_type: str
+    suggested_space_id: int | None
+    suggested_space_name: str | None
+    confidence: int
+    reason: str
+    evidence: list[str]
+    similar_items: list[str]
+    method: str

@@ -1679,3 +1679,41 @@ export async function searchWorkspaceSemantically(
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }
+
+
+export type CaptureRecommendation = {
+  item_type: string;
+  suggested_space_id: number | null;
+  suggested_space_name: string | null;
+  confidence: number;
+  reason: string;
+  evidence: string[];
+  similar_items: string[];
+  method: string;
+};
+
+export async function getCaptureRecommendation(
+  payload: {
+    company_id: number;
+    content: string;
+    item_type: string;
+    active_space_id?: number | null;
+  },
+): Promise<CaptureRecommendation> {
+  const response = await fetch(
+    `${API_URL}/knowledge-spaces/capture-recommendation`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}

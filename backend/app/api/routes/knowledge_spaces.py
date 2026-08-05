@@ -9,6 +9,7 @@ from app.database.session import get_db
 from app.models.company import Company
 from app.models.knowledge_item import KnowledgeItem
 from app.models.knowledge_space import KnowledgeSpace
+from app.services.capture_recommendation_service import recommend_capture_destination
 from app.schemas.knowledge import (
     KnowledgeItemCreate,
     KnowledgeItemResponse,
@@ -17,6 +18,8 @@ from app.schemas.knowledge import (
     KnowledgeSpaceResponse,
     KnowledgeSpaceSummary,
     KnowledgeSpaceUpdate,
+    CaptureRecommendationRequest,
+    CaptureRecommendationResponse,
 )
 
 router = APIRouter(prefix="/knowledge-spaces", tags=["Knowledge Spaces"])
@@ -27,6 +30,22 @@ def require_company(database: Session, company_id: int) -> None:
     if database.get(Company, company_id) is None:
         raise HTTPException(status_code=404, detail="Workspace not found.")
 
+
+
+
+@router.post("/capture-recommendation", response_model=CaptureRecommendationResponse)
+def capture_recommendation(
+    payload: CaptureRecommendationRequest,
+    database: DatabaseSession,
+):
+    require_company(database, payload.company_id)
+    return recommend_capture_destination(
+        database,
+        company_id=payload.company_id,
+        content=payload.content,
+        item_type=payload.item_type,
+        active_space_id=payload.active_space_id,
+    )
 
 @router.get("", response_model=list[KnowledgeSpaceResponse])
 def list_spaces(company_id: int, database: DatabaseSession, include_archived: bool = False):

@@ -32,6 +32,7 @@ import {
   createKnowledgeSpace,
   captureKnowledgeItem,
   getKnowledgeSpaces,
+  getCaptureRecommendation,
   deleteConversation,
   editConversationMessage,
   getConversation,
@@ -53,6 +54,7 @@ import {
   type ExecutiveMemoryType,
   type ExecutiveRole,
   type KnowledgeSpace,
+  type CaptureRecommendation,
 } from "@/lib/api";
 
 
@@ -78,6 +80,11 @@ type CaptureSuggestion = {
   label: string;
   spaceId: number | null;
   spaceName: string | null;
+  confidence?: number;
+  reason?: string;
+  evidence?: string[];
+  similarItems?: string[];
+  method?: string;
 };
 
 const CAPTURE_PREFERENCE_KEY = "growthos:capture-preference";
@@ -511,6 +518,7 @@ function MessageBubble({
 }) {
   const assistant = message.role === "assistant";
   const [captureIdle, setCaptureIdle] = useState(false);
+  const [captureWhyOpen, setCaptureWhyOpen] = useState(false);
 
   useEffect(() => {
     setCaptureIdle(false);
@@ -695,10 +703,37 @@ function MessageBubble({
                 <strong>{captureSuggestion.label} detected</strong>
                 <small>Suggested Knowledge Space</small>
                 <span>{captureSuggestion.spaceName ? `▦ ${captureSuggestion.spaceName}` : "Choose a space before saving"}</span>
+                {typeof captureSuggestion.confidence === "number" && (
+                  <small className="capture-confidence">
+                    {captureSuggestion.confidence}% match
+                  </small>
+                )}
+                {captureWhyOpen && (
+                  <div className="capture-evidence">
+                    <p>{captureSuggestion.reason ?? "Suggested from the content and existing workspace knowledge."}</p>
+                    {(captureSuggestion.evidence ?? []).length > 0 && (
+                      <ul>
+                        {(captureSuggestion.evidence ?? []).map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="intelligent-capture-suggestion-actions">
                 <button type="button" onClick={onSaveCaptureSuggestion}>Save</button>
                 <button type="button" className="subtle" onClick={onChangeCaptureSuggestion}>Change</button>
+                {(captureSuggestion.reason || captureSuggestion.evidence?.length) && (
+                  <button
+                    type="button"
+                    className="subtle"
+                    onClick={() => setCaptureWhyOpen((current) => !current)}
+                    aria-expanded={captureWhyOpen}
+                  >
+                    {captureWhyOpen ? "Hide why" : "Why?"}
+                  </button>
+                )}
                 <button type="button" className="subtle" onClick={onDismissCaptureSuggestion}>Dismiss</button>
               </div>
             </aside>
@@ -1242,6 +1277,38 @@ function MessageBubble({
           font-weight: 750;
         }
 
+
+        .capture-confidence {
+          margin-top: 5px !important;
+          color: var(--cyan) !important;
+          font-weight: 800;
+        }
+
+        .capture-evidence {
+          margin-top: 8px;
+          max-width: 520px;
+          white-space: normal;
+        }
+
+        .capture-evidence p {
+          margin: 0;
+          color: var(--text-soft);
+          font-size: 8px;
+          line-height: 1.5;
+        }
+
+        .capture-evidence ul {
+          margin: 6px 0 0;
+          padding-left: 16px;
+          color: var(--muted);
+          font-size: 7px;
+          line-height: 1.5;
+        }
+
+        .capture-evidence li + li {
+          margin-top: 3px;
+        }
+
         .intelligent-capture-suggestion-actions {
           display: flex;
           align-items: center;
@@ -1634,6 +1701,11 @@ export default function CofounderChat({
   const [captureType, setCaptureType] = useState("note");
   const [capturingKnowledge, setCapturingKnowledge] = useState(false);
   const [capturePreference, setCapturePreference] = useState<CapturePreference>("important");
+  const [aiCaptureSuggestion, setAiCaptureSuggestion] = useState<{
+    messageId: number;
+    suggestion: CaptureSuggestion;
+  } | null>(null);
+
   const [dismissedCaptureSuggestions, setDismissedCaptureSuggestions] = useState<Set<number>>(
     () => new Set(),
   );
@@ -1812,7 +1884,7 @@ export default function CofounderChat({
       .filter(({ message }) => message.content.toLowerCase().includes(query));
   }, [activeConversation, messageSearchQuery]);
 
-  const intelligentCaptureSuggestion = useMemo(() => {
+  const captureCandidate = useMemo(() => {
     if (!activeConversation || capturePreference === "manual") return null;
 
     const message = [...activeConversation.messages]
@@ -1827,8 +1899,8 @@ export default function CofounderChat({
       return null;
     }
 
-    const suggestion = buildCaptureSuggestion(message, knowledgeSpaces, capturePreference);
-    return suggestion ? { messageId: message.id, suggestion } : null;
+    const fallback = buildCaptureSuggestion(message, knowledgeSpaces, capturePreference);
+    return fallback ? { message, fallback } : null;
   }, [
     activeConversation,
     capturePreference,
@@ -1836,6 +1908,56 @@ export default function CofounderChat({
     knowledgeSpaces,
     savedCaptureSuggestions,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!captureCandidate || companyId === null) {
+      setAiCaptureSuggestion(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const { message, fallback } = captureCandidate;
+    setAiCaptureSuggestion({
+      messageId: message.id,
+      suggestion: fallback,
+    });
+
+    void getCaptureRecommendation({
+      company_id: companyId,
+      content: message.content,
+      item_type: fallback.itemType,
+      active_space_id: captureSpaceId,
+    })
+      .then((recommendation: CaptureRecommendation) => {
+        if (cancelled) return;
+        setAiCaptureSuggestion({
+          messageId: message.id,
+          suggestion: {
+            ...fallback,
+            itemType: recommendation.item_type || fallback.itemType,
+            spaceId: recommendation.suggested_space_id,
+            spaceName: recommendation.suggested_space_name,
+            confidence: recommendation.confidence,
+            reason: recommendation.reason,
+            evidence: recommendation.evidence,
+            similarItems: recommendation.similar_items,
+            method: recommendation.method,
+          },
+        });
+      })
+      .catch(() => {
+        // Keep the safe local fallback if semantic recommendation is unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [captureCandidate, companyId, captureSpaceId]);
+
+  const intelligentCaptureSuggestion = aiCaptureSuggestion;
 
   useEffect(() => {
     function handleCaptureAndRetryInteraction(event: MouseEvent | KeyboardEvent) {
