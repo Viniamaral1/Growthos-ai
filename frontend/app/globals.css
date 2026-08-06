@@ -7026,3 +7026,54 @@ button.executive-role:not(.active):hover {
   .asset-preview-modal { width: 100%; max-height: 94vh; border-radius: 14px; }
   .asset-preview-modal > header h2 { max-width: 68vw; }
 }
+
+/* Business Graph v1 */
+.business-graph-page { display: grid; gap: 18px; }
+.business-graph-loading { display: flex; gap: 14px; align-items: center; }
+.business-graph-loading > span { font-size: 28px; }
+.business-graph-loading p { margin: 4px 0 0; color: var(--muted); }
+.business-graph-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.business-graph-metrics article { border: 1px solid var(--border); border-radius: 14px; background: var(--panel); padding: 14px; min-width: 0; }
+.business-graph-metrics strong { display: block; font-size: 24px; }
+.business-graph-metrics span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; text-transform: capitalize; }
+.business-graph-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); gap: 16px; align-items: start; }
+.business-graph-map { min-width: 0; padding: 0; overflow: hidden; }
+.business-graph-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--border); }
+.business-graph-toolbar div { display: grid; gap: 3px; }
+.business-graph-toolbar small { color: var(--muted); }
+.business-graph-toolbar select { max-width: 210px; }
+.business-graph-node-list { display: grid; gap: 8px; max-height: calc(100vh - 310px); min-height: 440px; overflow: auto; padding: 12px; }
+.business-graph-node { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 11px; align-items: start; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: transparent; color: inherit; }
+.business-graph-node:hover, .business-graph-node.selected { background: var(--soft); border-color: var(--accent); }
+.business-graph-node-dot { width: 10px; height: 10px; border-radius: 999px; margin-top: 7px; background: #8b5cf6; }
+.business-graph-node.kind-document .business-graph-node-dot { background: #0ea5e9; }
+.business-graph-node.kind-decision .business-graph-node-dot { background: #f59e0b; }
+.business-graph-node.kind-memory .business-graph-node-dot { background: #ec4899; }
+.business-graph-node.kind-research .business-graph-node-dot { background: #ef4444; }
+.business-graph-node.kind-knowledge .business-graph-node-dot, .business-graph-node.kind-knowledge_space .business-graph-node-dot { background: #10b981; }
+.business-graph-node-copy { min-width: 0; }
+.business-graph-node-copy small { color: var(--muted); }
+.business-graph-node-copy strong, .business-graph-node-copy p { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.business-graph-node-copy p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.business-graph-node em { font-style: normal; color: var(--muted); font-size: 11px; background: var(--soft); border-radius: 999px; padding: 5px 8px; white-space: nowrap; }
+.business-graph-side { display: grid; gap: 16px; min-width: 0; }
+.business-graph-insights, .business-graph-details { display: grid; gap: 12px; }
+.business-graph-section-title { display: grid; gap: 3px; }
+.business-graph-section-title small, .business-graph-muted { color: var(--muted); }
+.business-graph-insight { border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+.business-graph-insight > small { text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.business-graph-insight > strong { display: block; margin-top: 4px; }
+.business-graph-insight p { margin: 6px 0 0; color: var(--muted); }
+.business-graph-insight ul { margin: 8px 0 0; padding-left: 18px; }
+.business-graph-insight.level-risk { border-left: 3px solid #ef4444; }
+.business-graph-insight.level-attention { border-left: 3px solid #f59e0b; }
+.business-graph-insight.level-strength { border-left: 3px solid #10b981; }
+.business-graph-insight.level-pattern { border-left: 3px solid #8b5cf6; }
+.business-graph-type { display: inline-flex; width: fit-content; padding: 5px 9px; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 12px; }
+.business-graph-details h2 { margin: 0; }
+.business-graph-details > p { margin: 0; color: var(--muted); }
+.business-graph-connections { display: grid; gap: 8px; margin-top: 4px; }
+.business-graph-connections > div { display: grid; gap: 2px; padding: 9px 0; border-top: 1px solid var(--border); }
+.business-graph-connections span { color: var(--muted); font-size: 12px; }
+@media (max-width: 1120px) { .business-graph-metrics { grid-template-columns: repeat(3, 1fr); } .business-graph-layout { grid-template-columns: 1fr; } .business-graph-node-list { max-height: 560px; } }
+@media (max-width: 680px) { .business-graph-metrics { grid-template-columns: repeat(2, 1fr); } .business-graph-toolbar { align-items: stretch; flex-direction: column; } .business-graph-toolbar select { max-width: none; width: 100%; } .business-graph-node { grid-template-columns: 12px minmax(0, 1fr); } .business-graph-node em { grid-column: 2; width: fit-content; } }

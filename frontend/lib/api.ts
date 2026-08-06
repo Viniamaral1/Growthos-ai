@@ -1717,3 +1717,41 @@ export async function getCaptureRecommendation(
 
   return response.json();
 }
+
+
+export type BusinessGraphNode = {
+  id: string;
+  kind: string;
+  label: string;
+  subtitle: string | null;
+  status: string | null;
+  importance: number;
+  source_id: number | null;
+};
+
+export type BusinessGraphEdge = {
+  source: string;
+  target: string;
+  relationship: string;
+};
+
+export type BusinessGraphInsight = {
+  level: string;
+  title: string;
+  summary: string;
+  evidence: string[];
+};
+
+export type BusinessGraphResponse = {
+  company_id: number;
+  generated_from: Record<string, number>;
+  nodes: BusinessGraphNode[];
+  edges: BusinessGraphEdge[];
+  insights: BusinessGraphInsight[];
+};
+
+export async function getBusinessGraph(companyId: number): Promise<BusinessGraphResponse> {
+  const response = await fetch(`${API_URL}/business-graph?company_id=${companyId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

@@ -10,6 +10,9 @@ from app.api.routes.companies import (
 from app.api.routes.business_plans import (
     router as business_plans_router,
 )
+from app.api.routes.business_graph import (
+    router as business_graph_router,
+)
 from app.api.routes.conversations import (
     router as conversations_router,
 )
@@ -115,6 +118,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         business_plans_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        business_graph_router,
         prefix="/api/v1",
     )
 

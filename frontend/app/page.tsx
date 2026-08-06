@@ -3,6 +3,7 @@
 import CofounderChat from "@/app/components/CofounderChat";
 import DecisionPanel from "@/app/components/DecisionPanel";
 import IntelligenceDashboard from "@/app/components/IntelligenceDashboard";
+import BusinessGraphPanel from "@/app/components/BusinessGraphPanel";
 import ExecutiveMemoryPanel from "@/app/components/ExecutiveMemoryPanel";
 import ResearchEngine from "@/app/components/ResearchEngine";
 import StartupStatus from "@/app/components/StartupStatus";
@@ -53,6 +54,7 @@ import {
 
 type View =
   | "overview"
+  | "graph"
   | "knowledge"
   | "assistant"
   | "marketing"
@@ -168,6 +170,7 @@ const navItems: Array<{
   icon: string;
 }> = [
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
+  { id: "graph", label: "Business Graph", icon: "⌘" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "spaces", label: "Knowledge", icon: "▧" },
   { id: "assistant", label: "AI Assistant", icon: "✦" },
@@ -3003,7 +3006,14 @@ async function handleGenerateBusinessPlan(
 
   let activeView;
 
-  if (view === "knowledge") {
+  if (view === "graph") {
+    activeView = (
+      <BusinessGraphPanel
+        company={selectedCompany}
+        onError={(feedback) => { setMessage(""); setError(feedback); }}
+      />
+    );
+  } else if (view === "knowledge") {
     activeView = (
       <KnowledgeView
         selectedCompanyId={selectedCompanyId}
