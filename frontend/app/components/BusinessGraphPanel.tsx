@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   getBusinessGraph,
+  type BusinessGraphInsight,
   type BusinessGraphResponse,
   type Company,
 } from "@/lib/api";
@@ -17,6 +18,38 @@ const kindLabels: Record<string, string> = {
   memory: "Executive memory",
   research: "Research task",
 };
+
+const metricKindMap: Record<string, string> = {
+  knowledge_spaces: "knowledge_space",
+  knowledge_items: "knowledge",
+  documents: "document",
+  decisions: "decision",
+  memories: "memory",
+  research_tasks: "research",
+};
+
+const metricLabels: Record<string, string> = {
+  knowledge_spaces: "Knowledge Spaces",
+  knowledge_items: "Knowledge Items",
+  documents: "Documents",
+  decisions: "Decisions",
+  memories: "Memories",
+  research_tasks: "Research Tasks",
+};
+
+function healthTone(score: number): string {
+  if (score >= 80) return "strong";
+  if (score >= 60) return "stable";
+  if (score >= 40) return "attention";
+  return "risk";
+}
+
+function insightPriority(insight: BusinessGraphInsight): number {
+  if (insight.level === "risk") return 4;
+  if (insight.level === "attention") return 3;
+  if (insight.level === "pattern") return 2;
+  return 1;
+}
 
 export default function BusinessGraphPanel({
   company,
@@ -38,6 +71,8 @@ export default function BusinessGraphPanel({
       }
 
       setLoading(true);
+      setSelectedKind("all");
+      setSelectedNodeId(null);
       try {
         setGraph(await getBusinessGraph(company.id));
       } catch (error) {
@@ -60,6 +95,11 @@ export default function BusinessGraphPanel({
     return graph.nodes.filter((node) => selectedKind === "all" || node.kind === selectedKind);
   }, [graph, selectedKind]);
 
+  const orderedInsights = useMemo(() => {
+    if (!graph) return [];
+    return [...graph.insights].sort((a, b) => insightPriority(b) - insightPriority(a));
+  }, [graph]);
+
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedConnections = selectedNode && graph
     ? graph.edges
@@ -67,11 +107,16 @@ export default function BusinessGraphPanel({
         .slice(0, 12)
     : [];
 
+  function applyKindFilter(kind: string) {
+    setSelectedKind((current) => current === kind ? "all" : kind);
+    setSelectedNodeId(null);
+  }
+
   if (!company) {
     return (
       <section className="panel business-graph-empty">
         <h2>Select a workspace</h2>
-        <p>The Business Graph is built separately for each business workspace.</p>
+        <p>Executive Intelligence is built separately for each business workspace.</p>
       </section>
     );
   }
@@ -80,9 +125,9 @@ export default function BusinessGraphPanel({
     <div className="business-graph-page">
       <header className="page-heading">
         <span>Executive Intelligence Engine</span>
-        <h1>Business Graph</h1>
+        <h1>Business Intelligence Map</h1>
         <p>
-          A live map of the sources, Knowledge, decisions, memories, and evidence shaping {company.name}.
+          A grounded view of the sources, Knowledge, decisions, memories, and evidence shaping {company.name}.
         </p>
       </header>
 
@@ -98,32 +143,77 @@ export default function BusinessGraphPanel({
 
       {!loading && graph && (
         <>
-          <section className="business-graph-metrics">
-            {Object.entries(graph.generated_from).map(([key, value]) => (
-              <article key={key}>
-                <strong>{value}</strong>
-                <span>{key.replaceAll("_", " ")}</span>
-              </article>
-            ))}
+          <section className={`panel business-graph-brief tone-${healthTone(graph.health_score)}`}>
+            <div className="business-graph-health">
+              <span>Business health</span>
+              <strong>{graph.health_score}</strong>
+              <small>{graph.health_label}</small>
+            </div>
+            <div className="business-graph-brief-copy">
+              <small>Executive overview</small>
+              <h2>{graph.executive_summary}</h2>
+              <p>Based only on records currently stored in this workspace.</p>
+            </div>
+            {orderedInsights[0]?.recommended_action && (
+              <div className="business-graph-next-action">
+                <small>Recommended next action</small>
+                <strong>{orderedInsights[0].recommended_action}</strong>
+                {orderedInsights[0].target_kind && (
+                  <button type="button" onClick={() => applyKindFilter(orderedInsights[0].target_kind ?? "all")}>
+                    Review {kindLabels[orderedInsights[0].target_kind] ?? orderedInsights[0].target_kind}
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="business-graph-metrics" aria-label="Business object filters">
+            {Object.entries(graph.generated_from).map(([key, value]) => {
+              const kind = metricKindMap[key] ?? "all";
+              const active = selectedKind === kind;
+              return (
+                <button
+                  type="button"
+                  key={key}
+                  className={active ? "active" : ""}
+                  onClick={() => applyKindFilter(kind)}
+                  aria-pressed={active}
+                >
+                  <strong>{value}</strong>
+                  <span>{metricLabels[key] ?? key.replaceAll("_", " ")}</span>
+                  <small>{active ? "Showing only" : "Click to filter"}</small>
+                </button>
+              );
+            })}
           </section>
 
           <section className="business-graph-layout">
             <div className="panel business-graph-map">
               <div className="business-graph-toolbar">
                 <div>
-                  <strong>Business relationships</strong>
-                  <small>{visibleNodes.length} visible nodes</small>
+                  <strong>{selectedKind === "all" ? "Business relationships" : kindLabels[selectedKind]}</strong>
+                  <small>{visibleNodes.length} visible object{visibleNodes.length === 1 ? "" : "s"}</small>
                 </div>
-                <select value={selectedKind} onChange={(event) => setSelectedKind(event.target.value)}>
-                  <option value="all">All business objects</option>
-                  {kinds.map((kind) => (
-                    <option value={kind} key={kind}>{kindLabels[kind] ?? kind}</option>
-                  ))}
-                </select>
+                <div className="business-graph-toolbar-actions">
+                  {selectedKind !== "all" && (
+                    <button type="button" onClick={() => applyKindFilter("all")}>Clear filter</button>
+                  )}
+                  <select value={selectedKind} onChange={(event) => applyKindFilter(event.target.value)}>
+                    <option value="all">All business objects</option>
+                    {kinds.map((kind) => (
+                      <option value={kind} key={kind}>{kindLabels[kind] ?? kind}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="business-graph-node-list">
-                {visibleNodes.map((node) => (
+                {visibleNodes.length === 0 ? (
+                  <div className="business-graph-no-results">
+                    <strong>No objects in this category yet</strong>
+                    <p>Add or capture relevant business information to grow the map.</p>
+                  </div>
+                ) : visibleNodes.map((node) => (
                   <button
                     type="button"
                     key={node.id}
@@ -146,12 +236,12 @@ export default function BusinessGraphPanel({
               <section className="panel business-graph-insights">
                 <div className="business-graph-section-title">
                   <strong>What GrowthOS notices</strong>
-                  <small>Grounded in current workspace records</small>
+                  <small>Prioritised and grounded in workspace records</small>
                 </div>
-                {graph.insights.length === 0 ? (
+                {orderedInsights.length === 0 ? (
                   <p className="business-graph-muted">Add more sources, Knowledge, decisions, or research to reveal patterns.</p>
-                ) : graph.insights.map((insight) => (
-                  <article className={`business-graph-insight level-${insight.level}`} key={`${insight.level}-${insight.title}`}>
+                ) : orderedInsights.map((insight, insightIndex) => (
+                  <article className={`business-graph-insight level-${insight.level}`} key={`${insight.level}-${insightIndex}-${insight.title}`}>
                     <small>{insight.level}</small>
                     <strong>{insight.title}</strong>
                     <p>{insight.summary}</p>
@@ -160,6 +250,12 @@ export default function BusinessGraphPanel({
                         <li key={`${insight.title}-${evidenceIndex}-${item}`}>{item}</li>
                       ))}</ul>
                     )}
+                    {insight.recommended_action && (
+                      <div className="business-graph-insight-action">
+                        <small>Next action</small>
+                        <span>{insight.recommended_action}</span>
+                      </div>
+                    )}
                   </article>
                 ))}
               </section>
@@ -167,10 +263,10 @@ export default function BusinessGraphPanel({
               <section className="panel business-graph-details">
                 <div className="business-graph-section-title">
                   <strong>Selected object</strong>
-                  <small>Choose an item from the map</small>
+                  <small>Choose an item to inspect its relationships</small>
                 </div>
                 {!selectedNode ? (
-                  <p className="business-graph-muted">Select a node to inspect its current relationships.</p>
+                  <p className="business-graph-muted">Select an object from the map to see how it connects to the workspace.</p>
                 ) : (
                   <>
                     <span className={`business-graph-type kind-${selectedNode.kind}`}>
@@ -178,20 +274,26 @@ export default function BusinessGraphPanel({
                     </span>
                     <h2>{selectedNode.label}</h2>
                     {selectedNode.subtitle && <p>{selectedNode.subtitle}</p>}
-                    {selectedConnections.length > 0 && (
+                    {selectedConnections.length > 0 ? (
                       <div className="business-graph-connections">
                         <strong>Connections</strong>
                         {selectedConnections.map((edge, index) => {
                           const otherId = edge.source === selectedNode.id ? edge.target : edge.source;
                           const other = graph.nodes.find((node) => node.id === otherId);
                           return (
-                            <div key={`${edge.source}-${edge.target}-${index}`}>
+                            <button
+                              type="button"
+                              key={`${edge.source}-${edge.target}-${index}`}
+                              onClick={() => other && setSelectedNodeId(other.id)}
+                            >
                               <span>{edge.relationship}</span>
                               <strong>{other?.label ?? otherId}</strong>
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
+                    ) : (
+                      <p className="business-graph-muted">No additional relationships are stored for this object yet.</p>
                     )}
                   </>
                 )}

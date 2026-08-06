@@ -1740,11 +1740,16 @@ export type BusinessGraphInsight = {
   title: string;
   summary: string;
   evidence: string[];
+  recommended_action: string | null;
+  target_kind: string | null;
 };
 
 export type BusinessGraphResponse = {
   company_id: number;
   generated_from: Record<string, number>;
+  health_score: number;
+  health_label: string;
+  executive_summary: string;
   nodes: BusinessGraphNode[];
   edges: BusinessGraphEdge[];
   insights: BusinessGraphInsight[];

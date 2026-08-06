@@ -7077,3 +7077,150 @@ button.executive-role:not(.active):hover {
 .business-graph-connections span { color: var(--muted); font-size: 12px; }
 @media (max-width: 1120px) { .business-graph-metrics { grid-template-columns: repeat(3, 1fr); } .business-graph-layout { grid-template-columns: 1fr; } .business-graph-node-list { max-height: 560px; } }
 @media (max-width: 680px) { .business-graph-metrics { grid-template-columns: repeat(2, 1fr); } .business-graph-toolbar { align-items: stretch; flex-direction: column; } .business-graph-toolbar select { max-width: none; width: 100%; } .business-graph-node { grid-template-columns: 12px minmax(0, 1fr); } .business-graph-node em { grid-column: 2; width: fit-content; } }
+
+/* Business Graph v1.1 — executive intelligence layer */
+.business-graph-brief {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) minmax(260px, .8fr);
+  gap: 20px;
+  align-items: stretch;
+  padding: 18px;
+  overflow: hidden;
+  position: relative;
+}
+.business-graph-brief::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--accent);
+}
+.business-graph-brief.tone-strong::before { background: #10b981; }
+.business-graph-brief.tone-stable::before { background: #22c55e; }
+.business-graph-brief.tone-attention::before { background: #f59e0b; }
+.business-graph-brief.tone-risk::before { background: #ef4444; }
+.business-graph-health {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  border-right: 1px solid var(--border);
+  min-height: 112px;
+}
+.business-graph-health span,
+.business-graph-health small,
+.business-graph-brief-copy > small,
+.business-graph-next-action > small {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 11px;
+}
+.business-graph-health strong {
+  font-size: clamp(42px, 5vw, 64px);
+  line-height: 1;
+  margin: 6px 0 4px;
+}
+.business-graph-brief-copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+}
+.business-graph-brief-copy h2 {
+  margin: 0;
+  font-size: clamp(20px, 2.2vw, 30px);
+  line-height: 1.2;
+}
+.business-graph-brief-copy p { margin: 0; color: var(--muted); }
+.business-graph-next-action {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--soft);
+}
+.business-graph-next-action strong { line-height: 1.4; }
+.business-graph-next-action button,
+.business-graph-toolbar-actions button {
+  width: fit-content;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  padding: 8px 11px;
+  cursor: pointer;
+}
+.business-graph-metrics button {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: inherit;
+  padding: 14px;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease, background .15s ease;
+}
+.business-graph-metrics button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+.business-graph-metrics button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+.business-graph-metrics button strong { display: block; font-size: 24px; }
+.business-graph-metrics button span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.business-graph-metrics button small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; }
+.business-graph-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.business-graph-toolbar-actions select { min-width: 200px; }
+.business-graph-no-results {
+  min-height: 280px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 5px;
+  color: var(--muted);
+}
+.business-graph-no-results strong { color: inherit; }
+.business-graph-no-results p { margin: 0; }
+.business-graph-insight-action {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.business-graph-insight-action small {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 10px;
+}
+.business-graph-insight-action span { font-size: 13px; line-height: 1.4; }
+.business-graph-connections > button {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.business-graph-connections > button:hover strong { color: var(--accent); }
+@media (max-width: 1050px) {
+  .business-graph-brief { grid-template-columns: 120px minmax(0, 1fr); }
+  .business-graph-next-action { grid-column: 1 / -1; }
+}
+@media (max-width: 680px) {
+  .business-graph-brief { grid-template-columns: 1fr; }
+  .business-graph-health { border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 14px; }
+  .business-graph-toolbar-actions { align-items: stretch; flex-direction: column; }
+  .business-graph-toolbar-actions button,
+  .business-graph-toolbar-actions select { width: 100%; min-width: 0; }
+}

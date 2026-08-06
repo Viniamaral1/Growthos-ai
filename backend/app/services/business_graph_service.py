@@ -177,6 +177,8 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             title=f"{len(high_risk)} high-risk evidence gap{'s' if len(high_risk) != 1 else ''}",
             summary="Research tasks with high risk are still unresolved and may weaken executive recommendations.",
             evidence=[task.title for task in high_risk[:3]],
+            recommended_action="Review the highest-risk research task and add or validate supporting evidence.",
+            target_kind="research",
         ))
     if open_decisions:
         insights.append(BusinessGraphInsight(
@@ -184,6 +186,8 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             title=f"{len(open_decisions)} active decision{'s' if len(open_decisions) != 1 else ''}",
             summary="These decisions remain part of the current business state and should be reviewed as new evidence arrives.",
             evidence=[decision.title for decision in open_decisions[:3]],
+            recommended_action="Review active decisions against the newest evidence and close any that are complete.",
+            target_kind="decision",
         ))
     if processed:
         insights.append(BusinessGraphInsight(
@@ -191,6 +195,8 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             title=f"{len(processed)} processed business source{'s' if len(processed) != 1 else ''}",
             summary="GrowthOS can use these sources as evidence across Knowledge, search, and executive workflows.",
             evidence=[document.original_filename for document in processed[:3]],
+            recommended_action="Keep important sources current so recommendations remain grounded.",
+            target_kind="document",
         ))
     if item_types:
         leading_type, count = item_types.most_common(1)[0]
@@ -199,7 +205,43 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             title=f"Knowledge is strongest in {leading_type}",
             summary=f"{count} captured items are classified as {leading_type}. This shows where the workspace currently has the most reusable context.",
             evidence=[],
+            recommended_action="Capture missing decisions, risks, or evidence to balance the workspace knowledge base.",
+            target_kind="knowledge",
         ))
+
+    evidence_score = min(30, len(processed) * 2)
+    knowledge_score = min(20, len(items))
+    memory_score = min(10, len(memories) * 2)
+    risk_penalty = min(35, len(high_risk) * 9)
+    decision_penalty = min(20, len(open_decisions) * 2)
+    health_score = max(0, min(100, 40 + evidence_score + knowledge_score + memory_score - risk_penalty - decision_penalty))
+
+    if health_score >= 80:
+        health_label = "Strong"
+    elif health_score >= 60:
+        health_label = "Stable"
+    elif health_score >= 40:
+        health_label = "Needs attention"
+    else:
+        health_label = "At risk"
+
+    if high_risk:
+        executive_summary = (
+            f"{company.name} has {len(high_risk)} high-risk evidence gap"
+            f"{'s' if len(high_risk) != 1 else ''}. Resolve the highest-risk gap before relying on major recommendations."
+        )
+    elif open_decisions:
+        executive_summary = (
+            f"{company.name} has {len(open_decisions)} active decision"
+            f"{'s' if len(open_decisions) != 1 else ''} to review against current evidence."
+        )
+    elif processed:
+        executive_summary = (
+            f"{company.name} has a growing evidence base with {len(processed)} processed source"
+            f"{'s' if len(processed) != 1 else ''} ready for executive workflows."
+        )
+    else:
+        executive_summary = f"Add trusted business sources to strengthen {company.name}'s executive intelligence."
 
     return BusinessGraphResponse(
         company_id=company_id,
@@ -211,6 +253,9 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             "memories": len(memories),
             "research_tasks": len(research),
         },
+        health_score=health_score,
+        health_label=health_label,
+        executive_summary=executive_summary,
         nodes=nodes,
         edges=edges,
         insights=insights[:6],

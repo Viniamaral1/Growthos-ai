@@ -22,11 +22,16 @@ class BusinessGraphInsight(BaseModel):
     title: str
     summary: str
     evidence: list[str] = []
+    recommended_action: str | None = None
+    target_kind: str | None = None
 
 
 class BusinessGraphResponse(BaseModel):
     company_id: int
     generated_from: dict[str, int]
+    health_score: int = Field(ge=0, le=100)
+    health_label: str
+    executive_summary: str
     nodes: list[BusinessGraphNode]
     edges: list[BusinessGraphEdge]
     insights: list[BusinessGraphInsight]
