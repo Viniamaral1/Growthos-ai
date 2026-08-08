@@ -73,6 +73,18 @@ export type DocumentRelevance = {
   method: string;
 };
 
+export type IntelligentIngestionAssessment = {
+  document_id: number;
+  company_id: number;
+  asset_kind: string;
+  category: string;
+  classification_confidence: number;
+  classification_signals: string[];
+  decision: "strong_match" | "review" | "unrelated";
+  relevance: DocumentRelevance;
+  recommended_actions: string[];
+};
+
 export type AnswerSource = {
   source_id: string;
   chunk_id: number;
@@ -626,6 +638,23 @@ export async function processDocument(
 
 
 
+
+
+export async function getDocumentIngestionAssessment(
+  companyId: number,
+  documentId: number,
+): Promise<IntelligentIngestionAssessment> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/ingestion?company_id=${companyId}`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
 
 export async function getDocumentRelevance(
   companyId: number,

@@ -39,6 +39,7 @@ import {
   getDocuments,
   getDocumentText,
   getDocumentRelevance,
+  getDocumentIngestionAssessment,
   moveDocumentToWorkspace,
   deleteDocument,
   mapDocumentEntities,
@@ -49,6 +50,7 @@ import {
   type Company,
   type DocumentRecord,
   type DocumentRelevance,
+  type IntelligentIngestionAssessment,
   type GroundedAnswer,
   type DevelopmentStage,
   type MarketingCampaign,
@@ -77,6 +79,13 @@ type EntityMappingMode = "manual" | "suggest" | "automatic";
 type AssetRelevanceReview = {
   document: DocumentRecord;
   relevance: DocumentRelevance;
+};
+
+type IngestionTrayItem = {
+  document: DocumentRecord;
+  assessment: IntelligentIngestionAssessment;
+  status: "pending" | "working" | "done" | "removed";
+  note?: string;
 };
 
 type UserLocation = {
@@ -307,7 +316,7 @@ function KnowledgeView({
   selectedCompanyId,
   documents,
   activeDocumentId,
-  selectedFile,
+  selectedFiles,
   uploadingDocument,
   onFileChange,
   onUpload,
@@ -323,9 +332,9 @@ function KnowledgeView({
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
   activeDocumentId: number | null;
-  selectedFile: File | null;
+  selectedFiles: File[];
   uploadingDocument: boolean;
-  onFileChange: (file: File | null) => void;
+  onFileChange: (files: File[]) => void;
   onUpload: (event: FormEvent<HTMLFormElement>) => void;
   onSelectDocument: (documentId: number) => void;
   onAskDocument: (document: DocumentRecord) => void;
@@ -535,21 +544,22 @@ function KnowledgeView({
             <span className="panel-icon cyan">⇧</span>
             <div><h2>Upload business intelligence</h2><p>GrowthOS detects the file type before indexing.</p></div>
           </div>
-          <label className={cx("intelligence-dropzone", selectedFile && "has-file")} htmlFor="document-file">
+          <label className={cx("intelligence-dropzone", selectedFiles.length > 0 && "has-file")} htmlFor="document-file">
             <input
               id="document-file"
               name="document-file"
               type="file"
               accept=".pdf,.docx,.doc,.txt,.md,.rtf,.xlsx,.xls,.csv,.tsv,.json,.html,.htm,.eml,.png,.jpg,.jpeg,.webp,.bmp,.gif"
-              onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+              multiple
+              onChange={(event) => onFileChange(Array.from(event.target.files ?? []))}
             />
             <div className="dropzone-icon">⇧</div>
-            <strong>{selectedFile ? selectedFile.name : "Drag a business asset here"}</strong>
-            <p>{selectedFile ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB · Ready to index` : "or click to browse your computer"}</p>
+            <strong>{selectedFiles.length > 0 ? `${selectedFiles.length} asset${selectedFiles.length === 1 ? "" : "s"} selected` : "Drag business assets here"}</strong>
+            <p>{selectedFiles.length > 0 ? selectedFiles.slice(0, 3).map((file) => file.name).join(" · ") + (selectedFiles.length > 3 ? ` · +${selectedFiles.length - 3} more` : "") : "or click to browse your computer"}</p>
             <span className="dropzone-limit">Supported assets up to 10 MB</span>
           </label>
-          <button className="primary-button full-button" type="submit" disabled={uploadingDocument || selectedCompanyId === null || selectedFile === null}>
-            {uploadingDocument ? "Extracting, chunking, and embedding..." : "Index asset for AI"}
+          <button className="primary-button full-button" type="submit" disabled={uploadingDocument || selectedCompanyId === null || selectedFiles.length === 0}>
+            {uploadingDocument ? "Extracting, chunking, and embedding..." : selectedFiles.length > 1 ? `Index ${selectedFiles.length} assets for AI` : "Index asset for AI"}
           </button>
           {uploadingDocument && <div className="upload-progress"><i /></div>}
         </form>
@@ -2398,12 +2408,14 @@ export default function Home() {
     useState(0);
   const [marketingForm, setMarketingForm] =
     useState<MarketingForm>(emptyMarketing);
-  const [selectedFile, setSelectedFile] =
-    useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] =
+    useState<File[]>([]);
   const [entityMappingMode, setEntityMappingMode] =
     useState<EntityMappingMode>("suggest");
   const [assetRelevanceReview, setAssetRelevanceReview] =
     useState<AssetRelevanceReview | null>(null);
+  const [ingestionTrayItems, setIngestionTrayItems] = useState<IngestionTrayItem[]>([]);
+  const [ingestionTrayOpen, setIngestionTrayOpen] = useState(false);
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -2977,84 +2989,133 @@ async function handleGenerateBusinessPlan(
     }
   }
 
+  function updateIngestionTrayItem(documentId: number, patch: Partial<IngestionTrayItem>) {
+    setIngestionTrayItems((current) => current.map((item) => item.document.id === documentId ? { ...item, ...patch } : item));
+  }
+
+  async function acceptIngestionItem(item: IngestionTrayItem) {
+    if (selectedCompanyId === null) return;
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Mapping business entities…" });
+    try {
+      const result = await mapDocumentEntities(selectedCompanyId, item.document.id);
+      updateIngestionTrayItem(item.document.id, { status: "done", note: result.message });
+      setDocuments(await getDocuments(selectedCompanyId));
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Mapping could not be completed." });
+    }
+  }
+
+  async function acceptAllStrongIngestionItems() {
+    const strongItems = ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "strong_match");
+    for (const item of strongItems) {
+      await acceptIngestionItem(item);
+    }
+  }
+
+  async function moveIngestionItem(item: IngestionTrayItem) {
+    const destinationId = item.assessment.relevance.suggested_company_id;
+    if (!destinationId || selectedCompanyId === null) return;
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Moving asset…" });
+    try {
+      await moveDocumentToWorkspace(item.document.id, destinationId);
+      updateIngestionTrayItem(item.document.id, { status: "done", note: `Moved to ${item.assessment.relevance.suggested_company_name ?? "suggested workspace"}` });
+      setDocuments(await getDocuments(selectedCompanyId));
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Asset could not be moved." });
+    }
+  }
+
+  async function removeIngestionItem(item: IngestionTrayItem) {
+    if (!window.confirm(`Remove “${item.document.original_filename}”?`)) return;
+    try {
+      await deleteDocument(item.document.id);
+      updateIngestionTrayItem(item.document.id, { status: "removed", note: "Removed" });
+      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Asset could not be removed." });
+    }
+  }
+
   async function handleUpload(
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
     if (selectedCompanyId === null) {
-      setError(
-        "Create or select a company first.",
-      );
+      setError("Create or select a company first.");
       return;
     }
 
-    if (!selectedFile) {
-      setError("Choose a business asset first.");
+    if (selectedFiles.length === 0) {
+      setError("Choose at least one business asset first.");
       return;
     }
 
     setUploadingDocument(true);
     clearFeedback();
 
+    const newTrayItems: IngestionTrayItem[] = [];
+    let successfulUploads = 0;
+
     try {
-      const uploaded = await uploadDocument(
-        selectedCompanyId,
-        selectedFile,
-      );
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const file = selectedFiles[index];
+        setMessage(`Processing ${index + 1} of ${selectedFiles.length}: ${file.name}`);
+
+        try {
+          const uploaded = await uploadDocument(selectedCompanyId, file);
+          const processed = await processDocument(uploaded.id);
+          successfulUploads += 1;
+
+          if (entityMappingMode !== "manual") {
+            try {
+              const assessment = await getDocumentIngestionAssessment(selectedCompanyId, processed.id);
+              const item: IngestionTrayItem = {
+                document: processed,
+                assessment,
+                status: "pending",
+              };
+
+              if (entityMappingMode === "automatic" && assessment.decision === "strong_match") {
+                try {
+                  await mapDocumentEntities(selectedCompanyId, processed.id);
+                  item.status = "done";
+                  item.note = "Strong project match · entities mapped automatically";
+                } catch {
+                  item.note = "Project match confirmed · entity mapping can be retried from the asset card";
+                }
+              }
+
+              newTrayItems.push(item);
+            } catch {
+              // Ingestion analysis is advisory. A processed upload remains usable if assessment fails.
+            }
+          }
+
+          setActiveDocumentId(processed.id);
+        } catch (fileError) {
+          setError(fileError instanceof Error ? `${file.name}: ${fileError.message}` : `${file.name} could not be processed.`);
+        }
+      }
+
+      const refreshed = await getDocuments(selectedCompanyId);
+      setDocuments(refreshed);
+      setUseAllDocuments(false);
+      setSelectedFiles([]);
+
+      if (newTrayItems.length > 0) {
+        setIngestionTrayItems((current) => [...newTrayItems, ...current.filter((item) => !newTrayItems.some((fresh) => fresh.document.id === item.document.id))]);
+        setIngestionTrayOpen(true);
+      }
 
       setMessage(
-        `Uploaded ${uploaded.original_filename}. Processing...`,
+        successfulUploads === selectedFiles.length
+          ? `${successfulUploads} asset${successfulUploads === 1 ? "" : "s"} processed. ${newTrayItems.length > 0 ? "GrowthOS reviewed what should happen next." : "Ready for AI."}`
+          : `${successfulUploads} of ${selectedFiles.length} assets processed.`,
       );
 
-      const processed = await processDocument(
-        uploaded.id,
-      );
-
-      let refreshed = await getDocuments(
-        selectedCompanyId,
-      );
-
-      setDocuments(refreshed);
-      setActiveDocumentId(processed.id);
-      setUseAllDocuments(false);
-      setSelectedFile(null);
-
-      if (entityMappingMode !== "manual") {
-        setMessage(`Checking whether ${processed.original_filename} fits this project...`);
-        try {
-          const relevance = await getDocumentRelevance(selectedCompanyId, processed.id);
-          const reviewedDocument = refreshed.find((item) => item.id === processed.id) ?? processed;
-
-          if (entityMappingMode === "automatic" && relevance.level === "high") {
-            await mapDocumentEntities(selectedCompanyId, processed.id);
-            refreshed = await getDocuments(selectedCompanyId);
-            setDocuments(refreshed);
-            setMessage(`${processed.original_filename} matched this project and was mapped automatically.`);
-          } else {
-            setAssetRelevanceReview({ document: reviewedDocument, relevance });
-            setMessage(relevance.recommendation);
-          }
-        } catch (relevanceError) {
-          setMessage(`${processed.original_filename} is ready. Project-fit checking was unavailable, so no automatic mapping was performed.`);
-        }
-      } else {
-        setMessage(`${processed.original_filename} is active and ready for AI.`);
-      }
-
-      const input = document.getElementById(
-        "document-file",
-      ) as HTMLInputElement | null;
-
-      if (input) {
-        input.value = "";
-      }
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Document could not be uploaded.",
-      );
+      const input = document.getElementById("document-file") as HTMLInputElement | null;
+      if (input) input.value = "";
     } finally {
       setUploadingDocument(false);
     }
@@ -3227,9 +3288,9 @@ async function handleGenerateBusinessPlan(
         selectedCompanyId={selectedCompanyId}
         documents={documents}
         activeDocumentId={activeDocumentId}
-        selectedFile={selectedFile}
+        selectedFiles={selectedFiles}
         uploadingDocument={uploadingDocument}
-        onFileChange={setSelectedFile}
+        onFileChange={setSelectedFiles}
         onUpload={handleUpload}
         onSelectDocument={selectDocument}
         onAskDocument={openAssistantForDocument}
@@ -3713,6 +3774,67 @@ async function handleGenerateBusinessPlan(
           </div>
 
           {view !== "cofounder" && activeView}
+
+          {ingestionTrayItems.length > 0 && (
+            <aside className={cx("ingestion-tray", ingestionTrayOpen && "open")} aria-label="Intelligent ingestion review">
+              <button type="button" className="ingestion-tray-summary" onClick={() => setIngestionTrayOpen((open) => !open)}>
+                <div>
+                  <span>✦ Intelligent ingestion</span>
+                  <strong>{ingestionTrayItems.filter((item) => item.status !== "removed").length} assets reviewed</strong>
+                </div>
+                <div className="ingestion-tray-counts">
+                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "strong_match").length} strong</b>
+                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "review").length} review</b>
+                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "unrelated").length} low fit</b>
+                  <i>{ingestionTrayOpen ? "⌄" : "⌃"}</i>
+                </div>
+              </button>
+
+              {ingestionTrayOpen && (
+                <div className="ingestion-tray-body">
+                  {ingestionTrayItems.some((item) => item.status === "pending" && item.assessment.decision === "strong_match") && (
+                    <div className="ingestion-bulk-row">
+                      <p>Strong matches can be accepted together. GrowthOS keeps uncertain assets separate for review.</p>
+                      <button type="button" className="primary-button" onClick={() => void acceptAllStrongIngestionItems()}>Accept strong matches</button>
+                    </div>
+                  )}
+
+                  <div className="ingestion-review-list">
+                    {ingestionTrayItems.filter((item) => item.status !== "removed").map((item) => (
+                      <article key={item.document.id} className={cx("ingestion-review-card", `decision-${item.assessment.decision}`, `status-${item.status}`)}>
+                        <header>
+                          <div>
+                            <span>{item.assessment.asset_kind} · {item.assessment.category}</span>
+                            <strong>{item.document.original_filename}</strong>
+                          </div>
+                          <b>{item.assessment.relevance.confidence}% project match</b>
+                        </header>
+                        <p>{item.assessment.relevance.recommendation}</p>
+                        <div className="ingestion-reason-row">
+                          {item.assessment.relevance.reasons.slice(0, 2).map((reason) => <span key={reason}>{reason}</span>)}
+                          {item.assessment.relevance.suggested_company_name && <b>Better fit: {item.assessment.relevance.suggested_company_name}</b>}
+                        </div>
+                        <div className="ingestion-actions-preview">
+                          {item.assessment.recommended_actions.slice(0, 3).map((action) => <span key={action}>{action}</span>)}
+                        </div>
+                        {item.note && <small>{item.note}</small>}
+                        {item.status === "pending" && (
+                          <footer>
+                            <button type="button" className="primary-button" onClick={() => void acceptIngestionItem(item)}>Keep & map</button>
+                            {item.assessment.relevance.suggested_company_id && (
+                              <button type="button" className="secondary-button" onClick={() => void moveIngestionItem(item)}>Move to {item.assessment.relevance.suggested_company_name}</button>
+                            )}
+                            <button type="button" className="secondary-button" onClick={() => updateIngestionTrayItem(item.document.id, { status: "done", note: "Kept without entity mapping" })}>Keep only</button>
+                            <button type="button" className="ingestion-remove-button" onClick={() => void removeIngestionItem(item)}>Remove</button>
+                          </footer>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </aside>
+          )}
 
           {assetRelevanceReview && (
             <div className="relevance-gate-backdrop" role="presentation">

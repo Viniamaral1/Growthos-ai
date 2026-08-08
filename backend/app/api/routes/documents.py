@@ -29,6 +29,7 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentTextResponse,
     DocumentRelevanceResponse,
+    IntelligentIngestionResponse,
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
@@ -53,6 +54,7 @@ from app.services.document_classification_service import (
 )
 from app.services.entity_extraction_service import map_document_entities
 from app.services.document_relevance_service import assess_document_relevance
+from app.services.intelligent_ingestion_service import assess_intelligent_ingestion
 
 
 router = APIRouter(
@@ -592,6 +594,30 @@ def get_document_chunks(
     return list(
         chunks
     )
+@router.get(
+    "/{document_id}/ingestion",
+    response_model=IntelligentIngestionResponse,
+)
+def get_intelligent_ingestion(
+    document_id: int,
+    company_id: int,
+    database: DatabaseSession,
+) -> IntelligentIngestionResponse:
+    """Understand one processed asset before it becomes long-term business memory."""
+    try:
+        return IntelligentIngestionResponse.model_validate(
+            assess_intelligent_ingestion(database, company_id, document_id)
+        )
+    except ValueError as error:
+        detail = str(error)
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if "Process the document" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from error
+
+
 @router.get(
     "/{document_id}/relevance",
     response_model=DocumentRelevanceResponse,

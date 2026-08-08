@@ -52,3 +52,15 @@ class DocumentRelevanceResponse(BaseModel):
     suggested_company_id: int | None = None
     suggested_company_name: str | None = None
     method: str
+
+
+class IntelligentIngestionResponse(BaseModel):
+    document_id: int
+    company_id: int
+    asset_kind: str
+    category: str
+    classification_confidence: int
+    classification_signals: list[str]
+    decision: str
+    relevance: DocumentRelevanceResponse
+    recommended_actions: list[str]
