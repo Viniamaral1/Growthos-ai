@@ -51,6 +51,11 @@ class DocumentRelevanceResponse(BaseModel):
     reasons: list[str]
     suggested_company_id: int | None = None
     suggested_company_name: str | None = None
+    target_space_id: int | None = None
+    target_space_name: str | None = None
+    suggested_space_id: int | None = None
+    suggested_space_name: str | None = None
+    suggested_new_space_name: str | None = None
     method: str
 
 

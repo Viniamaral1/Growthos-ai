@@ -18,10 +18,19 @@ _STOP_WORDS = {
     "were", "with", "you", "your", "our", "their", "they", "will", "can", "may",
 }
 
+_SIGNAL_GROUPS: dict[str, tuple[str, ...]] = {
+    "supplier / procurement": ("supplier", "procurement", "purchase", "quotation", "pricing", "delivery", "contract"),
+    "recruitment / people": ("cv", "resume", "candidate", "employment", "experience", "skills", "qualification"),
+    "finance": ("invoice", "revenue", "expense", "profit", "budget", "cashflow", "payment", "price"),
+    "research": ("research", "market", "competitor", "survey", "evidence", "analysis"),
+    "operations": ("operations", "process", "delivery", "warehouse", "inventory", "compliance"),
+    "marketing": ("marketing", "campaign", "brand", "audience", "social", "lead"),
+}
+
 
 @dataclass(frozen=True)
-class _WorkspaceProfile:
-    company: Company
+class _SpaceProfile:
+    space: KnowledgeSpace
     text: str
 
 
@@ -37,61 +46,65 @@ def _tokens(value: str) -> set[str]:
     }
 
 
-def _workspace_profile(database: Session, company: Company, exclude_document_id: int | None = None) -> _WorkspaceProfile:
-    spaces = list(database.scalars(
-        select(KnowledgeSpace)
-        .where(
-            KnowledgeSpace.company_id == company.id,
-            KnowledgeSpace.is_archived.is_(False),
-        )
-        .order_by(KnowledgeSpace.updated_at.desc())
-        .limit(8)
-    ).all())
-
+def _space_profile(database: Session, space: KnowledgeSpace) -> _SpaceProfile:
     items = list(database.scalars(
         select(KnowledgeItem)
-        .where(KnowledgeItem.company_id == company.id)
+        .where(KnowledgeItem.space_id == space.id)
         .order_by(KnowledgeItem.created_at.desc())
-        .limit(10)
-    ).all())
-
-    document_statement = select(Document).where(
-        Document.company_id == company.id,
-        Document.processing_status == "processed",
-    )
-    if exclude_document_id is not None:
-        document_statement = document_statement.where(Document.id != exclude_document_id)
-    documents = list(database.scalars(
-        document_statement.order_by(Document.processed_at.desc()).limit(8)
+        .limit(18)
     ).all())
 
     parts = [
-        company.name,
-        company.industry,
-        company.target_audience,
-        company.product_description,
-        company.business_idea or "",
-        company.problem_statement or "",
-        company.proposed_solution or "",
-        company.primary_goal or "",
-        company.business_model or "",
-        *[f"Knowledge space: {space.name}. {space.description or ''}" for space in spaces],
-        *[f"Knowledge: {item.title}. {item.summary}" for item in items],
-        *[f"Document: {document.original_filename}" for document in documents],
+        f"Project: {space.name}",
+        space.description or "",
+        *[f"{item.item_type}: {item.title}. {item.summary}" for item in items],
     ]
-    return _WorkspaceProfile(company=company, text=_clip("\n".join(parts), 5000))
+    return _SpaceProfile(space=space, text=_clip("\n".join(parts), 5200))
 
 
-def assess_document_relevance(database: Session, company_id: int, document_id: int) -> dict[str, object]:
-    """Assess whether one processed document belongs in the selected workspace.
+def _document_signals(text: str, filename: str) -> list[str]:
+    lowered = f"{filename} {text}".lower()
+    signals: list[str] = []
+    for label, words in _SIGNAL_GROUPS.items():
+        if sum(1 for word in words if word in lowered) >= 2:
+            signals.append(label)
+    return signals[:3]
 
-    Uses local semantic embeddings plus deterministic project-name and lexical signals.
-    It deliberately does not call the generative LLM, so the check stays fast and bounded.
+
+def _suggest_new_space_name(text: str, filename: str) -> str:
+    lowered = f"{filename} {text}".lower()
+    if any(term in lowered for term in ("curriculum vitae", "resume", "candidate", "employment history")):
+        return "Recruitment"
+    if any(term in lowered for term in ("supplier", "quotation", "purchase order", "procurement")):
+        return "Suppliers & Procurement"
+    if any(term in lowered for term in ("invoice", "cashflow", "profit", "revenue", "expense")):
+        return "Finance"
+    if any(term in lowered for term in ("campaign", "brand", "marketing", "social media")):
+        return "Marketing"
+    if any(term in lowered for term in ("research", "competitor", "market analysis", "survey")):
+        return "Research"
+    if any(term in lowered for term in ("meeting", "minutes", "agenda")):
+        return "Meetings"
+    return "New Project"
+
+
+def assess_document_relevance(
+    database: Session,
+    company_id: int,
+    document_id: int,
+    target_space_id: int | None = None,
+) -> dict[str, object]:
+    """Assess a processed asset against Knowledge projects inside one workspace.
+
+    The selected Knowledge Space is the primary comparison target. If no target is
+    supplied, GrowthOS ranks the available spaces and proposes the best destination.
+    It deliberately avoids comparing against unrelated workspaces, which prevents a
+    CV in one project from becoming relevant simply because another project contains CVs.
     """
-    current = database.get(Company, company_id)
+    company = database.get(Company, company_id)
     document = database.get(Document, document_id)
 
-    if current is None:
+    if company is None:
         raise ValueError("Workspace not found")
     if document is None:
         raise ValueError("Document not found")
@@ -104,87 +117,141 @@ def assess_document_relevance(database: Session, company_id: int, document_id: i
     if not document_text:
         raise ValueError("The document has no extracted text to compare")
 
-    companies = list(database.scalars(select(Company).order_by(Company.updated_at.desc()).limit(12)).all())
-    profiles = [_workspace_profile(database, company, document.id) for company in companies]
-    if not profiles:
-        raise ValueError("No workspaces are available")
+    spaces = list(database.scalars(
+        select(KnowledgeSpace)
+        .where(
+            KnowledgeSpace.company_id == company_id,
+            KnowledgeSpace.is_archived.is_(False),
+        )
+        .order_by(KnowledgeSpace.updated_at.desc())
+        .limit(30)
+    ).all())
 
+    target_space: KnowledgeSpace | None = None
+    if target_space_id is not None:
+        target_space = database.get(KnowledgeSpace, target_space_id)
+        if target_space is None or target_space.company_id != company_id or target_space.is_archived:
+            raise ValueError("Target project not found")
+
+    if not spaces:
+        suggested_new = _suggest_new_space_name(document_text, document.original_filename)
+        return {
+            "document_id": document.id,
+            "company_id": company_id,
+            "company_name": company.name,
+            "level": "low",
+            "confidence": 10,
+            "recommendation": "No Knowledge project exists yet for a reliable comparison.",
+            "reasons": [
+                "GrowthOS has no project-specific knowledge to compare this asset with.",
+                f"The content looks most suitable for a project such as {suggested_new}.",
+            ],
+            "suggested_company_id": None,
+            "suggested_company_name": None,
+            "target_space_id": None,
+            "target_space_name": None,
+            "suggested_space_id": None,
+            "suggested_space_name": None,
+            "suggested_new_space_name": suggested_new,
+            "method": "project_semantic_embeddings_with_rules",
+        }
+
+    profiles = [_space_profile(database, space) for space in spaces]
     query_embedding = create_query_embedding(document_text)
     profile_embeddings = create_embeddings(profile.text for profile in profiles)
     document_tokens = _tokens(document_text)
     lowered_document = document_text.lower()
 
-    scored: list[tuple[float, _WorkspaceProfile, float, int, bool]] = []
+    scored: list[tuple[float, _SpaceProfile, float, int, bool]] = []
     for profile, embedding in zip(profiles, profile_embeddings, strict=False):
         semantic = cosine_similarity_score(query_embedding, embedding)
         profile_tokens = _tokens(profile.text)
         overlap_count = len(document_tokens & profile_tokens)
-        lexical_bonus = min(0.12, overlap_count * 0.008)
-        name_mentioned = profile.company.name.lower() in lowered_document
-        name_bonus = 0.18 if name_mentioned else 0.0
+        lexical_bonus = min(0.08, overlap_count * 0.006)
+        name_mentioned = profile.space.name.lower() in lowered_document
+        name_bonus = 0.16 if name_mentioned else 0.0
         score = semantic + lexical_bonus + name_bonus
         scored.append((score, profile, semantic, overlap_count, name_mentioned))
 
     scored.sort(key=lambda row: row[0], reverse=True)
-    current_row = next((row for row in scored if row[1].company.id == company_id), scored[0])
     best_row = scored[0]
+    selected_row = (
+        next((row for row in scored if row[1].space.id == target_space.id), None)
+        if target_space is not None
+        else best_row
+    ) or best_row
 
-    current_score, _, semantic, overlap_count, current_name_mentioned = current_row
+    selected_score, selected_profile, semantic, overlap_count, name_mentioned = selected_row
     best_score, best_profile, _, _, _ = best_row
-    gap = best_score - current_score
+    gap = best_score - selected_score
 
-    # Convert the ranking score into a conservative user-facing confidence.
-    confidence = round(max(5, min(98, (current_score - 0.28) * 120)))
-    if current_name_mentioned:
-        confidence = max(confidence, 88)
+    confidence = round(max(5, min(97, (selected_score - 0.34) * 135)))
+    if name_mentioned:
+        confidence = max(confidence, 90)
 
-    if current_name_mentioned or current_score >= 0.68:
+    if name_mentioned or selected_score >= 0.70:
         level = "high"
-    elif current_score >= 0.54 and gap < 0.07:
+    elif selected_score >= 0.56 and (target_space is None or gap < 0.07):
         level = "medium"
     else:
         level = "low"
 
-    suggested_company_id: int | None = None
-    suggested_company_name: str | None = None
-    if best_profile.company.id != company_id and best_score >= current_score + 0.05:
-        suggested_company_id = best_profile.company.id
-        suggested_company_name = best_profile.company.name
+    suggested_space_id: int | None = None
+    suggested_space_name: str | None = None
+    if best_profile.space.id != selected_profile.space.id and best_score >= selected_score + 0.05:
+        suggested_space_id = best_profile.space.id
+        suggested_space_name = best_profile.space.name
+
+    document_signals = _document_signals(document_text, document.original_filename)
+    profile_signals = _document_signals(selected_profile.text, selected_profile.space.name)
+    shared_signals = [signal for signal in document_signals if signal in profile_signals]
 
     reasons: list[str] = []
-    if current_name_mentioned:
-        reasons.append(f"The asset explicitly mentions {current.name}.")
-    if overlap_count >= 6:
-        reasons.append(f"It shares {overlap_count} meaningful terms with this workspace profile and recent knowledge.")
-    elif overlap_count > 0:
-        reasons.append(f"It has limited topic overlap with this workspace ({overlap_count} shared terms).")
+    if name_mentioned:
+        reasons.append(f"The asset explicitly mentions {selected_profile.space.name}.")
+    if shared_signals:
+        reasons.append(f"It shares {', '.join(shared_signals)} business themes with this project.")
+    elif document_signals:
+        reasons.append(f"The asset is mainly about {', '.join(document_signals)}, which is not strongly represented in this project.")
+    if overlap_count >= 8:
+        reasons.append("Several project-specific topics and terms overlap with saved knowledge.")
+    elif overlap_count >= 3:
+        reasons.append("There is some overlap with saved project knowledge, but not enough to rely on by itself.")
     else:
-        reasons.append("It has very little direct topic overlap with this workspace.")
-    if semantic >= 0.62:
-        reasons.append("Semantic similarity to the workspace is strong.")
-    elif semantic >= 0.50:
-        reasons.append("Semantic similarity is moderate.")
-    else:
-        reasons.append("Semantic similarity is weak.")
-    if suggested_company_name:
-        reasons.append(f"It appears more similar to the {suggested_company_name} workspace.")
+        reasons.append("Very little project-specific knowledge overlaps with this asset.")
+    if semantic >= 0.64:
+        reasons.append("Its overall meaning is close to the selected project's saved knowledge.")
+    elif semantic < 0.52:
+        reasons.append("Its overall meaning is different from the selected project's saved knowledge.")
+    if suggested_space_name:
+        reasons.append(f"Another existing project, {suggested_space_name}, is a stronger match.")
 
+    suggested_new_space_name: str | None = None
+    if level == "low" and suggested_space_id is None:
+        suggested_new_space_name = _suggest_new_space_name(document_text, document.original_filename)
+
+    target_name = selected_profile.space.name
     if level == "high":
-        recommendation = "This asset looks relevant to the current project."
+        recommendation = f"This asset looks relevant to {target_name}."
     elif level == "medium":
-        recommendation = "Project fit is uncertain. Review before mapping entities automatically."
+        recommendation = f"The fit with {target_name} is uncertain. Review it before adding it to long-term project memory."
     else:
-        recommendation = "This asset may not belong in the current project. Confirm before continuing."
+        recommendation = f"This asset does not strongly match {target_name}. Choose another project or keep it outside project memory."
 
     return {
         "document_id": document.id,
         "company_id": company_id,
-        "company_name": current.name,
+        "company_name": company.name,
         "level": level,
         "confidence": confidence,
         "recommendation": recommendation,
         "reasons": reasons[:4],
-        "suggested_company_id": suggested_company_id,
-        "suggested_company_name": suggested_company_name,
-        "method": "semantic_embeddings_with_rules",
+        "suggested_company_id": None,
+        "suggested_company_name": None,
+        "target_space_id": selected_profile.space.id,
+        "target_space_name": selected_profile.space.name,
+        "suggested_space_id": suggested_space_id,
+        "suggested_space_name": suggested_space_name,
+        "suggested_new_space_name": suggested_new_space_name,
+        "method": "project_semantic_embeddings_with_rules",
     }

@@ -73,6 +73,7 @@ def assess_intelligent_ingestion(
     database: Session,
     company_id: int,
     document_id: int,
+    target_space_id: int | None = None,
 ) -> dict[str, object]:
     document = database.get(Document, document_id)
     if document is None:
@@ -83,7 +84,7 @@ def assess_intelligent_ingestion(
         raise ValueError("Process the document before intelligent ingestion")
 
     classification = classify_document(database, document)
-    relevance = assess_document_relevance(database, company_id, document_id)
+    relevance = assess_document_relevance(database, company_id, document_id, target_space_id=target_space_id)
     asset_kind = _asset_kind(document)
 
     level = str(relevance["level"])

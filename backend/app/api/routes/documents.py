@@ -602,11 +602,12 @@ def get_intelligent_ingestion(
     document_id: int,
     company_id: int,
     database: DatabaseSession,
+    target_space_id: int | None = None,
 ) -> IntelligentIngestionResponse:
     """Understand one processed asset before it becomes long-term business memory."""
     try:
         return IntelligentIngestionResponse.model_validate(
-            assess_intelligent_ingestion(database, company_id, document_id)
+            assess_intelligent_ingestion(database, company_id, document_id, target_space_id=target_space_id)
         )
     except ValueError as error:
         detail = str(error)
@@ -626,11 +627,12 @@ def get_document_relevance(
     document_id: int,
     company_id: int,
     database: DatabaseSession,
+    target_space_id: int | None = None,
 ) -> DocumentRelevanceResponse:
     """Check whether one processed asset belongs in the current workspace."""
     try:
         return DocumentRelevanceResponse.model_validate(
-            assess_document_relevance(database, company_id, document_id)
+            assess_document_relevance(database, company_id, document_id, target_space_id=target_space_id)
         )
     except ValueError as error:
         detail = str(error)

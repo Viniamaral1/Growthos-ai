@@ -40,6 +40,8 @@ import {
   getDocumentText,
   getDocumentRelevance,
   getDocumentIngestionAssessment,
+  getKnowledgeSpaces,
+  createKnowledgeSpace,
   moveDocumentToWorkspace,
   deleteDocument,
   mapDocumentEntities,
@@ -51,6 +53,7 @@ import {
   type DocumentRecord,
   type DocumentRelevance,
   type IntelligentIngestionAssessment,
+  type KnowledgeSpace,
   type GroundedAnswer,
   type DevelopmentStage,
   type MarketingCampaign,
@@ -328,6 +331,8 @@ function KnowledgeView({
   entityMappingMode,
   onEntityMappingModeChange,
   onRelevanceReview,
+  targetSpaceId,
+  onTargetSpaceChange,
 }: {
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
@@ -344,6 +349,8 @@ function KnowledgeView({
   entityMappingMode: EntityMappingMode;
   onEntityMappingModeChange: (mode: EntityMappingMode) => void;
   onRelevanceReview: (review: AssetRelevanceReview) => void;
+  targetSpaceId: number | null;
+  onTargetSpaceChange: (spaceId: number | null) => void;
 }) {
   const [formatFilter, setFormatFilter] = useState<string>("ALL");
   const [preview, setPreview] = useState<{
@@ -353,6 +360,22 @@ function KnowledgeView({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [entityMappingId, setEntityMappingId] = useState<number | null>(null);
   const [entityNotice, setEntityNotice] = useState<{ documentId: number; message: string } | null>(null);
+  const [knowledgeSpaces, setKnowledgeSpaces] = useState<KnowledgeSpace[]>([]);
+
+  useEffect(() => {
+    if (selectedCompanyId === null) {
+      setKnowledgeSpaces([]);
+      return;
+    }
+    getKnowledgeSpaces(selectedCompanyId)
+      .then((spaces) => {
+        setKnowledgeSpaces(spaces);
+        if (targetSpaceId !== null && !spaces.some((space) => space.id === targetSpaceId)) {
+          onTargetSpaceChange(null);
+        }
+      })
+      .catch((error) => onError(error instanceof Error ? error.message : "Knowledge projects could not be loaded."));
+  }, [selectedCompanyId, targetSpaceId]);
 
   const formatDefinitions = [
     { name: "PDF", icon: "PDF", extensions: ".pdf", keys: ["PDF"] },
@@ -417,7 +440,7 @@ function KnowledgeView({
     if (document.entity_mapping_status !== "partial") {
       setEntityNotice({ documentId: document.id, message: "Checking project fit before mapping…" });
       try {
-        const relevance = await getDocumentRelevance(selectedCompanyId, document.id);
+        const relevance = await getDocumentRelevance(selectedCompanyId, document.id, targetSpaceId);
         if (relevance.level !== "high") {
           setEntityMappingId(null);
           setEntityNotice({ documentId: document.id, message: relevance.recommendation });
@@ -491,6 +514,26 @@ function KnowledgeView({
         title="One hub for every business asset"
         description="Import documents, spreadsheets, structured data, email, and images into the evidence layer behind your AI co-founder."
       />
+
+      <section className="ingestion-target-card" aria-label="Intelligent ingestion target project">
+        <div>
+          <span>Target project</span>
+          <strong>{targetSpaceId === null ? "Auto-detect best project" : knowledgeSpaces.find((space) => space.id === targetSpaceId)?.name ?? "Selected project"}</strong>
+          <p>Relevance is checked against this Knowledge project only. Auto-detect compares the available projects and suggests the strongest fit.</p>
+        </div>
+        <label>
+          <span>Import into</span>
+          <select
+            value={targetSpaceId ?? ""}
+            onChange={(event) => onTargetSpaceChange(event.target.value ? Number(event.target.value) : null)}
+          >
+            <option value="">Auto-detect best project</option>
+            {knowledgeSpaces.map((space) => (
+              <option key={space.id} value={space.id}>{space.name}</option>
+            ))}
+          </select>
+        </label>
+      </section>
 
       <section className="entity-mapping-preferences" aria-label="AI entity mapping mode">
         <div>
@@ -2416,6 +2459,8 @@ export default function Home() {
     useState<AssetRelevanceReview | null>(null);
   const [ingestionTrayItems, setIngestionTrayItems] = useState<IngestionTrayItem[]>([]);
   const [ingestionTrayOpen, setIngestionTrayOpen] = useState(false);
+  const [ingestionTrayFilter, setIngestionTrayFilter] = useState<"all" | "strong_match" | "review" | "unrelated">("all");
+  const [ingestionTargetSpaceId, setIngestionTargetSpaceId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -2466,6 +2511,7 @@ export default function Home() {
     if (storedEntityMappingMode === "manual" || storedEntityMappingMode === "automatic" || storedEntityMappingMode === "suggest") {
       setEntityMappingMode(storedEntityMappingMode);
     }
+
 
     const storedLocation = window.localStorage.getItem("growthos-location");
     if (storedLocation) {
@@ -2597,6 +2643,17 @@ export default function Home() {
       useAllDocuments,
     );
   }, [uiStateRestored, useAllDocuments]);
+
+
+  useEffect(() => {
+    if (!uiStateRestored || selectedCompanyId === null) return;
+    setIngestionTargetSpaceId(readStoredNumber(`ingestion-target-space:${selectedCompanyId}`));
+  }, [uiStateRestored, selectedCompanyId]);
+
+  useEffect(() => {
+    if (!uiStateRestored || selectedCompanyId === null) return;
+    writeStoredNumber(`ingestion-target-space:${selectedCompanyId}`, ingestionTargetSpaceId);
+  }, [uiStateRestored, selectedCompanyId, ingestionTargetSpaceId]);
 
   useEffect(() => {
     if (!uiStateRestored) {
@@ -3012,16 +3069,30 @@ async function handleGenerateBusinessPlan(
     }
   }
 
-  async function moveIngestionItem(item: IngestionTrayItem) {
-    const destinationId = item.assessment.relevance.suggested_company_id;
+  async function reviewInSuggestedProject(item: IngestionTrayItem) {
+    const destinationId = item.assessment.relevance.suggested_space_id;
     if (!destinationId || selectedCompanyId === null) return;
-    updateIngestionTrayItem(item.document.id, { status: "working", note: "Moving asset…" });
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Re-checking against the suggested project…" });
     try {
-      await moveDocumentToWorkspace(item.document.id, destinationId);
-      updateIngestionTrayItem(item.document.id, { status: "done", note: `Moved to ${item.assessment.relevance.suggested_company_name ?? "suggested workspace"}` });
-      setDocuments(await getDocuments(selectedCompanyId));
+      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, destinationId);
+      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Now reviewing against ${assessment.relevance.target_space_name ?? "the suggested project"}.` });
     } catch (requestError) {
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Asset could not be moved." });
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The suggested project could not be checked." });
+    }
+  }
+
+  async function createSuggestedProject(item: IngestionTrayItem) {
+    if (selectedCompanyId === null) return;
+    const suggestedName = item.assessment.relevance.suggested_new_space_name?.trim() || "New Project";
+    updateIngestionTrayItem(item.document.id, { status: "working", note: `Creating ${suggestedName}…` });
+    try {
+      const created = await createKnowledgeSpace({ company_id: selectedCompanyId, name: suggestedName, description: `Created by Intelligent Ingestion for ${item.document.original_filename}.`, color: "cyan" });
+      setIngestionTargetSpaceId(created.id);
+      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, created.id);
+      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Created ${created.name}. Review the asset against this new project.` });
+      setMessage(`${created.name} project created.`);
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The new project could not be created." });
     }
   }
 
@@ -3069,7 +3140,7 @@ async function handleGenerateBusinessPlan(
 
           if (entityMappingMode !== "manual") {
             try {
-              const assessment = await getDocumentIngestionAssessment(selectedCompanyId, processed.id);
+              const assessment = await getDocumentIngestionAssessment(selectedCompanyId, processed.id, ingestionTargetSpaceId);
               const item: IngestionTrayItem = {
                 document: processed,
                 assessment,
@@ -3302,6 +3373,8 @@ async function handleGenerateBusinessPlan(
         entityMappingMode={entityMappingMode}
         onEntityMappingModeChange={changeEntityMappingMode}
         onRelevanceReview={setAssetRelevanceReview}
+        targetSpaceId={ingestionTargetSpaceId}
+        onTargetSpaceChange={setIngestionTargetSpaceId}
       />
     );
   } else if (view === "assistant") {
@@ -3775,44 +3848,64 @@ async function handleGenerateBusinessPlan(
 
           {view !== "cofounder" && activeView}
 
-          {ingestionTrayItems.length > 0 && (
+          {view === "knowledge" && ingestionTrayItems.some((item) => item.status === "pending" || item.status === "working") && (
             <aside className={cx("ingestion-tray", ingestionTrayOpen && "open")} aria-label="Intelligent ingestion review">
-              <button type="button" className="ingestion-tray-summary" onClick={() => setIngestionTrayOpen((open) => !open)}>
-                <div>
-                  <span>✦ Intelligent ingestion</span>
-                  <strong>{ingestionTrayItems.filter((item) => item.status !== "removed").length} assets reviewed</strong>
+              <div className="ingestion-tray-summary">
+                <button
+                  type="button"
+                  className="ingestion-tray-title-button"
+                  onClick={() => setIngestionTrayOpen((open) => !open)}
+                  aria-label={ingestionTrayOpen ? "Minimise intelligent ingestion" : "Open intelligent ingestion"}
+                >
+                  <div>
+                    <span>✦ Intelligent ingestion</span>
+                    <strong>{ingestionTrayItems.filter((item) => item.status === "pending" || item.status === "working").length} files need attention</strong>
+                  </div>
+                </button>
+                <div className="ingestion-tray-counts" aria-label="Filter ingestion results">
+                  <button type="button" className={ingestionTrayFilter === "strong_match" ? "active" : ""} onClick={() => { setIngestionTrayFilter(ingestionTrayFilter === "strong_match" ? "all" : "strong_match"); setIngestionTrayOpen(true); }}>
+                    {ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "strong_match").length} strong
+                  </button>
+                  <button type="button" className={ingestionTrayFilter === "review" ? "active" : ""} onClick={() => { setIngestionTrayFilter(ingestionTrayFilter === "review" ? "all" : "review"); setIngestionTrayOpen(true); }}>
+                    {ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "review").length} review
+                  </button>
+                  <button type="button" className={ingestionTrayFilter === "unrelated" ? "active" : ""} onClick={() => { setIngestionTrayFilter(ingestionTrayFilter === "unrelated" ? "all" : "unrelated"); setIngestionTrayOpen(true); }}>
+                    {ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "unrelated").length} low fit
+                  </button>
+                  <button type="button" className="ingestion-minimise" onClick={() => setIngestionTrayOpen((open) => !open)} aria-label={ingestionTrayOpen ? "Minimise" : "Expand"}>{ingestionTrayOpen ? "−" : "+"}</button>
+                  <button type="button" className="ingestion-close" onClick={() => { setIngestionTrayItems([]); setIngestionTrayOpen(false); setIngestionTrayFilter("all"); }} aria-label="Close ingestion tray">×</button>
                 </div>
-                <div className="ingestion-tray-counts">
-                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "strong_match").length} strong</b>
-                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "review").length} review</b>
-                  <b>{ingestionTrayItems.filter((item) => item.status === "pending" && item.assessment.decision === "unrelated").length} low fit</b>
-                  <i>{ingestionTrayOpen ? "⌄" : "⌃"}</i>
-                </div>
-              </button>
+              </div>
 
               {ingestionTrayOpen && (
                 <div className="ingestion-tray-body">
-                  {ingestionTrayItems.some((item) => item.status === "pending" && item.assessment.decision === "strong_match") && (
+                  {ingestionTrayItems.some((item) => item.status === "pending" && item.assessment.decision === "strong_match") && (ingestionTrayFilter === "all" || ingestionTrayFilter === "strong_match") && (
                     <div className="ingestion-bulk-row">
-                      <p>Strong matches can be accepted together. GrowthOS keeps uncertain assets separate for review.</p>
+                      <p>Strong matches can be accepted together. GrowthOS leaves uncertain files for individual review.</p>
                       <button type="button" className="primary-button" onClick={() => void acceptAllStrongIngestionItems()}>Accept strong matches</button>
                     </div>
                   )}
 
                   <div className="ingestion-review-list">
-                    {ingestionTrayItems.filter((item) => item.status !== "removed").map((item) => (
+                    {ingestionTrayItems
+                      .filter((item) => (item.status === "pending" || item.status === "working") && (ingestionTrayFilter === "all" || item.assessment.decision === ingestionTrayFilter))
+                      .map((item) => (
                       <article key={item.document.id} className={cx("ingestion-review-card", `decision-${item.assessment.decision}`, `status-${item.status}`)}>
                         <header>
                           <div>
                             <span>{item.assessment.asset_kind} · {item.assessment.category}</span>
                             <strong>{item.document.original_filename}</strong>
                           </div>
-                          <b>{item.assessment.relevance.confidence}% project match</b>
+                          <b>{item.assessment.relevance.confidence}% match</b>
                         </header>
+                        <div className="ingestion-destination-line">
+                          <span>Project</span>
+                          <strong>{item.assessment.relevance.target_space_name ?? "No project selected"}</strong>
+                        </div>
                         <p>{item.assessment.relevance.recommendation}</p>
-                        <div className="ingestion-reason-row">
-                          {item.assessment.relevance.reasons.slice(0, 2).map((reason) => <span key={reason}>{reason}</span>)}
-                          {item.assessment.relevance.suggested_company_name && <b>Better fit: {item.assessment.relevance.suggested_company_name}</b>}
+                        <div className="ingestion-reasons-block">
+                          <strong>Why GrowthOS thinks this</strong>
+                          <ul>{item.assessment.relevance.reasons.slice(0, 4).map((reason, index) => <li key={`${item.document.id}-${index}`}>{reason}</li>)}</ul>
                         </div>
                         <div className="ingestion-actions-preview">
                           {item.assessment.recommended_actions.slice(0, 3).map((action) => <span key={action}>{action}</span>)}
@@ -3821,8 +3914,11 @@ async function handleGenerateBusinessPlan(
                         {item.status === "pending" && (
                           <footer>
                             <button type="button" className="primary-button" onClick={() => void acceptIngestionItem(item)}>Keep & map</button>
-                            {item.assessment.relevance.suggested_company_id && (
-                              <button type="button" className="secondary-button" onClick={() => void moveIngestionItem(item)}>Move to {item.assessment.relevance.suggested_company_name}</button>
+                            {item.assessment.relevance.suggested_space_id && (
+                              <button type="button" className="secondary-button" onClick={() => void reviewInSuggestedProject(item)}>Review in {item.assessment.relevance.suggested_space_name}</button>
+                            )}
+                            {!item.assessment.relevance.suggested_space_id && item.assessment.relevance.suggested_new_space_name && (
+                              <button type="button" className="secondary-button" onClick={() => void createSuggestedProject(item)}>Create {item.assessment.relevance.suggested_new_space_name}</button>
                             )}
                             <button type="button" className="secondary-button" onClick={() => updateIngestionTrayItem(item.document.id, { status: "done", note: "Kept without entity mapping" })}>Keep only</button>
                             <button type="button" className="ingestion-remove-button" onClick={() => void removeIngestionItem(item)}>Remove</button>
@@ -3830,6 +3926,9 @@ async function handleGenerateBusinessPlan(
                         )}
                       </article>
                     ))}
+                    {ingestionTrayItems.filter((item) => (item.status === "pending" || item.status === "working") && (ingestionTrayFilter === "all" || item.assessment.decision === ingestionTrayFilter)).length === 0 && (
+                      <div className="ingestion-empty-filter">No unresolved files in this category.</div>
+                    )}
                   </div>
                 </div>
               )}
@@ -3854,7 +3953,7 @@ async function handleGenerateBusinessPlan(
                   </div>
                   <div className="relevance-score">
                     <span>Current project</span>
-                    <strong>{assetRelevanceReview.relevance.company_name}</strong>
+                    <strong>{assetRelevanceReview.relevance.target_space_name ?? assetRelevanceReview.relevance.company_name}</strong>
                     <b>{assetRelevanceReview.relevance.confidence}% match</b>
                   </div>
                   <p className="relevance-recommendation">{assetRelevanceReview.relevance.recommendation}</p>
@@ -3866,19 +3965,39 @@ async function handleGenerateBusinessPlan(
                       ))}
                     </ul>
                   </div>
-                  {assetRelevanceReview.relevance.suggested_company_name && (
+                  {assetRelevanceReview.relevance.suggested_space_name && (
                     <div className="relevance-alternative">
-                      <span>Possible better fit</span>
-                      <strong>{assetRelevanceReview.relevance.suggested_company_name}</strong>
+                      <span>Possible better project</span>
+                      <strong>{assetRelevanceReview.relevance.suggested_space_name}</strong>
+                    </div>
+                  )}
+                  {!assetRelevanceReview.relevance.suggested_space_name && assetRelevanceReview.relevance.suggested_new_space_name && (
+                    <div className="relevance-alternative">
+                      <span>No strong existing match</span>
+                      <strong>Suggested new project: {assetRelevanceReview.relevance.suggested_new_space_name}</strong>
                     </div>
                   )}
                 </div>
 
                 <footer>
                   <button type="button" className="primary-button" onClick={() => void keepAssetAndMap(assetRelevanceReview)}>Keep here & map</button>
-                  {assetRelevanceReview.relevance.suggested_company_id && (
-                    <button type="button" className="secondary-button" onClick={() => void moveReviewedAsset(assetRelevanceReview, assetRelevanceReview.relevance.suggested_company_id!)}>
-                      Move to {assetRelevanceReview.relevance.suggested_company_name}
+                  {assetRelevanceReview.relevance.suggested_space_id && (
+                    <button type="button" className="secondary-button" onClick={() => { setIngestionTargetSpaceId(assetRelevanceReview.relevance.suggested_space_id); setAssetRelevanceReview(null); setMessage(`Target project changed to ${assetRelevanceReview.relevance.suggested_space_name}. Try mapping again.`); }}>
+                      Use {assetRelevanceReview.relevance.suggested_space_name}
+                    </button>
+                  )}
+                  {!assetRelevanceReview.relevance.suggested_space_id && assetRelevanceReview.relevance.suggested_new_space_name && selectedCompanyId !== null && (
+                    <button type="button" className="secondary-button" onClick={() => void (async () => {
+                      try {
+                        const created = await createKnowledgeSpace({ company_id: selectedCompanyId, name: assetRelevanceReview.relevance.suggested_new_space_name!, description: `Created by Intelligent Ingestion for ${assetRelevanceReview.document.original_filename}.`, color: "cyan" });
+                        setIngestionTargetSpaceId(created.id);
+                        setAssetRelevanceReview(null);
+                        setMessage(`${created.name} project created. Try mapping again when ready.`);
+                      } catch (requestError) {
+                        setError(requestError instanceof Error ? requestError.message : "The new project could not be created.");
+                      }
+                    })()}>
+                      Create {assetRelevanceReview.relevance.suggested_new_space_name}
                     </button>
                   )}
                   <button type="button" className="secondary-button" onClick={() => void keepAssetWithoutMapping()}>Keep here, don’t map</button>

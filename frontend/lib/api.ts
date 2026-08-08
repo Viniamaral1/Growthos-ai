@@ -70,6 +70,11 @@ export type DocumentRelevance = {
   reasons: string[];
   suggested_company_id: number | null;
   suggested_company_name: string | null;
+  target_space_id: number | null;
+  target_space_name: string | null;
+  suggested_space_id: number | null;
+  suggested_space_name: string | null;
+  suggested_new_space_name: string | null;
   method: string;
 };
 
@@ -643,9 +648,11 @@ export async function processDocument(
 export async function getDocumentIngestionAssessment(
   companyId: number,
   documentId: number,
+  targetSpaceId: number | null = null,
 ): Promise<IntelligentIngestionAssessment> {
+  const target = targetSpaceId === null ? "" : `&target_space_id=${targetSpaceId}`;
   const response = await fetch(
-    `${API_URL}/documents/${documentId}/ingestion?company_id=${companyId}`,
+    `${API_URL}/documents/${documentId}/ingestion?company_id=${companyId}${target}`,
     { cache: "no-store" },
   );
 
@@ -659,9 +666,11 @@ export async function getDocumentIngestionAssessment(
 export async function getDocumentRelevance(
   companyId: number,
   documentId: number,
+  targetSpaceId: number | null = null,
 ): Promise<DocumentRelevance> {
+  const target = targetSpaceId === null ? "" : `&target_space_id=${targetSpaceId}`;
   const response = await fetch(
-    `${API_URL}/documents/${documentId}/relevance?company_id=${companyId}`,
+    `${API_URL}/documents/${documentId}/relevance?company_id=${companyId}${target}`,
     { cache: "no-store" },
   );
 

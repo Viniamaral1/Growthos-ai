@@ -39,6 +39,10 @@ function safeFilename(value: string) {
   return value.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "knowledge-item";
 }
 
+function activeSpaceStorageKey(companyId: number) {
+  return `growthos-active-knowledge-space:${companyId}`;
+}
+
 export default function KnowledgeSpacesPanel({
   company,
   onError,
@@ -77,10 +81,21 @@ export default function KnowledgeSpacesPanel({
     getKnowledgeSpaces(company.id)
       .then((result) => {
         setSpaces(result);
-        setActive((current) => result.find((space) => space.id === current?.id) ?? result[0] ?? null);
+        setActive((current) => {
+          const currentMatch = result.find((space) => space.id === current?.id);
+          if (currentMatch) return currentMatch;
+          const storedId = Number(window.localStorage.getItem(activeSpaceStorageKey(company.id)) || "0");
+          return result.find((space) => space.id === storedId) ?? result[0] ?? null;
+        });
       })
       .catch((error) => onError(error instanceof Error ? error.message : "Knowledge spaces could not be loaded."));
   }, [company?.id]);
+
+  useEffect(() => {
+    if (company && active) {
+      window.localStorage.setItem(activeSpaceStorageKey(company.id), String(active.id));
+    }
+  }, [company?.id, active?.id]);
 
   useEffect(() => {
     if (!active) {
