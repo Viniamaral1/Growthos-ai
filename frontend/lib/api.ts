@@ -55,6 +55,8 @@ export type DocumentRecord = {
   entity_count: number;
   entity_mapping_error: string | null;
   entity_mapped_at: string | null;
+  project_space_id: number | null;
+  project_space_name: string | null;
 };
 
 
@@ -75,6 +77,12 @@ export type DocumentRelevance = {
   suggested_space_id: number | null;
   suggested_space_name: string | null;
   suggested_new_space_name: string | null;
+  target_confidence: number | null;
+  best_space_id: number | null;
+  best_space_name: string | null;
+  best_confidence: number | null;
+  best_is_stronger: boolean;
+  no_confident_existing_match: boolean;
   method: string;
 };
 
@@ -644,6 +652,38 @@ export async function processDocument(
 
 
 
+
+
+export type DuplicateCheck = {
+  duplicate_type: "none" | "exact" | "same_name";
+  existing_document_id: number | null;
+  existing_filename: string | null;
+  exact_content_match: boolean;
+  same_filename: boolean;
+  same_size: boolean;
+  message: string;
+};
+
+export async function checkDocumentDuplicate(companyId: number, file: File): Promise<DuplicateCheck> {
+  const formData = new FormData();
+  formData.append("company_id", String(companyId));
+  formData.append("file", file);
+  const response = await fetch(`${API_URL}/documents/duplicate-check`, { method: "POST", body: formData });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function routeDocumentToProject(documentId: number, spaceId: number): Promise<{document_id:number;space_id:number;space_name:string;message:string}> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/route?space_id=${spaceId}`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function captureDocumentToKnowledge(documentId: number, spaceId: number): Promise<{document_id:number;space_id:number;knowledge_item_id:number;title:string;message:string}> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/capture-knowledge?space_id=${spaceId}`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
 
 export async function getDocumentIngestionAssessment(
   companyId: number,
@@ -1884,8 +1924,9 @@ export type BusinessGraphResponse = {
   entity_index: BusinessEntityIndexStatus;
 };
 
-export async function getBusinessGraph(companyId: number): Promise<BusinessGraphResponse> {
-  const response = await fetch(`${API_URL}/business-graph?company_id=${companyId}`, { cache: "no-store" });
+export async function getBusinessGraph(companyId: number, spaceId: number | null = null): Promise<BusinessGraphResponse> {
+  const scope = spaceId === null ? "" : `&space_id=${spaceId}`;
+  const response = await fetch(`${API_URL}/business-graph?company_id=${companyId}${scope}`, { cache: "no-store" });
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }

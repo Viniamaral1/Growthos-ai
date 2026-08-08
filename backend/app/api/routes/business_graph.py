@@ -23,9 +23,10 @@ router = APIRouter(prefix="/business-graph", tags=["business-graph"])
 def get_business_graph(
     company_id: int = Query(..., ge=1),
     database: Session = Depends(get_db),
+    space_id: int | None = Query(default=None, ge=1),
 ) -> BusinessGraphResponse:
     try:
-        return build_business_graph(database, company_id)
+        return build_business_graph(database, company_id, space_id=space_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

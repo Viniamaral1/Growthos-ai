@@ -7980,3 +7980,35 @@ button.executive-role:not(.active):hover {
   .ingestion-target-card { align-items: stretch; flex-direction: column; }
   .ingestion-target-card label { min-width: 0; }
 }
+
+/* Intelligent Ingestion v1.2 — routing clarity */
+.ingestion-best-match {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(45, 212, 207, .22);
+  border-radius: 10px;
+  background: rgba(45, 212, 207, .06);
+  color: #9bb0c4;
+  font-size: 11px;
+}
+.ingestion-best-match strong { color: #63e6df; }
+.business-graph-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 2px;
+  color: #91a6bb;
+  font-size: 11px;
+}
+.business-graph-scope select {
+  min-width: 180px;
+  padding: 8px 30px 8px 10px;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 10px;
+  color: var(--text);
+  background: #0a1c2d;
+  outline: none;
+}

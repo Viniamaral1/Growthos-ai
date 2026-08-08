@@ -5,10 +5,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getBusinessEntityDetail,
   getBusinessGraph,
+  getKnowledgeSpaces,
   type BusinessEntityDetail,
   type BusinessGraphInsight,
   type BusinessGraphResponse,
   type Company,
+  type KnowledgeSpace,
 } from "@/lib/api";
 
 const kindLabels: Record<string, string> = {
@@ -65,13 +67,17 @@ function confidenceLabel(value: number): string {
 
 export default function BusinessGraphPanel({
   company,
+  initialSpaceId = null,
   onError,
 }: {
   company: Company | null;
+  initialSpaceId?: number | null;
   onError: (message: string) => void;
 }) {
   const [graph, setGraph] = useState<BusinessGraphResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
+  const [scopeSpaceId, setScopeSpaceId] = useState<number | null>(initialSpaceId);
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
@@ -91,12 +97,18 @@ export default function BusinessGraphPanel({
       }
 
       setLoading(true);
+      setScopeSpaceId(initialSpaceId);
       setSelectedKind("all");
       setSelectedNodeId(null);
       setSelectedDocumentId(null);
       setEntityDetail(null);
       try {
-        setGraph(await getBusinessGraph(company.id));
+        const [nextGraph, nextSpaces] = await Promise.all([
+          getBusinessGraph(company.id, initialSpaceId),
+          getKnowledgeSpaces(company.id),
+        ]);
+        setGraph(nextGraph);
+        setSpaces(nextSpaces);
       } catch (error) {
         onErrorRef.current(error instanceof Error ? error.message : "The business graph could not be loaded.");
       } finally {
@@ -105,13 +117,13 @@ export default function BusinessGraphPanel({
     }
 
     void load();
-  }, [company?.id]);
+  }, [company?.id, initialSpaceId]);
 
   async function refreshGraphData() {
     if (!company) return;
     setLoading(true);
     try {
-      const nextGraph = await getBusinessGraph(company.id);
+      const nextGraph = await getBusinessGraph(company.id, scopeSpaceId);
       setGraph(nextGraph);
       setSelectedNodeId((current) =>
         current && nextGraph.nodes.some((node) => node.id === current) ? current : null,
@@ -204,6 +216,21 @@ export default function BusinessGraphPanel({
     };
   }, [company?.id, selectedNode?.id]);
 
+  async function changeProjectScope(nextSpaceId: number | null) {
+    if (!company) return;
+    setScopeSpaceId(nextSpaceId);
+    setLoading(true);
+    setSelectedNodeId(null);
+    setSelectedDocumentId(null);
+    try {
+      setGraph(await getBusinessGraph(company.id, nextSpaceId));
+    } catch (error) {
+      onErrorRef.current(error instanceof Error ? error.message : "The project graph could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function applyKindFilter(kind: string) {
     setSelectedKind((current) => current === kind ? "all" : kind);
     if (kind !== "entity") setSelectedDocumentId(null);
@@ -241,6 +268,13 @@ export default function BusinessGraphPanel({
         <div>
           <span>Executive Intelligence Engine</span>
           <h1>Business Intelligence Map</h1>
+            <label className="business-graph-scope">
+              <span>Project scope</span>
+              <select value={scopeSpaceId ?? ""} onChange={(event) => void changeProjectScope(event.target.value ? Number(event.target.value) : null)}>
+                <option value="">All projects</option>
+                {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+              </select>
+            </label>
           <p>
             A grounded view of the sources, Knowledge, decisions, memories, entities, and evidence shaping {company.name}.
           </p>

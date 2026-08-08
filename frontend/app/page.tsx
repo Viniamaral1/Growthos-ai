@@ -42,6 +42,9 @@ import {
   getDocumentIngestionAssessment,
   getKnowledgeSpaces,
   createKnowledgeSpace,
+  checkDocumentDuplicate,
+  routeDocumentToProject,
+  captureDocumentToKnowledge,
   moveDocumentToWorkspace,
   deleteDocument,
   mapDocumentEntities,
@@ -3052,13 +3055,43 @@ async function handleGenerateBusinessPlan(
 
   async function acceptIngestionItem(item: IngestionTrayItem) {
     if (selectedCompanyId === null) return;
-    updateIngestionTrayItem(item.document.id, { status: "working", note: "Mapping business entities…" });
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Routing asset and mapping business entities…" });
     try {
+      const targetSpaceId = item.assessment.relevance.target_space_id;
+      if (targetSpaceId) await routeDocumentToProject(item.document.id, targetSpaceId);
       const result = await mapDocumentEntities(selectedCompanyId, item.document.id);
       updateIngestionTrayItem(item.document.id, { status: "done", note: result.message });
       setDocuments(await getDocuments(selectedCompanyId));
     } catch (requestError) {
       updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Mapping could not be completed." });
+    }
+  }
+
+  async function keepInProjectOnly(item: IngestionTrayItem) {
+    const targetSpaceId = item.assessment.relevance.target_space_id;
+    try {
+      if (targetSpaceId) await routeDocumentToProject(item.document.id, targetSpaceId);
+      updateIngestionTrayItem(item.document.id, { status: "done", note: targetSpaceId ? "Kept in Business Intelligence and linked to the selected project." : "Kept in Business Intelligence without a project link." });
+      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Project routing failed." });
+    }
+  }
+
+  async function captureIngestionKnowledge(item: IngestionTrayItem) {
+    const targetSpaceId = item.assessment.relevance.target_space_id;
+    if (!targetSpaceId) {
+      updateIngestionTrayItem(item.document.id, { note: "Choose or create a project before capturing reusable Knowledge." });
+      return;
+    }
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Capturing reusable Knowledge…" });
+    try {
+      await routeDocumentToProject(item.document.id, targetSpaceId);
+      const result = await captureDocumentToKnowledge(item.document.id, targetSpaceId);
+      updateIngestionTrayItem(item.document.id, { status: "done", note: result.message });
+      setMessage(result.message);
+    } catch (requestError) {
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Knowledge capture failed." });
     }
   }
 
@@ -3089,7 +3122,8 @@ async function handleGenerateBusinessPlan(
       const created = await createKnowledgeSpace({ company_id: selectedCompanyId, name: suggestedName, description: `Created by Intelligent Ingestion for ${item.document.original_filename}.`, color: "cyan" });
       setIngestionTargetSpaceId(created.id);
       const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, created.id);
-      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Created ${created.name}. Review the asset against this new project.` });
+      await routeDocumentToProject(item.document.id, created.id);
+      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Created ${created.name} and linked this asset to it. Choose whether to map entities or capture Knowledge.` });
       setMessage(`${created.name} project created.`);
     } catch (requestError) {
       updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The new project could not be created." });
@@ -3134,6 +3168,24 @@ async function handleGenerateBusinessPlan(
         setMessage(`Processing ${index + 1} of ${selectedFiles.length}: ${file.name}`);
 
         try {
+          const duplicate = await checkDocumentDuplicate(selectedCompanyId, file);
+          if (duplicate.duplicate_type !== "none" && duplicate.existing_document_id) {
+            const choice = window.prompt(
+              `${duplicate.message}\n\nType EXISTING to use the existing asset, KEEP to upload another copy, or REPLACE to delete the existing copy and upload this file.`,
+              duplicate.exact_content_match ? "EXISTING" : "KEEP",
+            )?.trim().toUpperCase();
+            if (!choice || choice === "EXISTING") {
+              setActiveDocumentId(duplicate.existing_document_id);
+              setMessage(`Using existing asset: ${duplicate.existing_filename ?? file.name}`);
+              continue;
+            }
+            if (choice === "REPLACE") {
+              await deleteDocument(duplicate.existing_document_id);
+            } else if (choice !== "KEEP") {
+              setMessage(`${file.name} was skipped.`);
+              continue;
+            }
+          }
           const uploaded = await uploadDocument(selectedCompanyId, file);
           const processed = await processDocument(uploaded.id);
           successfulUploads += 1;
@@ -3350,6 +3402,7 @@ async function handleGenerateBusinessPlan(
     activeView = (
       <BusinessGraphPanel
         company={selectedCompany}
+        initialSpaceId={ingestionTargetSpaceId}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
       />
     );
@@ -3896,13 +3949,16 @@ async function handleGenerateBusinessPlan(
                             <span>{item.assessment.asset_kind} · {item.assessment.category}</span>
                             <strong>{item.document.original_filename}</strong>
                           </div>
-                          <b>{item.assessment.relevance.confidence}% match</b>
+                          <b>{item.assessment.relevance.target_confidence ?? item.assessment.relevance.confidence}% current match</b>
                         </header>
                         <div className="ingestion-destination-line">
                           <span>Project</span>
                           <strong>{item.assessment.relevance.target_space_name ?? "No project selected"}</strong>
                         </div>
                         <p>{item.assessment.relevance.recommendation}</p>
+                        {item.assessment.relevance.best_space_name && item.assessment.relevance.best_is_stronger && (
+                          <div className="ingestion-best-match"><span>Best existing match</span><strong>{item.assessment.relevance.best_space_name} · {item.assessment.relevance.best_confidence}%</strong></div>
+                        )}
                         <div className="ingestion-reasons-block">
                           <strong>Why GrowthOS thinks this</strong>
                           <ul>{item.assessment.relevance.reasons.slice(0, 4).map((reason, index) => <li key={`${item.document.id}-${index}`}>{reason}</li>)}</ul>
@@ -3915,12 +3971,15 @@ async function handleGenerateBusinessPlan(
                           <footer>
                             <button type="button" className="primary-button" onClick={() => void acceptIngestionItem(item)}>Keep & map</button>
                             {item.assessment.relevance.suggested_space_id && (
-                              <button type="button" className="secondary-button" onClick={() => void reviewInSuggestedProject(item)}>Review in {item.assessment.relevance.suggested_space_name}</button>
+                              <button type="button" className="secondary-button" onClick={() => void reviewInSuggestedProject(item)}>Move / review in {item.assessment.relevance.suggested_space_name}</button>
                             )}
-                            {!item.assessment.relevance.suggested_space_id && item.assessment.relevance.suggested_new_space_name && (
+                            {item.assessment.relevance.no_confident_existing_match && item.assessment.relevance.suggested_new_space_name && (
                               <button type="button" className="secondary-button" onClick={() => void createSuggestedProject(item)}>Create {item.assessment.relevance.suggested_new_space_name}</button>
                             )}
-                            <button type="button" className="secondary-button" onClick={() => updateIngestionTrayItem(item.document.id, { status: "done", note: "Kept without entity mapping" })}>Keep only</button>
+                            <button type="button" className="secondary-button" onClick={() => void keepInProjectOnly(item)}>Keep only</button>
+                            {item.assessment.recommended_actions.some((action) => action.toLowerCase().includes("knowledge")) && (
+                              <button type="button" className="secondary-button" onClick={() => void captureIngestionKnowledge(item)}>Capture to Knowledge</button>
+                            )}
                             <button type="button" className="ingestion-remove-button" onClick={() => void removeIngestionItem(item)}>Remove</button>
                           </footer>
                         )}

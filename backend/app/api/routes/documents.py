@@ -1,4 +1,5 @@
 import json
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -23,13 +24,18 @@ from app.models.business_entity import (
     BusinessEntityExtraction,
     BusinessEntitySource,
 )
-from app.models.document import Document
+from app.models.document import Document, DocumentProjectLink
 from app.models.document_chunk import DocumentChunk
+from app.models.knowledge_item import KnowledgeItem
+from app.models.knowledge_space import KnowledgeSpace
 from app.schemas.document import (
     DocumentResponse,
     DocumentTextResponse,
     DocumentRelevanceResponse,
     IntelligentIngestionResponse,
+    DuplicateCheckResponse,
+    DocumentRouteResponse,
+    DocumentKnowledgeCaptureResponse,
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
@@ -80,6 +86,31 @@ UPLOAD_DIRECTORY.mkdir(
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
 
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _sha256_file(path: str) -> str | None:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _project_for_document(database: Session, document_id: int) -> tuple[int | None, str | None]:
+    link = database.scalar(select(DocumentProjectLink).where(DocumentProjectLink.document_id == document_id))
+    if link is None:
+        return None, None
+    space = database.get(KnowledgeSpace, link.space_id)
+    return (link.space_id, space.name if space is not None else None)
+
+
+def _document_response_with_project(database: Session, document: Document, state: BusinessEntityExtraction | None = None) -> DocumentResponse:
+    response = _document_response(document, state)
+    space_id, space_name = _project_for_document(database, document.id)
+    return response.model_copy(update={"project_space_id": space_id, "project_space_name": space_name})
+
+
 def _document_response(
     document: Document,
     state: BusinessEntityExtraction | None = None,
@@ -92,6 +123,8 @@ def _document_response(
     else:
         mapping_status = state.status
 
+    database = None
+    # Project routing is attached by list/single endpoints when a database session is available.
     return DocumentResponse.model_validate(document).model_copy(
         update={
             "entity_mapping_status": mapping_status,
@@ -101,6 +134,41 @@ def _document_response(
         }
     )
 
+
+
+@router.post("/duplicate-check", response_model=DuplicateCheckResponse)
+async def duplicate_check(
+    company_id: Annotated[int, Form()],
+    file: Annotated[UploadFile, File()],
+    database: DatabaseSession,
+) -> DuplicateCheckResponse:
+    if database.get(Company, company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    contents = await file.read()
+    try:
+        candidate_name = Path(file.filename or "").name
+        candidate_hash = _sha256_bytes(contents)
+        candidates = list(database.scalars(select(Document).where(Document.company_id == company_id).order_by(Document.uploaded_at.desc()).limit(250)).all())
+        same_name = next((doc for doc in candidates if doc.original_filename.lower() == candidate_name.lower()), None)
+        same_size_docs = [doc for doc in candidates if doc.file_size == len(contents)]
+        exact = next((doc for doc in same_size_docs if _sha256_file(doc.file_path) == candidate_hash), None)
+        existing = exact or same_name
+        duplicate_type = "exact" if exact else "same_name" if same_name else "none"
+        return DuplicateCheckResponse(
+            duplicate_type=duplicate_type,
+            existing_document_id=existing.id if existing else None,
+            existing_filename=existing.original_filename if existing else None,
+            exact_content_match=exact is not None,
+            same_filename=same_name is not None,
+            same_size=bool(exact or (same_name and same_name.file_size == len(contents))),
+            message=(
+                f"An exact copy already exists as {exact.original_filename}." if exact else
+                f"A file named {same_name.original_filename} already exists." if same_name else
+                "No duplicate detected."
+            ),
+        )
+    finally:
+        await file.close()
 
 
 @router.post(
@@ -476,7 +544,7 @@ def list_documents(
         states_by_document = {state.source_id: state for state in states}
 
     return [
-        _document_response(document, states_by_document.get(document.id))
+        _document_response_with_project(database, document, states_by_document.get(document.id))
         for document in documents
     ]
 
@@ -511,7 +579,7 @@ def get_document(
             BusinessEntityExtraction.source_id == document.id,
         )
     )
-    return _document_response(document, state)
+    return _document_response_with_project(database, document, state)
 
 
 @router.get(
@@ -677,7 +745,62 @@ def move_document_to_workspace(
     database.add(document)
     database.commit()
     database.refresh(document)
-    return _document_response(document, None)
+    return _document_response_with_project(database, document, None)
+
+
+@router.post("/{document_id}/route", response_model=DocumentRouteResponse)
+def route_document_to_project(
+    document_id: int,
+    space_id: int,
+    database: DatabaseSession,
+) -> DocumentRouteResponse:
+    document = database.get(Document, document_id)
+    space = database.get(KnowledgeSpace, space_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if space is None or space.company_id != document.company_id or space.is_archived:
+        raise HTTPException(status_code=404, detail="Destination project not found.")
+    link = database.scalar(select(DocumentProjectLink).where(DocumentProjectLink.document_id == document_id))
+    if link is None:
+        link = DocumentProjectLink(document_id=document_id, space_id=space_id)
+    else:
+        link.space_id = space_id
+    database.add(link)
+    database.commit()
+    return DocumentRouteResponse(document_id=document_id, space_id=space.id, space_name=space.name, message=f"Asset routed to {space.name}.")
+
+
+@router.post("/{document_id}/capture-knowledge", response_model=DocumentKnowledgeCaptureResponse)
+def capture_document_knowledge(
+    document_id: int,
+    space_id: int,
+    database: DatabaseSession,
+) -> DocumentKnowledgeCaptureResponse:
+    document = database.get(Document, document_id)
+    space = database.get(KnowledgeSpace, space_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if space is None or space.company_id != document.company_id or space.is_archived:
+        raise HTTPException(status_code=404, detail="Knowledge project not found.")
+    text = " ".join((document.extracted_text or "").split())
+    if not text:
+        raise HTTPException(status_code=409, detail="Process the document before capturing Knowledge.")
+    existing = database.scalar(select(KnowledgeItem).where(
+        KnowledgeItem.space_id == space_id,
+        KnowledgeItem.title == document.original_filename,
+        KnowledgeItem.content == text,
+    ))
+    if existing is not None:
+        return DocumentKnowledgeCaptureResponse(document_id=document_id, space_id=space_id, knowledge_item_id=existing.id, title=existing.title, message="This document is already captured in Knowledge.")
+    item = KnowledgeItem(
+        company_id=document.company_id, space_id=space_id, item_type="document",
+        title=document.original_filename, summary=text[:320], content=text, tags_json=json.dumps(["business-intelligence", "ingestion"]),
+        source_conversation_id=None, source_message_id=None,
+    )
+    database.add(item)
+    database.commit()
+    database.refresh(item)
+    return DocumentKnowledgeCaptureResponse(document_id=document_id, space_id=space_id, knowledge_item_id=item.id, title=item.title, message=f"Reusable knowledge captured in {space.name}.")
 
 
 @router.post(

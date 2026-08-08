@@ -11,7 +11,7 @@ from app.models.business_entity import (
     BusinessEntitySource,
 )
 from app.models.decision import Decision
-from app.models.document import Document
+from app.models.document import Document, DocumentProjectLink
 from app.models.executive_memory import ExecutiveMemory
 from app.models.knowledge_item import KnowledgeItem
 from app.models.knowledge_space import KnowledgeSpace
@@ -33,10 +33,20 @@ def _clip(value: object, maximum: int = 110) -> str:
     return text if len(text) <= maximum else f"{text[: maximum - 1].rstrip()}…"
 
 
-def build_business_graph(database: Session, company_id: int) -> BusinessGraphResponse:
+def build_business_graph(database: Session, company_id: int, space_id: int | None = None) -> BusinessGraphResponse:
     company = database.get(Company, company_id)
     if company is None:
         raise ValueError("Workspace not found")
+
+    scoped_space = None
+    scoped_document_ids: set[int] | None = None
+    if space_id is not None:
+        scoped_space = database.get(KnowledgeSpace, space_id)
+        if scoped_space is None or scoped_space.company_id != company_id or scoped_space.is_archived:
+            raise ValueError("Knowledge project not found")
+        scoped_document_ids = set(database.scalars(
+            select(DocumentProjectLink.document_id).where(DocumentProjectLink.space_id == space_id)
+        ).all())
 
     spaces = list(database.scalars(
         select(KnowledgeSpace)
@@ -93,6 +103,22 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
         .where(BusinessEntityExtraction.company_id == company_id)
         .where(BusinessEntityExtraction.source_kind == "document")
     ).all())
+
+    if scoped_space is not None and scoped_document_ids is not None:
+        spaces = [space for space in spaces if space.id == scoped_space.id]
+        items = [item for item in items if item.space_id == scoped_space.id]
+        documents = [document for document in documents if document.id in scoped_document_ids]
+        allowed_entity_ids = {
+            link.entity_id for link in entity_sources
+            if link.source_kind == "document" and link.source_id in scoped_document_ids
+        }
+        entities = [entity for entity in entities if entity.id in allowed_entity_ids]
+        entity_sources = [link for link in entity_sources if link.entity_id in allowed_entity_ids]
+        extraction_states = [state for state in extraction_states if state.source_id in scoped_document_ids]
+        # Decisions, memories and research tasks do not yet have a project link; hiding them avoids cross-project leakage.
+        decisions = []
+        memories = []
+        research = []
 
     root_id = f"workspace:{company.id}"
     nodes: list[BusinessGraphNode] = [BusinessGraphNode(

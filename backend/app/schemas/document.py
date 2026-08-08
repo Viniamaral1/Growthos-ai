@@ -27,6 +27,8 @@ class DocumentResponse(BaseModel):
     entity_count: int = 0
     entity_mapping_error: str | None = None
     entity_mapped_at: datetime | None = None
+    project_space_id: int | None = None
+    project_space_name: str | None = None
 
 
 class DocumentTextResponse(BaseModel):
@@ -56,6 +58,12 @@ class DocumentRelevanceResponse(BaseModel):
     suggested_space_id: int | None = None
     suggested_space_name: str | None = None
     suggested_new_space_name: str | None = None
+    target_confidence: int | None = None
+    best_space_id: int | None = None
+    best_space_name: str | None = None
+    best_confidence: int | None = None
+    best_is_stronger: bool = False
+    no_confident_existing_match: bool = False
     method: str
 
 
@@ -69,3 +77,28 @@ class IntelligentIngestionResponse(BaseModel):
     decision: str
     relevance: DocumentRelevanceResponse
     recommended_actions: list[str]
+
+
+class DuplicateCheckResponse(BaseModel):
+    duplicate_type: str
+    existing_document_id: int | None = None
+    existing_filename: str | None = None
+    exact_content_match: bool = False
+    same_filename: bool = False
+    same_size: bool = False
+    message: str
+
+
+class DocumentRouteResponse(BaseModel):
+    document_id: int
+    space_id: int
+    space_name: str
+    message: str
+
+
+class DocumentKnowledgeCaptureResponse(BaseModel):
+    document_id: int
+    space_id: int
+    knowledge_item_id: int
+    title: str
+    message: str
