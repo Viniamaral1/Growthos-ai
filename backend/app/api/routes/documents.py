@@ -28,6 +28,7 @@ from app.models.document_chunk import DocumentChunk
 from app.schemas.document import (
     DocumentResponse,
     DocumentTextResponse,
+    DocumentRelevanceResponse,
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
@@ -51,6 +52,7 @@ from app.services.document_classification_service import (
     classify_document,
 )
 from app.services.entity_extraction_service import map_document_entities
+from app.services.document_relevance_service import assess_document_relevance
 
 
 router = APIRouter(
@@ -590,6 +592,66 @@ def get_document_chunks(
     return list(
         chunks
     )
+@router.get(
+    "/{document_id}/relevance",
+    response_model=DocumentRelevanceResponse,
+)
+def get_document_relevance(
+    document_id: int,
+    company_id: int,
+    database: DatabaseSession,
+) -> DocumentRelevanceResponse:
+    """Check whether one processed asset belongs in the current workspace."""
+    try:
+        return DocumentRelevanceResponse.model_validate(
+            assess_document_relevance(database, company_id, document_id)
+        )
+    except ValueError as error:
+        detail = str(error)
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if "Process the document" in detail or "no extracted text" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from error
+
+
+@router.post(
+    "/{document_id}/move",
+    response_model=DocumentResponse,
+)
+def move_document_to_workspace(
+    document_id: int,
+    company_id: int,
+    database: DatabaseSession,
+) -> DocumentResponse:
+    """Move an unmapped Business Intelligence asset to another workspace."""
+    document = database.get(Document, document_id)
+    destination = database.get(Company, company_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if destination is None:
+        raise HTTPException(status_code=404, detail="Destination workspace not found.")
+
+    state = database.scalar(
+        select(BusinessEntityExtraction).where(
+            BusinessEntityExtraction.source_kind == "document",
+            BusinessEntityExtraction.source_id == document.id,
+        )
+    )
+    if state is not None and state.status in {"completed", "partial"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Move this asset before mapping its entities, or delete its entity map first.",
+        )
+
+    document.company_id = company_id
+    database.add(document)
+    database.commit()
+    database.refresh(document)
+    return _document_response(document, None)
+
+
 @router.post(
     "/{document_id}/entities/map",
 )

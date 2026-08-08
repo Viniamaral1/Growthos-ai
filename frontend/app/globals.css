@@ -7515,3 +7515,235 @@ button.executive-role:not(.active):hover {
   .business-graph-source-filter { min-width: 0; width: 100%; }
   .business-entity-related > div { grid-template-columns: 1fr; }
 }
+
+/* Entity mapping preferences + project relevance gate */
+.entity-mapping-preferences {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 18px 0 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+  border-radius: 18px;
+  background: rgba(12, 31, 48, 0.62);
+}
+
+.entity-mapping-preferences > div:first-child {
+  min-width: 0;
+}
+
+.entity-mapping-preferences span {
+  display: block;
+  color: #45e3de;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.entity-mapping-preferences strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 1rem;
+}
+
+.entity-mapping-preferences p {
+  margin: 5px 0 0;
+  color: #93a7bd;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.entity-mode-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.entity-mode-buttons button {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #a9bbcf;
+  background: rgba(8, 22, 36, 0.72);
+  cursor: pointer;
+}
+
+.entity-mode-buttons button.active {
+  border-color: rgba(45, 212, 207, 0.6);
+  color: #5ce7e1;
+  background: rgba(23, 119, 124, 0.18);
+}
+
+.relevance-gate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 8, 18, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.relevance-gate {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 22px;
+  background: #0e2033;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+}
+
+.relevance-gate.level-low {
+  border-color: rgba(248, 113, 113, 0.48);
+}
+
+.relevance-gate.level-medium {
+  border-color: rgba(251, 191, 36, 0.46);
+}
+
+.relevance-gate.level-high {
+  border-color: rgba(45, 212, 207, 0.42);
+}
+
+.relevance-gate > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: #0e2033;
+}
+
+.relevance-gate > header span {
+  color: #45e3de;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.relevance-gate > header h2 {
+  margin: 6px 0 0;
+  font-size: 1.35rem;
+}
+
+.relevance-gate > header button {
+  align-self: start;
+  border: 0;
+  background: transparent;
+  color: #8fa3b8;
+  font-size: 1.6rem;
+  cursor: pointer;
+}
+
+.relevance-gate-body {
+  display: grid;
+  gap: 16px;
+  padding: 22px 24px;
+}
+
+.relevance-file,
+.relevance-score,
+.relevance-alternative,
+.relevance-reasons {
+  padding: 15px 17px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(7, 19, 31, 0.48);
+}
+
+.relevance-file span,
+.relevance-score span,
+.relevance-alternative span,
+.relevance-reasons > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #869bb1;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.relevance-score {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  align-items: center;
+}
+
+.relevance-score span {
+  grid-column: 1 / -1;
+}
+
+.relevance-score b {
+  color: #5ce7e1;
+}
+
+.relevance-recommendation {
+  margin: 0;
+  color: #e5edf6;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.relevance-reasons ul {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  color: #b7c6d6;
+}
+
+.relevance-reasons li + li {
+  margin-top: 6px;
+}
+
+.relevance-gate > footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 18px 24px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  background: #0e2033;
+}
+
+.relevance-gate .danger-button {
+  margin-left: auto;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #fb7185;
+  background: rgba(127, 29, 29, 0.12);
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .entity-mapping-preferences {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .entity-mode-buttons button {
+    flex: 1 1 30%;
+  }
+
+  .relevance-gate-backdrop {
+    padding: 10px;
+  }
+
+  .relevance-gate > footer .primary-button,
+  .relevance-gate > footer .secondary-button,
+  .relevance-gate .danger-button {
+    width: 100%;
+    margin-left: 0;
+  }
+}

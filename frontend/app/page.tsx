@@ -38,6 +38,8 @@ import {
   getCompanies,
   getDocuments,
   getDocumentText,
+  getDocumentRelevance,
+  moveDocumentToWorkspace,
   deleteDocument,
   mapDocumentEntities,
   processDocument,
@@ -46,6 +48,7 @@ import {
   type BusinessPlan,
   type Company,
   type DocumentRecord,
+  type DocumentRelevance,
   type GroundedAnswer,
   type DevelopmentStage,
   type MarketingCampaign,
@@ -69,6 +72,12 @@ type View =
   | "settings";
 
 type ThemePreference = "light" | "dark";
+type EntityMappingMode = "manual" | "suggest" | "automatic";
+
+type AssetRelevanceReview = {
+  document: DocumentRecord;
+  relevance: DocumentRelevance;
+};
 
 type UserLocation = {
   label: string;
@@ -307,6 +316,9 @@ function KnowledgeView({
   onMarketingDocument,
   onDocumentsChanged,
   onError,
+  entityMappingMode,
+  onEntityMappingModeChange,
+  onRelevanceReview,
 }: {
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
@@ -320,6 +332,9 @@ function KnowledgeView({
   onMarketingDocument: (document: DocumentRecord) => void;
   onDocumentsChanged: (documents: DocumentRecord[]) => void;
   onError: (message: string) => void;
+  entityMappingMode: EntityMappingMode;
+  onEntityMappingModeChange: (mode: EntityMappingMode) => void;
+  onRelevanceReview: (review: AssetRelevanceReview) => void;
 }) {
   const [formatFilter, setFormatFilter] = useState<string>("ALL");
   const [preview, setPreview] = useState<{
@@ -389,6 +404,22 @@ function KnowledgeView({
     if (selectedCompanyId === null || document.processing_status !== "processed" || entityMappingId !== null) return;
 
     setEntityMappingId(document.id);
+
+    if (document.entity_mapping_status !== "partial") {
+      setEntityNotice({ documentId: document.id, message: "Checking project fit before mapping…" });
+      try {
+        const relevance = await getDocumentRelevance(selectedCompanyId, document.id);
+        if (relevance.level !== "high") {
+          setEntityMappingId(null);
+          setEntityNotice({ documentId: document.id, message: relevance.recommendation });
+          onRelevanceReview({ document, relevance });
+          return;
+        }
+      } catch {
+        // A relevance check should never block an explicit manual mapping action.
+      }
+    }
+
     setEntityNotice({ documentId: document.id, message: "GrowthOS is analysing this asset only…" });
 
     onDocumentsChanged(
@@ -451,6 +482,30 @@ function KnowledgeView({
         title="One hub for every business asset"
         description="Import documents, spreadsheets, structured data, email, and images into the evidence layer behind your AI co-founder."
       />
+
+      <section className="entity-mapping-preferences" aria-label="AI entity mapping mode">
+        <div>
+          <span>AI entity mapping</span>
+          <strong>{entityMappingMode === "manual" ? "Manual" : entityMappingMode === "automatic" ? "Automatic" : "Suggest automatically"}</strong>
+          <p>GrowthOS checks project relevance before mapping so unrelated files do not silently pollute the workspace.</p>
+        </div>
+        <div className="entity-mode-buttons">
+          {([
+            ["manual", "Manual"],
+            ["suggest", "Suggest"],
+            ["automatic", "Automatic"],
+          ] as const).map(([value, label]) => (
+            <button
+              type="button"
+              key={value}
+              className={entityMappingMode === value ? "active" : ""}
+              onClick={() => onEntityMappingModeChange(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="intelligence-format-grid" aria-label="Filter assets by file type">
         {formatDefinitions.map((format) => {
@@ -2345,6 +2400,10 @@ export default function Home() {
     useState<MarketingForm>(emptyMarketing);
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null);
+  const [entityMappingMode, setEntityMappingMode] =
+    useState<EntityMappingMode>("suggest");
+  const [assetRelevanceReview, setAssetRelevanceReview] =
+    useState<AssetRelevanceReview | null>(null);
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -2390,6 +2449,11 @@ export default function Home() {
     const loadedProfile = readProfile();
     setProfile(loadedProfile);
     document.documentElement.dataset.accent = loadedProfile.accent;
+
+    const storedEntityMappingMode = readStoredString("entity-mapping-mode");
+    if (storedEntityMappingMode === "manual" || storedEntityMappingMode === "automatic" || storedEntityMappingMode === "suggest") {
+      setEntityMappingMode(storedEntityMappingMode);
+    }
 
     const storedLocation = window.localStorage.getItem("growthos-location");
     if (storedLocation) {
@@ -2872,6 +2936,47 @@ async function handleGenerateBusinessPlan(
     }
   }
 
+  function changeEntityMappingMode(nextMode: EntityMappingMode) {
+    setEntityMappingMode(nextMode);
+    writeStoredString("entity-mapping-mode", nextMode);
+  }
+
+  async function keepAssetAndMap(review: AssetRelevanceReview) {
+    if (selectedCompanyId === null) return;
+    try {
+      setMessage(`Mapping entities from ${review.document.original_filename}...`);
+      await mapDocumentEntities(selectedCompanyId, review.document.id);
+      const refreshed = await getDocuments(selectedCompanyId);
+      setDocuments(refreshed);
+      setAssetRelevanceReview(null);
+      setMessage(`${review.document.original_filename} is mapped and linked to the current workspace.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Entity mapping failed.");
+    }
+  }
+
+  async function keepAssetWithoutMapping() {
+    setAssetRelevanceReview(null);
+    setMessage("Asset kept in the current workspace without entity mapping.");
+  }
+
+  async function moveReviewedAsset(review: AssetRelevanceReview, destinationCompanyId: number) {
+    if (selectedCompanyId === null) return;
+    try {
+      await moveDocumentToWorkspace(review.document.id, destinationCompanyId);
+      const refreshed = await getDocuments(selectedCompanyId);
+      setDocuments(refreshed);
+      if (activeDocumentId === review.document.id) {
+        setActiveDocumentId(refreshed.find((item) => item.processing_status === "processed")?.id ?? null);
+      }
+      setAssetRelevanceReview(null);
+      const destination = companies.find((company) => company.id === destinationCompanyId);
+      setMessage(`Moved ${review.document.original_filename} to ${destination?.name ?? "the selected workspace"}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The asset could not be moved.");
+    }
+  }
+
   async function handleUpload(
     event: FormEvent<HTMLFormElement>,
   ) {
@@ -2906,7 +3011,7 @@ async function handleGenerateBusinessPlan(
         uploaded.id,
       );
 
-      const refreshed = await getDocuments(
+      let refreshed = await getDocuments(
         selectedCompanyId,
       );
 
@@ -2914,9 +3019,28 @@ async function handleGenerateBusinessPlan(
       setActiveDocumentId(processed.id);
       setUseAllDocuments(false);
       setSelectedFile(null);
-      setMessage(
-        `${processed.original_filename} is active and ready for AI.`,
-      );
+
+      if (entityMappingMode !== "manual") {
+        setMessage(`Checking whether ${processed.original_filename} fits this project...`);
+        try {
+          const relevance = await getDocumentRelevance(selectedCompanyId, processed.id);
+          const reviewedDocument = refreshed.find((item) => item.id === processed.id) ?? processed;
+
+          if (entityMappingMode === "automatic" && relevance.level === "high") {
+            await mapDocumentEntities(selectedCompanyId, processed.id);
+            refreshed = await getDocuments(selectedCompanyId);
+            setDocuments(refreshed);
+            setMessage(`${processed.original_filename} matched this project and was mapped automatically.`);
+          } else {
+            setAssetRelevanceReview({ document: reviewedDocument, relevance });
+            setMessage(relevance.recommendation);
+          }
+        } catch (relevanceError) {
+          setMessage(`${processed.original_filename} is ready. Project-fit checking was unavailable, so no automatic mapping was performed.`);
+        }
+      } else {
+        setMessage(`${processed.original_filename} is active and ready for AI.`);
+      }
 
       const input = document.getElementById(
         "document-file",
@@ -3114,6 +3238,9 @@ async function handleGenerateBusinessPlan(
         }
         onDocumentsChanged={setDocuments}
         onError={setError}
+        entityMappingMode={entityMappingMode}
+        onEntityMappingModeChange={changeEntityMappingMode}
+        onRelevanceReview={setAssetRelevanceReview}
       />
     );
   } else if (view === "assistant") {
@@ -3586,6 +3713,68 @@ async function handleGenerateBusinessPlan(
           </div>
 
           {view !== "cofounder" && activeView}
+
+          {assetRelevanceReview && (
+            <div className="relevance-gate-backdrop" role="presentation">
+              <section className={cx("relevance-gate", `level-${assetRelevanceReview.relevance.level}`)} role="dialog" aria-modal="true" aria-label="Check project fit">
+                <header>
+                  <div>
+                    <span>✦ Project relevance check</span>
+                    <h2>{assetRelevanceReview.relevance.level === "high" ? "This asset looks relevant" : assetRelevanceReview.relevance.level === "medium" ? "Check where this asset belongs" : "This asset may belong elsewhere"}</h2>
+                  </div>
+                  <button type="button" aria-label="Close relevance check" onClick={() => setAssetRelevanceReview(null)}>×</button>
+                </header>
+
+                <div className="relevance-gate-body">
+                  <div className="relevance-file">
+                    <span>Asset</span>
+                    <strong>{assetRelevanceReview.document.original_filename}</strong>
+                  </div>
+                  <div className="relevance-score">
+                    <span>Current project</span>
+                    <strong>{assetRelevanceReview.relevance.company_name}</strong>
+                    <b>{assetRelevanceReview.relevance.confidence}% match</b>
+                  </div>
+                  <p className="relevance-recommendation">{assetRelevanceReview.relevance.recommendation}</p>
+                  <div className="relevance-reasons">
+                    <span>Why GrowthOS thinks this</span>
+                    <ul>
+                      {assetRelevanceReview.relevance.reasons.map((reason, index) => (
+                        <li key={`${index}-${reason}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  {assetRelevanceReview.relevance.suggested_company_name && (
+                    <div className="relevance-alternative">
+                      <span>Possible better fit</span>
+                      <strong>{assetRelevanceReview.relevance.suggested_company_name}</strong>
+                    </div>
+                  )}
+                </div>
+
+                <footer>
+                  <button type="button" className="primary-button" onClick={() => void keepAssetAndMap(assetRelevanceReview)}>Keep here & map</button>
+                  {assetRelevanceReview.relevance.suggested_company_id && (
+                    <button type="button" className="secondary-button" onClick={() => void moveReviewedAsset(assetRelevanceReview, assetRelevanceReview.relevance.suggested_company_id!)}>
+                      Move to {assetRelevanceReview.relevance.suggested_company_name}
+                    </button>
+                  )}
+                  <button type="button" className="secondary-button" onClick={() => void keepAssetWithoutMapping()}>Keep here, don’t map</button>
+                  <button type="button" className="danger-button" onClick={() => void (async () => {
+                    if (!window.confirm(`Remove “${assetRelevanceReview.document.original_filename}”?`)) return;
+                    try {
+                      await deleteDocument(assetRelevanceReview.document.id);
+                      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
+                      setAssetRelevanceReview(null);
+                      setMessage("Asset removed.");
+                    } catch (requestError) {
+                      setError(requestError instanceof Error ? requestError.message : "The asset could not be removed.");
+                    }
+                  })()}>Remove</button>
+                </footer>
+              </section>
+            </div>
+          )}
         </div>
 
         <aside className={cx("growthos-guide", view === "cofounder" && "cofounder-guide", guideOpen && "open")}>

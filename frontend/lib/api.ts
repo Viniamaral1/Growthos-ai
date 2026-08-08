@@ -58,6 +58,21 @@ export type DocumentRecord = {
 };
 
 
+
+
+export type DocumentRelevance = {
+  document_id: number;
+  company_id: number;
+  company_name: string;
+  level: "high" | "medium" | "low";
+  confidence: number;
+  recommendation: string;
+  reasons: string[];
+  suggested_company_id: number | null;
+  suggested_company_name: string | null;
+  method: string;
+};
+
 export type AnswerSource = {
   source_id: string;
   chunk_id: number;
@@ -609,6 +624,40 @@ export async function processDocument(
   return response.json();
 }
 
+
+
+
+export async function getDocumentRelevance(
+  companyId: number,
+  documentId: number,
+): Promise<DocumentRelevance> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/relevance?company_id=${companyId}`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
+
+export async function moveDocumentToWorkspace(
+  documentId: number,
+  companyId: number,
+): Promise<DocumentRecord> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/move?company_id=${companyId}`,
+    { method: "POST" },
+  );
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return response.json();
+}
 
 export async function askGroundedQuestion(
   companyId: number,

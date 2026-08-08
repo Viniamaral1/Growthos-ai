@@ -40,3 +40,15 @@ class DocumentTextResponse(BaseModel):
     page_count: int | None
     character_count: int | None
     extracted_text: str | None
+
+class DocumentRelevanceResponse(BaseModel):
+    document_id: int
+    company_id: int
+    company_name: str
+    level: str
+    confidence: int
+    recommendation: str
+    reasons: list[str]
+    suggested_company_id: int | None = None
+    suggested_company_name: str | None = None
+    method: str
