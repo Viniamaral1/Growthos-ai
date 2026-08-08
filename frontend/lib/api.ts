@@ -1731,6 +1731,36 @@ export type BusinessGraphNode = {
   status: string | null;
   importance: number;
   source_id: number | null;
+  source_count: number;
+  source_document_ids: number[];
+};
+
+export type BusinessEntityEvidenceSource = {
+  source_kind: string;
+  source_id: number;
+  title: string;
+  evidence: string | null;
+  confidence: number;
+};
+
+export type BusinessEntityRelated = {
+  id: number;
+  name: string;
+  entity_type: string;
+  source_count: number;
+  shared_source_count: number;
+};
+
+export type BusinessEntityDetail = {
+  id: number;
+  company_id: number;
+  name: string;
+  entity_type: string;
+  description: string | null;
+  confidence: number;
+  source_count: number;
+  evidence_sources: BusinessEntityEvidenceSource[];
+  related_entities: BusinessEntityRelated[];
 };
 
 export type BusinessGraphEdge = {
@@ -1769,6 +1799,18 @@ export type BusinessGraphResponse = {
 
 export async function getBusinessGraph(companyId: number): Promise<BusinessGraphResponse> {
   const response = await fetch(`${API_URL}/business-graph?company_id=${companyId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function getBusinessEntityDetail(
+  companyId: number,
+  entityId: number,
+): Promise<BusinessEntityDetail> {
+  const response = await fetch(
+    `${API_URL}/business-graph/${companyId}/entities/${entityId}`,
+    { cache: "no-store" },
+  );
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }

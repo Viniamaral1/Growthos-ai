@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  getBusinessEntityDetail,
   getBusinessGraph,
+  type BusinessEntityDetail,
   type BusinessGraphInsight,
   type BusinessGraphResponse,
   type Company,
@@ -54,6 +56,13 @@ function insightPriority(insight: BusinessGraphInsight): number {
   return 1;
 }
 
+function confidenceLabel(value: number): string {
+  if (value >= 0.9) return "Very high";
+  if (value >= 0.75) return "High";
+  if (value >= 0.55) return "Medium";
+  return "Low";
+}
+
 export default function BusinessGraphPanel({
   company,
   onError,
@@ -65,6 +74,9 @@ export default function BusinessGraphPanel({
   const [loading, setLoading] = useState(false);
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
+  const [entityDetail, setEntityDetail] = useState<BusinessEntityDetail | null>(null);
+  const [entityDetailLoading, setEntityDetailLoading] = useState(false);
   const onErrorRef = useRef(onError);
 
   useEffect(() => {
@@ -81,6 +93,8 @@ export default function BusinessGraphPanel({
       setLoading(true);
       setSelectedKind("all");
       setSelectedNodeId(null);
+      setSelectedDocumentId(null);
+      setEntityDetail(null);
       try {
         setGraph(await getBusinessGraph(company.id));
       } catch (error) {
@@ -105,6 +119,11 @@ export default function BusinessGraphPanel({
       setSelectedKind((current) =>
         current === "all" || nextGraph.nodes.some((node) => node.kind === current) ? current : "all",
       );
+      setSelectedDocumentId((current) =>
+        current && nextGraph.nodes.some((node) => node.kind === "document" && node.source_id === current)
+          ? current
+          : null,
+      );
     } catch (error) {
       onErrorRef.current(error instanceof Error ? error.message : "The business graph could not be refreshed.");
     } finally {
@@ -117,10 +136,34 @@ export default function BusinessGraphPanel({
     return Array.from(new Set(graph.nodes.map((node) => node.kind)));
   }, [graph]);
 
+  const mappedDocumentOptions = useMemo(() => {
+    if (!graph) return [];
+    const entityNodes = graph.nodes.filter((node) => node.kind === "entity");
+    const counts = new Map<number, number>();
+    for (const entity of entityNodes) {
+      for (const documentId of entity.source_document_ids ?? []) {
+        counts.set(documentId, (counts.get(documentId) ?? 0) + 1);
+      }
+    }
+    return graph.nodes
+      .filter((node) => node.kind === "document" && node.source_id !== null && counts.has(node.source_id))
+      .map((node) => ({
+        id: node.source_id as number,
+        label: node.label,
+        count: counts.get(node.source_id as number) ?? 0,
+      }));
+  }, [graph]);
+
   const visibleNodes = useMemo(() => {
     if (!graph) return [];
-    return graph.nodes.filter((node) => selectedKind === "all" || node.kind === selectedKind);
-  }, [graph, selectedKind]);
+    return graph.nodes.filter((node) => {
+      if (selectedKind !== "all" && node.kind !== selectedKind) return false;
+      if (selectedKind === "entity" && selectedDocumentId !== null) {
+        return node.source_document_ids?.includes(selectedDocumentId) ?? false;
+      }
+      return true;
+    });
+  }, [graph, selectedKind, selectedDocumentId]);
 
   const orderedInsights = useMemo(() => {
     if (!graph) return [];
@@ -134,9 +177,53 @@ export default function BusinessGraphPanel({
         .slice(0, 12)
     : [];
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEntityDetail() {
+      if (!company || !selectedNode || selectedNode.kind !== "entity" || selectedNode.source_id === null) {
+        setEntityDetail(null);
+        setEntityDetailLoading(false);
+        return;
+      }
+      setEntityDetailLoading(true);
+      try {
+        const detail = await getBusinessEntityDetail(company.id, selectedNode.source_id);
+        if (!cancelled) setEntityDetail(detail);
+      } catch (error) {
+        if (!cancelled) {
+          setEntityDetail(null);
+          onErrorRef.current(error instanceof Error ? error.message : "Entity evidence could not be loaded.");
+        }
+      } finally {
+        if (!cancelled) setEntityDetailLoading(false);
+      }
+    }
+    void loadEntityDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [company?.id, selectedNode?.id]);
+
   function applyKindFilter(kind: string) {
     setSelectedKind((current) => current === kind ? "all" : kind);
+    if (kind !== "entity") setSelectedDocumentId(null);
     setSelectedNodeId(null);
+  }
+
+  function selectRelatedEntity(entityId: number) {
+    const node = graph?.nodes.find((candidate) => candidate.id === `entity:${entityId}`);
+    if (!node) return;
+    setSelectedKind("entity");
+    setSelectedDocumentId(null);
+    setSelectedNodeId(node.id);
+  }
+
+  function selectEvidenceSource(sourceKind: string, sourceId: number) {
+    const node = graph?.nodes.find((candidate) => candidate.id === `${sourceKind}:${sourceId}`);
+    if (!node) return;
+    setSelectedKind("all");
+    setSelectedDocumentId(null);
+    setSelectedNodeId(node.id);
   }
 
   if (!company) {
@@ -174,7 +261,7 @@ export default function BusinessGraphPanel({
               {graph.generated_from.entities ?? 0} mapped business entit{(graph.generated_from.entities ?? 0) === 1 ? "y" : "ies"} are currently connected to this workspace.
             </span>
           </div>
-          <span>Map individual assets from Business Intelligence</span>
+          <span>Every entity can now be traced back to its evidence.</span>
         </section>
       )}
 
@@ -242,11 +329,32 @@ export default function BusinessGraphPanel({
                   <small>{visibleNodes.length} visible object{visibleNodes.length === 1 ? "" : "s"}</small>
                 </div>
                 <div className="business-graph-toolbar-actions">
+                  {selectedKind === "entity" && mappedDocumentOptions.length > 0 && (
+                    <label className="business-graph-source-filter">
+                      <span>Evidence source</span>
+                      <select
+                        value={selectedDocumentId ?? ""}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setSelectedDocumentId(value ? Number(value) : null);
+                          setSelectedNodeId(null);
+                        }}
+                      >
+                        <option value="">All mapped assets</option>
+                        {mappedDocumentOptions.map((document) => (
+                          <option value={document.id} key={document.id}>
+                            {document.label} ({document.count})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {selectedKind !== "all" && (
                     <button type="button" onClick={() => applyKindFilter("all")}>Clear filter</button>
                   )}
                   <select value={selectedKind} onChange={(event) => {
                     setSelectedKind(event.target.value);
+                    if (event.target.value !== "entity") setSelectedDocumentId(null);
                     setSelectedNodeId(null);
                   }}>
                     <option value="all">All business objects</option>
@@ -275,6 +383,11 @@ export default function BusinessGraphPanel({
                       <small>{kindLabels[node.kind] ?? node.kind}</small>
                       <strong>{node.label}</strong>
                       {node.subtitle && <p>{node.subtitle}</p>}
+                      {node.kind === "entity" && node.source_count > 0 && (
+                        <span className="business-graph-source-badge">
+                          {node.source_count} source{node.source_count === 1 ? "" : "s"}
+                        </span>
+                      )}
                     </span>
                     {node.status && <em>{node.status.replaceAll("_", " ")}</em>}
                   </button>
@@ -312,8 +425,8 @@ export default function BusinessGraphPanel({
 
               <section className="panel business-graph-details">
                 <div className="business-graph-section-title">
-                  <strong>Selected object</strong>
-                  <small>Choose an item to inspect its relationships</small>
+                  <strong>{selectedNode?.kind === "entity" ? "Entity evidence" : "Selected object"}</strong>
+                  <small>{selectedNode?.kind === "entity" ? "Trace this entity back to its business sources" : "Choose an item to inspect its relationships"}</small>
                 </div>
                 {!selectedNode ? (
                   <p className="business-graph-muted">Select an object from the map to see how it connects to the workspace.</p>
@@ -324,7 +437,58 @@ export default function BusinessGraphPanel({
                     </span>
                     <h2>{selectedNode.label}</h2>
                     {selectedNode.subtitle && <p>{selectedNode.subtitle}</p>}
-                    {selectedConnections.length > 0 ? (
+
+                    {selectedNode.kind === "entity" && (
+                      <div className="business-entity-detail-shell">
+                        {entityDetailLoading ? (
+                          <p className="business-graph-muted">Loading grounded evidence…</p>
+                        ) : entityDetail ? (
+                          <>
+                            <div className="business-entity-confidence">
+                              <div><span>Confidence</span><strong>{Math.round(entityDetail.confidence * 100)}%</strong></div>
+                              <small>{confidenceLabel(entityDetail.confidence)} confidence · {entityDetail.source_count} supporting source{entityDetail.source_count === 1 ? "" : "s"}</small>
+                            </div>
+
+                            <div className="business-entity-evidence">
+                              <strong>Evidence</strong>
+                              {entityDetail.evidence_sources.length === 0 ? (
+                                <p className="business-graph-muted">No source evidence is available for this entity yet.</p>
+                              ) : entityDetail.evidence_sources.map((source) => (
+                                <button
+                                  type="button"
+                                  key={`${source.source_kind}-${source.source_id}`}
+                                  onClick={() => selectEvidenceSource(source.source_kind, source.source_id)}
+                                >
+                                  <span>{source.source_kind.replaceAll("_", " ")}</span>
+                                  <strong>{source.title}</strong>
+                                  {source.evidence && <p>{source.evidence}</p>}
+                                  <small>{Math.round(source.confidence * 100)}% evidence confidence</small>
+                                </button>
+                              ))}
+                            </div>
+
+                            {entityDetail.related_entities.length > 0 && (
+                              <div className="business-entity-related">
+                                <strong>Related entities</strong>
+                                <div>
+                                  {entityDetail.related_entities.map((related) => (
+                                    <button type="button" key={related.id} onClick={() => selectRelatedEntity(related.id)}>
+                                      <span>{related.entity_type}</span>
+                                      <strong>{related.name}</strong>
+                                      <small>{related.shared_source_count} shared source{related.shared_source_count === 1 ? "" : "s"}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <p className="business-graph-muted">Evidence details are unavailable for this entity.</p>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedNode.kind !== "entity" && selectedConnections.length > 0 ? (
                       <div className="business-graph-connections">
                         <strong>Connections</strong>
                         {selectedConnections.map((edge, index) => {
@@ -342,9 +506,9 @@ export default function BusinessGraphPanel({
                           );
                         })}
                       </div>
-                    ) : (
+                    ) : selectedNode.kind !== "entity" ? (
                       <p className="business-graph-muted">No additional relationships are stored for this object yet.</p>
-                    )}
+                    ) : null}
                   </>
                 )}
               </section>

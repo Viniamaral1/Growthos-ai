@@ -7435,3 +7435,83 @@ button.executive-role:not(.active):hover {
 .asset-entity-state.state-partial .asset-entity-complete {
   color: #f4c56a;
 }
+
+/* Entity evidence explorer */
+.business-graph-source-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 240px;
+}
+.business-graph-source-filter > span {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.business-graph-source-filter select { width: 100%; min-width: 0; }
+.business-graph-source-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 10px;
+  font-style: normal;
+}
+.business-entity-detail-shell { display: grid; gap: 16px; margin-top: 6px; }
+.business-entity-confidence {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+.business-entity-confidence > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.business-entity-confidence span,
+.business-entity-confidence small { color: var(--muted); }
+.business-entity-confidence strong { font-size: 22px; }
+.business-entity-evidence,
+.business-entity-related { display: grid; gap: 9px; }
+.business-entity-evidence > strong,
+.business-entity-related > strong { font-size: 13px; }
+.business-entity-evidence > button,
+.business-entity-related button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+}
+.business-entity-evidence > button:hover,
+.business-entity-related button:hover {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.business-entity-evidence span,
+.business-entity-related span {
+  color: var(--accent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.business-entity-evidence p { margin: 2px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.business-entity-evidence small,
+.business-entity-related small { color: var(--muted); font-size: 10px; }
+.business-entity-related > div { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 680px) {
+  .business-graph-source-filter { min-width: 0; width: 100%; }
+  .business-entity-related > div { grid-template-columns: 1fr; }
+}

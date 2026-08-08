@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.company import Company
@@ -19,9 +19,12 @@ from app.models.research_task import ResearchTask
 from app.schemas.business_graph import (
     BusinessGraphEdge,
     BusinessGraphInsight,
+    BusinessEntityDetail,
+    BusinessEntityEvidenceSource,
+    BusinessEntityIndexStatus,
+    BusinessEntityRelated,
     BusinessGraphNode,
     BusinessGraphResponse,
-    BusinessEntityIndexStatus,
 )
 
 
@@ -195,6 +198,12 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
 
     for entity in entities[:30]:
         node_id = f"entity:{entity.id}"
+        links = source_links_by_entity.get(entity.id, [])
+        source_document_ids = sorted({
+            link.source_id for link in links if link.source_kind == "document"
+        })
+        if not source_document_ids and entity.source_kind == "document" and entity.source_id is not None:
+            source_document_ids = [entity.source_id]
         nodes.append(BusinessGraphNode(
             id=node_id,
             kind="entity",
@@ -203,9 +212,10 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             status=entity.entity_type,
             importance=5 if entity.confidence >= 0.85 else 4 if entity.confidence >= 0.65 else 3,
             source_id=entity.id,
+            source_count=len(links) if links else (1 if entity.source_id is not None else 0),
+            source_document_ids=source_document_ids,
         ))
 
-        links = source_links_by_entity.get(entity.id, [])
         if links:
             for link in links[:6]:
                 source_node_id = f"{link.source_kind}:{link.source_id}"
@@ -352,4 +362,107 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
         edges=edges,
         insights=insights[:6],
         entity_index=entity_index,
+    )
+
+
+def _source_title(database: Session, source_kind: str, source_id: int) -> str:
+    if source_kind == "document":
+        source = database.get(Document, source_id)
+        return source.original_filename if source is not None else f"Document {source_id}"
+    if source_kind == "knowledge":
+        source = database.get(KnowledgeItem, source_id)
+        return source.title if source is not None else f"Knowledge item {source_id}"
+    if source_kind == "decision":
+        source = database.get(Decision, source_id)
+        return source.title if source is not None else f"Decision {source_id}"
+    if source_kind == "memory":
+        source = database.get(ExecutiveMemory, source_id)
+        return source.title if source is not None else f"Memory {source_id}"
+    if source_kind == "research":
+        source = database.get(ResearchTask, source_id)
+        return source.title if source is not None else f"Research task {source_id}"
+    return f"{source_kind.replace('_', ' ').title()} {source_id}"
+
+
+def get_business_entity_detail(
+    database: Session,
+    company_id: int,
+    entity_id: int,
+) -> BusinessEntityDetail:
+    company = database.get(Company, company_id)
+    if company is None:
+        raise ValueError("Workspace not found")
+
+    entity = database.get(BusinessEntity, entity_id)
+    if entity is None or entity.company_id != company_id:
+        raise ValueError("Business entity not found")
+
+    links = list(database.scalars(
+        select(BusinessEntitySource)
+        .where(
+            BusinessEntitySource.company_id == company_id,
+            BusinessEntitySource.entity_id == entity_id,
+        )
+        .order_by(BusinessEntitySource.confidence.desc(), BusinessEntitySource.created_at.desc())
+    ).all())
+
+    if not links and entity.source_kind and entity.source_id is not None:
+        evidence_sources = [BusinessEntityEvidenceSource(
+            source_kind=entity.source_kind,
+            source_id=entity.source_id,
+            title=_source_title(database, entity.source_kind, entity.source_id),
+            evidence=entity.evidence,
+            confidence=entity.confidence,
+        )]
+    else:
+        evidence_sources = [BusinessEntityEvidenceSource(
+            source_kind=link.source_kind,
+            source_id=link.source_id,
+            title=_source_title(database, link.source_kind, link.source_id),
+            evidence=link.evidence,
+            confidence=link.confidence,
+        ) for link in links[:20]]
+
+    source_pairs = {(item.source_kind, item.source_id) for item in evidence_sources}
+    related_counts: Counter[int] = Counter()
+    for source_kind, source_id in source_pairs:
+        related_ids = database.scalars(
+            select(BusinessEntitySource.entity_id).where(
+                BusinessEntitySource.company_id == company_id,
+                BusinessEntitySource.source_kind == source_kind,
+                BusinessEntitySource.source_id == source_id,
+                BusinessEntitySource.entity_id != entity_id,
+            )
+        ).all()
+        related_counts.update(related_ids)
+
+    related_entities: list[BusinessEntityRelated] = []
+    for related_id, shared_count in related_counts.most_common(12):
+        related = database.get(BusinessEntity, related_id)
+        if related is None or related.company_id != company_id:
+            continue
+        total_sources = database.scalar(
+            select(func.count(BusinessEntitySource.id)).where(
+                BusinessEntitySource.company_id == company_id,
+                BusinessEntitySource.entity_id == related_id,
+            )
+        ) or 0
+        related_entities.append(BusinessEntityRelated(
+            id=related.id,
+            name=related.name,
+            entity_type=related.entity_type,
+            source_count=int(total_sources),
+            shared_source_count=int(shared_count),
+        ))
+
+    return BusinessEntityDetail(
+        id=entity.id,
+        company_id=entity.company_id,
+        name=entity.name,
+        entity_type=entity.entity_type,
+        description=entity.description,
+        confidence=entity.confidence,
+        source_count=len(evidence_sources),
+        evidence_sources=evidence_sources,
+        related_entities=related_entities,
     )

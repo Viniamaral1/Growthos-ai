@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.schemas.business_graph import (
     BusinessEntityBatchResponse,
+    BusinessEntityDetail,
     BusinessEntityMapResponse,
     BusinessEntityRebuildResponse,
     BusinessGraphResponse,
 )
-from app.services.business_graph_service import build_business_graph
+from app.services.business_graph_service import build_business_graph, get_business_entity_detail
 from app.services.entity_extraction_service import (
     map_document_entities,
     map_new_document_entities,
@@ -25,6 +26,22 @@ def get_business_graph(
 ) -> BusinessGraphResponse:
     try:
         return build_business_graph(database, company_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get(
+    "/{company_id}/entities/{entity_id}",
+    response_model=BusinessEntityDetail,
+)
+def get_entity_detail(
+    company_id: int,
+    entity_id: int,
+    database: Session = Depends(get_db),
+) -> BusinessEntityDetail:
+    """Return one entity with its grounded evidence and related entities."""
+    try:
+        return get_business_entity_detail(database, company_id, entity_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
