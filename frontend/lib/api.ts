@@ -51,6 +51,10 @@ export type DocumentRecord = {
   processing_error: string | null;
   uploaded_at: string;
   processed_at: string | null;
+  entity_mapping_status: "unavailable" | "not_mapped" | "processing" | "completed" | "partial" | "failed";
+  entity_count: number;
+  entity_mapping_error: string | null;
+  entity_mapped_at: string | null;
 };
 
 
@@ -1744,6 +1748,13 @@ export type BusinessGraphInsight = {
   target_kind: string | null;
 };
 
+export type BusinessEntityIndexStatus = {
+  processed_documents: number;
+  mapped_documents: number;
+  pending_documents: number;
+  failed_documents: number;
+};
+
 export type BusinessGraphResponse = {
   company_id: number;
   generated_from: Record<string, number>;
@@ -1753,6 +1764,7 @@ export type BusinessGraphResponse = {
   nodes: BusinessGraphNode[];
   edges: BusinessGraphEdge[];
   insights: BusinessGraphInsight[];
+  entity_index: BusinessEntityIndexStatus;
 };
 
 export async function getBusinessGraph(companyId: number): Promise<BusinessGraphResponse> {
@@ -1760,3 +1772,71 @@ export async function getBusinessGraph(companyId: number): Promise<BusinessGraph
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }
+
+export type BusinessEntityMapResponse = {
+  company_id: number;
+  source_kind: string;
+  source_id: number;
+  created: number;
+  linked: number;
+  model: string;
+  pending_documents: number;
+  message: string;
+  partial?: boolean;
+  ai_enriched?: boolean;
+  warning?: string | null;
+};
+
+export type BusinessEntityBatchResponse = {
+  company_id: number;
+  processed: number;
+  created: number;
+  linked: number;
+  failed: number;
+  pending_documents: number;
+  model: string;
+  message: string;
+  failures: string[];
+};
+
+export type BusinessEntityRebuildResponse = {
+  company_id: number;
+  queued_documents: number;
+  model: string;
+  message: string;
+};
+
+export async function mapDocumentEntities(
+  companyId: number,
+  documentId: number,
+  signal?: AbortSignal,
+): Promise<BusinessEntityMapResponse> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/entities/map?company_id=${companyId}`, {
+    method: "POST",
+    signal,
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function mapNewDocumentEntities(
+  companyId: number,
+  batchSize = 1,
+  signal?: AbortSignal,
+): Promise<BusinessEntityBatchResponse> {
+  const response = await fetch(
+    `${API_URL}/business-graph/${companyId}/entities/new-documents?batch_size=${batchSize}`,
+    { method: "POST", signal },
+  );
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function queueBusinessEntityRebuild(companyId: number): Promise<BusinessEntityRebuildResponse> {
+  const response = await fetch(`${API_URL}/business-graph/${companyId}/entities/rebuild`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+

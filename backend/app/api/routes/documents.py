@@ -18,6 +18,11 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.company import Company
+from app.models.business_entity import (
+    BusinessEntity,
+    BusinessEntityExtraction,
+    BusinessEntitySource,
+)
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.schemas.document import (
@@ -45,6 +50,7 @@ from app.services.text_chunker import (
 from app.services.document_classification_service import (
     classify_document,
 )
+from app.services.entity_extraction_service import map_document_entities
 
 
 router = APIRouter(
@@ -68,6 +74,28 @@ UPLOAD_DIRECTORY.mkdir(
 
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
+
+
+def _document_response(
+    document: Document,
+    state: BusinessEntityExtraction | None = None,
+) -> DocumentResponse:
+    """Return one document enriched with its per-file entity mapping state."""
+    if document.processing_status != "processed":
+        mapping_status = "unavailable"
+    elif state is None:
+        mapping_status = "not_mapped"
+    else:
+        mapping_status = state.status
+
+    return DocumentResponse.model_validate(document).model_copy(
+        update={
+            "entity_mapping_status": mapping_status,
+            "entity_count": state.entity_count if state is not None else 0,
+            "entity_mapping_error": state.error if state is not None else None,
+            "entity_mapped_at": state.processed_at if state is not None else None,
+        }
+    )
 
 
 
@@ -411,7 +439,7 @@ def process_document(
 def list_documents(
     database: DatabaseSession,
     company_id: int | None = None,
-) -> list[Document]:
+) -> list[DocumentResponse]:
     """
     Return uploaded documents.
     """
@@ -432,9 +460,21 @@ def list_documents(
         statement
     ).all()
 
-    return list(
-        documents
-    )
+    document_ids = [document.id for document in documents]
+    states_by_document: dict[int, BusinessEntityExtraction] = {}
+    if document_ids:
+        states = database.scalars(
+            select(BusinessEntityExtraction).where(
+                BusinessEntityExtraction.source_kind == "document",
+                BusinessEntityExtraction.source_id.in_(document_ids),
+            )
+        ).all()
+        states_by_document = {state.source_id: state for state in states}
+
+    return [
+        _document_response(document, states_by_document.get(document.id))
+        for document in documents
+    ]
 
 
 @router.get(
@@ -444,7 +484,7 @@ def list_documents(
 def get_document(
     document_id: int,
     database: DatabaseSession,
-) -> Document:
+) -> DocumentResponse:
     """
     Return one document using its ID.
     """
@@ -460,7 +500,14 @@ def get_document(
             detail="Document not found.",
         )
 
-    return document
+    state = database.scalar(
+        select(BusinessEntityExtraction).where(
+            BusinessEntityExtraction.company_id == document.company_id,
+            BusinessEntityExtraction.source_kind == "document",
+            BusinessEntityExtraction.source_id == document.id,
+        )
+    )
+    return _document_response(document, state)
 
 
 @router.get(
@@ -543,6 +590,32 @@ def get_document_chunks(
     return list(
         chunks
     )
+@router.post(
+    "/{document_id}/entities/map",
+)
+def map_document_entities_from_library(
+    document_id: int,
+    company_id: int,
+    database: DatabaseSession,
+) -> dict[str, object]:
+    """Map entities for one selected Business Intelligence asset only."""
+    try:
+        return map_document_entities(database, company_id, document_id)
+    except ValueError as error:
+        detail = str(error)
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if "Process the document" in detail or "no extracted text" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from error
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+
+
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -563,6 +636,43 @@ def delete_document(
     file_path = Path(document.file_path)
 
     try:
+        related_entity_ids = set(database.scalars(
+            select(BusinessEntitySource.entity_id).where(
+                BusinessEntitySource.company_id == document.company_id,
+                BusinessEntitySource.source_kind == "document",
+                BusinessEntitySource.source_id == document_id,
+            )
+        ).all())
+        related_entity_ids.update(database.scalars(
+            select(BusinessEntity.id).where(
+                BusinessEntity.company_id == document.company_id,
+                BusinessEntity.source_kind == "document",
+                BusinessEntity.source_id == document_id,
+            )
+        ).all())
+
+        database.execute(delete(BusinessEntitySource).where(
+            BusinessEntitySource.company_id == document.company_id,
+            BusinessEntitySource.source_kind == "document",
+            BusinessEntitySource.source_id == document_id,
+        ))
+        database.execute(delete(BusinessEntityExtraction).where(
+            BusinessEntityExtraction.company_id == document.company_id,
+            BusinessEntityExtraction.source_kind == "document",
+            BusinessEntityExtraction.source_id == document_id,
+        ))
+        database.flush()
+
+        for entity_id in related_entity_ids:
+            remaining_link = database.scalar(
+                select(BusinessEntitySource.id).where(
+                    BusinessEntitySource.entity_id == entity_id
+                ).limit(1)
+            )
+            entity = database.get(BusinessEntity, entity_id)
+            if entity is not None and remaining_link is None:
+                database.delete(entity)
+
         database.execute(
             delete(DocumentChunk).where(
                 DocumentChunk.document_id == document_id

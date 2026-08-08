@@ -23,6 +23,10 @@ class DocumentResponse(BaseModel):
     processing_error: str | None
     uploaded_at: datetime
     processed_at: datetime | None
+    entity_mapping_status: str = "not_mapped"
+    entity_count: int = 0
+    entity_mapping_error: str | None = None
+    entity_mapped_at: datetime | None = None
 
 
 class DocumentTextResponse(BaseModel):

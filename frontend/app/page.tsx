@@ -39,6 +39,7 @@ import {
   getDocuments,
   getDocumentText,
   deleteDocument,
+  mapDocumentEntities,
   processDocument,
   uploadDocument,
   type AnswerSource,
@@ -326,6 +327,8 @@ function KnowledgeView({
     text: string;
   } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [entityMappingId, setEntityMappingId] = useState<number | null>(null);
+  const [entityNotice, setEntityNotice] = useState<{ documentId: number; message: string } | null>(null);
 
   const formatDefinitions = [
     { name: "PDF", icon: "PDF", extensions: ".pdf", keys: ["PDF"] },
@@ -380,6 +383,65 @@ function KnowledgeView({
     } catch (error) {
       onError(error instanceof Error ? error.message : "The asset could not be deleted.");
     }
+  }
+
+  async function mapAssetEntities(document: DocumentRecord) {
+    if (selectedCompanyId === null || document.processing_status !== "processed" || entityMappingId !== null) return;
+
+    setEntityMappingId(document.id);
+    setEntityNotice({ documentId: document.id, message: "GrowthOS is analysing this asset only…" });
+
+    onDocumentsChanged(
+      documents.map((candidate) =>
+        candidate.id === document.id
+          ? { ...candidate, entity_mapping_status: "processing", entity_mapping_error: null }
+          : candidate,
+      ),
+    );
+
+    try {
+      const result = await mapDocumentEntities(selectedCompanyId, document.id);
+      onDocumentsChanged(
+        documents.map((candidate) =>
+          candidate.id === document.id
+            ? {
+                ...candidate,
+                entity_mapping_status: result.partial ? "partial" : "completed",
+                entity_count: result.linked,
+                entity_mapping_error: result.warning ?? null,
+                entity_mapped_at: new Date().toISOString(),
+              }
+            : candidate,
+        ),
+      );
+      setEntityNotice({ documentId: document.id, message: result.message });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "GrowthOS could not map entities for this asset.";
+      onDocumentsChanged(
+        documents.map((candidate) =>
+          candidate.id === document.id
+            ? { ...candidate, entity_mapping_status: "failed", entity_mapping_error: message }
+            : candidate,
+        ),
+      );
+      setEntityNotice({ documentId: document.id, message });
+      onError(message);
+    } finally {
+      setEntityMappingId(null);
+    }
+  }
+
+  function entityStatusLabel(document: DocumentRecord): string {
+    if (document.processing_status !== "processed") return "Available after processing";
+    if (document.entity_mapping_status === "processing") return "Mapping…";
+    if (document.entity_mapping_status === "completed") {
+      return `${document.entity_count} ${document.entity_count === 1 ? "entity" : "entities"}`;
+    }
+    if (document.entity_mapping_status === "partial") {
+      return `${document.entity_count} verified ${document.entity_count === 1 ? "entity" : "entities"} · partial`;
+    }
+    if (document.entity_mapping_status === "failed") return "Mapping failed";
+    return "Not analysed";
   }
 
   return (
@@ -445,7 +507,7 @@ function KnowledgeView({
               ["Extract structure", "Pages, text, tables, sheets, and metadata are normalised."],
               ["Create evidence chunks", "Context is split into searchable passages."],
               ["Generate embeddings", "Meaning becomes searchable across the workspace."],
-              ["Activate intelligence", "The asset becomes available to AI and semantic search."],
+              ["Activate intelligence", "The asset becomes available to AI and semantic search. Entity mapping stays optional per asset."],
             ].map(([title, description], index) => <article key={title}><span>{index + 1}</span><div><strong>{title}</strong><p>{description}</p></div></article>)}
           </div>
           <div className="pipeline-truth"><span>Important</span><strong>Images use metadata only</strong><p>Visual content and OCR are not analysed in this local release. GrowthOS will not infer that an image lacks business value.</p></div>
@@ -455,7 +517,7 @@ function KnowledgeView({
       <section className="panel asset-library">
         <div className="panel-heading library-heading">
           <span className="panel-icon cyan">▦</span>
-          <div><h2>Intelligence library</h2><p>Open, use, ask about, filter, or delete imported assets.</p></div>
+          <div><h2>Intelligence library</h2><p>Open, use, ask about, map AI entities, filter, or delete imported assets.</p></div>
           <small>{visibleDocuments.length} of {documents.length} asset(s)</small>
         </div>
         {visibleDocuments.length === 0 ? (
@@ -472,7 +534,29 @@ function KnowledgeView({
                     <span>▤</span><div><strong>{document.original_filename}</strong><small>Uploaded {new Date(document.uploaded_at).toLocaleDateString()}</small></div>
                   </button>
                   <div className="asset-metadata"><div><span>Size</span><strong>{(document.file_size / 1024 / 1024).toFixed(2)} MB</strong></div><div><span>Pages</span><strong>{document.page_count ?? "—"}</strong></div><div><span>Characters</span><strong>{document.character_count ? document.character_count.toLocaleString() : "—"}</strong></div></div>
+                  <div className={cx("asset-entity-state", `state-${document.entity_mapping_status ?? "not_mapped"}`)}>
+                    <div>
+                      <span>AI entities</span>
+                      <strong>{entityStatusLabel(document)}</strong>
+                    </div>
+                    {ready && !["completed"].includes(document.entity_mapping_status) && (
+                      <button type="button" onClick={() => void mapAssetEntities(document)} disabled={entityMappingId !== null}>
+                        {entityMappingId === document.id
+                          ? "Mapping…"
+                          : document.entity_mapping_status === "partial"
+                            ? "Retry AI enrichment"
+                            : document.entity_mapping_status === "failed"
+                              ? "Try again"
+                              : "Map this asset"}
+                      </button>
+                    )}
+                    {ready && document.entity_mapping_status === "completed" && <span className="asset-entity-complete">✓ Mapped</span>}
+                    {ready && document.entity_mapping_status === "partial" && <span className="asset-entity-complete">✓ Partial map</span>}
+                  </div>
+                  {entityNotice?.documentId === document.id && <p className="asset-entity-notice">{entityNotice.message}</p>}
                   {document.processing_error && <p className="asset-error">{document.processing_error}</p>}
+                  {document.entity_mapping_error && document.entity_mapping_status === "failed" && <p className="asset-error">{document.entity_mapping_error}</p>}
+                  {document.entity_mapping_error && document.entity_mapping_status === "partial" && <p className="asset-entity-notice">{document.entity_mapping_error}</p>}
                   <footer>
                     <button type="button" onClick={() => void openPreview(document)} disabled={!ready}>Open</button>
                     <button type="button" onClick={() => onAskDocument(document)} disabled={!ready}>✦ Ask AI</button>

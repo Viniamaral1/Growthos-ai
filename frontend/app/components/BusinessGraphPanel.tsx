@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   getBusinessGraph,
@@ -17,6 +17,7 @@ const kindLabels: Record<string, string> = {
   decision: "Decision",
   memory: "Executive memory",
   research: "Research task",
+  entity: "Business entity",
 };
 
 const metricKindMap: Record<string, string> = {
@@ -26,6 +27,7 @@ const metricKindMap: Record<string, string> = {
   decisions: "decision",
   memories: "memory",
   research_tasks: "research",
+  entities: "entity",
 };
 
 const metricLabels: Record<string, string> = {
@@ -35,6 +37,7 @@ const metricLabels: Record<string, string> = {
   decisions: "Decisions",
   memories: "Memories",
   research_tasks: "Research Tasks",
+  entities: "AI Entities",
 };
 
 function healthTone(score: number): string {
@@ -62,6 +65,11 @@ export default function BusinessGraphPanel({
   const [loading, setLoading] = useState(false);
   const [selectedKind, setSelectedKind] = useState("all");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     async function load() {
@@ -76,14 +84,33 @@ export default function BusinessGraphPanel({
       try {
         setGraph(await getBusinessGraph(company.id));
       } catch (error) {
-        onError(error instanceof Error ? error.message : "The business graph could not be loaded.");
+        onErrorRef.current(error instanceof Error ? error.message : "The business graph could not be loaded.");
       } finally {
         setLoading(false);
       }
     }
 
     void load();
-  }, [company, onError]);
+  }, [company?.id]);
+
+  async function refreshGraphData() {
+    if (!company) return;
+    setLoading(true);
+    try {
+      const nextGraph = await getBusinessGraph(company.id);
+      setGraph(nextGraph);
+      setSelectedNodeId((current) =>
+        current && nextGraph.nodes.some((node) => node.id === current) ? current : null,
+      );
+      setSelectedKind((current) =>
+        current === "all" || nextGraph.nodes.some((node) => node.kind === current) ? current : "all",
+      );
+    } catch (error) {
+      onErrorRef.current(error instanceof Error ? error.message : "The business graph could not be refreshed.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const kinds = useMemo(() => {
     if (!graph) return [];
@@ -123,25 +150,45 @@ export default function BusinessGraphPanel({
 
   return (
     <div className="business-graph-page">
-      <header className="page-heading">
-        <span>Executive Intelligence Engine</span>
-        <h1>Business Intelligence Map</h1>
-        <p>
-          A grounded view of the sources, Knowledge, decisions, memories, and evidence shaping {company.name}.
-        </p>
+      <header className="page-heading business-graph-heading">
+        <div>
+          <span>Executive Intelligence Engine</span>
+          <h1>Business Intelligence Map</h1>
+          <p>
+            A grounded view of the sources, Knowledge, decisions, memories, entities, and evidence shaping {company.name}.
+          </p>
+        </div>
+        <div className="business-graph-heading-actions">
+          <button type="button" onClick={() => void refreshGraphData()} disabled={loading}>
+            {loading ? "Refreshing…" : "Refresh data"}
+          </button>
+          <small>AI entity mapping is managed per asset in Business Intelligence.</small>
+        </div>
       </header>
 
-      {loading && (
+      {graph && (
+        <section className="business-graph-readonly-note" aria-label="Business Graph entity information">
+          <div>
+            <strong>Read-only intelligence map</strong>
+            <span>
+              {graph.generated_from.entities ?? 0} mapped business entit{(graph.generated_from.entities ?? 0) === 1 ? "y" : "ies"} are currently connected to this workspace.
+            </span>
+          </div>
+          <span>Map individual assets from Business Intelligence</span>
+        </section>
+      )}
+
+      {loading && !graph && (
         <section className="panel business-graph-loading">
           <span>◎</span>
           <div>
-            <strong>Mapping the current business state</strong>
+            <strong>Reading the current business state</strong>
             <p>This is a bounded read-only view and does not reprocess your documents.</p>
           </div>
         </section>
       )}
 
-      {!loading && graph && (
+      {graph && (
         <>
           <section className={`panel business-graph-brief tone-${healthTone(graph.health_score)}`}>
             <div className="business-graph-health">
@@ -198,7 +245,10 @@ export default function BusinessGraphPanel({
                   {selectedKind !== "all" && (
                     <button type="button" onClick={() => applyKindFilter("all")}>Clear filter</button>
                   )}
-                  <select value={selectedKind} onChange={(event) => applyKindFilter(event.target.value)}>
+                  <select value={selectedKind} onChange={(event) => {
+                    setSelectedKind(event.target.value);
+                    setSelectedNodeId(null);
+                  }}>
                     <option value="all">All business objects</option>
                     {kinds.map((kind) => (
                       <option value={kind} key={kind}>{kindLabels[kind] ?? kind}</option>

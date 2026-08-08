@@ -26,6 +26,13 @@ class BusinessGraphInsight(BaseModel):
     target_kind: str | None = None
 
 
+class BusinessEntityIndexStatus(BaseModel):
+    processed_documents: int = Field(ge=0)
+    mapped_documents: int = Field(ge=0)
+    pending_documents: int = Field(ge=0)
+    failed_documents: int = Field(ge=0)
+
+
 class BusinessGraphResponse(BaseModel):
     company_id: int
     generated_from: dict[str, int]
@@ -35,3 +42,34 @@ class BusinessGraphResponse(BaseModel):
     nodes: list[BusinessGraphNode]
     edges: list[BusinessGraphEdge]
     insights: list[BusinessGraphInsight]
+    entity_index: BusinessEntityIndexStatus
+
+
+class BusinessEntityMapResponse(BaseModel):
+    company_id: int
+    source_kind: str
+    source_id: int
+    created: int = Field(ge=0)
+    linked: int = Field(ge=0)
+    model: str
+    pending_documents: int = Field(ge=0)
+    message: str
+
+
+class BusinessEntityBatchResponse(BaseModel):
+    company_id: int
+    processed: int = Field(ge=0)
+    created: int = Field(ge=0)
+    linked: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    pending_documents: int = Field(ge=0)
+    model: str
+    message: str
+    failures: list[str] = []
+
+
+class BusinessEntityRebuildResponse(BaseModel):
+    company_id: int
+    queued_documents: int = Field(ge=0)
+    model: str
+    message: str

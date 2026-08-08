@@ -5,6 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.company import Company
+from app.models.business_entity import (
+    BusinessEntity,
+    BusinessEntityExtraction,
+    BusinessEntitySource,
+)
 from app.models.decision import Decision
 from app.models.document import Document
 from app.models.executive_memory import ExecutiveMemory
@@ -16,6 +21,7 @@ from app.schemas.business_graph import (
     BusinessGraphInsight,
     BusinessGraphNode,
     BusinessGraphResponse,
+    BusinessEntityIndexStatus,
 )
 
 
@@ -66,6 +72,23 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
         .where(ResearchTask.company_id == company_id)
         .order_by(ResearchTask.risk_score.desc(), ResearchTask.updated_at.desc())
         .limit(30)
+    ).all())
+    entities = list(database.scalars(
+        select(BusinessEntity)
+        .where(BusinessEntity.company_id == company_id)
+        .order_by(BusinessEntity.confidence.desc(), BusinessEntity.updated_at.desc())
+        .limit(40)
+    ).all())
+    entity_sources = list(database.scalars(
+        select(BusinessEntitySource)
+        .where(BusinessEntitySource.company_id == company_id)
+        .order_by(BusinessEntitySource.confidence.desc())
+        .limit(120)
+    ).all())
+    extraction_states = list(database.scalars(
+        select(BusinessEntityExtraction)
+        .where(BusinessEntityExtraction.company_id == company_id)
+        .where(BusinessEntityExtraction.source_kind == "document")
     ).all())
 
     root_id = f"workspace:{company.id}"
@@ -165,6 +188,47 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
         ))
         edges.append(BusinessGraphEdge(source=root_id, target=node_id, relationship="needs evidence"))
 
+    available_node_ids = {node.id for node in nodes}
+    source_links_by_entity: dict[int, list[BusinessEntitySource]] = {}
+    for link in entity_sources:
+        source_links_by_entity.setdefault(link.entity_id, []).append(link)
+
+    for entity in entities[:30]:
+        node_id = f"entity:{entity.id}"
+        nodes.append(BusinessGraphNode(
+            id=node_id,
+            kind="entity",
+            label=entity.name,
+            subtitle=_clip(entity.description or entity.evidence),
+            status=entity.entity_type,
+            importance=5 if entity.confidence >= 0.85 else 4 if entity.confidence >= 0.65 else 3,
+            source_id=entity.id,
+        ))
+
+        links = source_links_by_entity.get(entity.id, [])
+        if links:
+            for link in links[:6]:
+                source_node_id = f"{link.source_kind}:{link.source_id}"
+                if source_node_id in available_node_ids:
+                    edges.append(BusinessGraphEdge(
+                        source=source_node_id,
+                        target=node_id,
+                        relationship="mentions entity",
+                    ))
+        else:
+            source_node_id = (
+                f"{entity.source_kind}:{entity.source_id}"
+                if entity.source_kind and entity.source_id is not None
+                else root_id
+            )
+            if source_node_id not in available_node_ids:
+                source_node_id = root_id
+            edges.append(BusinessGraphEdge(
+                source=source_node_id,
+                target=node_id,
+                relationship="mentions entity",
+            ))
+
     insights: list[BusinessGraphInsight] = []
     open_decisions = [d for d in decisions if d.status not in {"completed", "dismissed", "rejected"}]
     high_risk = [t for t in research if t.risk_score >= 70 and t.status not in {"validated", "dismissed"}]
@@ -208,6 +272,17 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             recommended_action="Capture missing decisions, risks, or evidence to balance the workspace knowledge base.",
             target_kind="knowledge",
         ))
+    if entities:
+        entity_types = Counter(entity.entity_type for entity in entities)
+        leading_entity_type, entity_count = entity_types.most_common(1)[0]
+        insights.append(BusinessGraphInsight(
+            level="pattern",
+            title=f"{entity_count} recognised {leading_entity_type} entit{'y' if entity_count == 1 else 'ies'}",
+            summary="AI-extracted entities make suppliers, people, products, contracts, risks, and opportunities easier to connect across business records.",
+            evidence=[entity.name for entity in entities[:3]],
+            recommended_action="Review the entity map and refresh it after important new documents or decisions are added.",
+            target_kind="entity",
+        ))
 
     evidence_score = min(30, len(processed) * 2)
     knowledge_score = min(20, len(items))
@@ -243,6 +318,22 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
     else:
         executive_summary = f"Add trusted business sources to strengthen {company.name}'s executive intelligence."
 
+    processed_document_ids = {document.id for document in documents if document.processing_status == "processed"}
+    completed_document_ids = {
+        state.source_id for state in extraction_states
+        if state.status in {"completed", "partial"} and state.source_id in processed_document_ids
+    }
+    failed_document_ids = {
+        state.source_id for state in extraction_states
+        if state.status == "failed" and state.source_id in processed_document_ids
+    }
+    entity_index = BusinessEntityIndexStatus(
+        processed_documents=len(processed_document_ids),
+        mapped_documents=len(completed_document_ids),
+        pending_documents=max(0, len(processed_document_ids - completed_document_ids)),
+        failed_documents=len(failed_document_ids),
+    )
+
     return BusinessGraphResponse(
         company_id=company_id,
         generated_from={
@@ -252,6 +343,7 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
             "decisions": len(decisions),
             "memories": len(memories),
             "research_tasks": len(research),
+            "entities": len(entities),
         },
         health_score=health_score,
         health_label=health_label,
@@ -259,4 +351,5 @@ def build_business_graph(database: Session, company_id: int) -> BusinessGraphRes
         nodes=nodes,
         edges=edges,
         insights=insights[:6],
+        entity_index=entity_index,
     )

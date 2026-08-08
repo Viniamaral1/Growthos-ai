@@ -69,6 +69,7 @@ from app.models.response_feedback import ResponseFeedback
 from app.models.executive_memory import ExecutiveMemory
 from app.models.knowledge_space import KnowledgeSpace
 from app.models.knowledge_item import KnowledgeItem
+from app.models.business_entity import BusinessEntity
 
 
 def create_app() -> FastAPI:
