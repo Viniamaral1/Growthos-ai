@@ -679,6 +679,48 @@ export async function routeDocumentToProject(documentId: number, spaceId: number
   return response.json();
 }
 
+
+export type KnowledgeFactProposal = {
+  key: string;
+  title: string;
+  value: string;
+  summary: string;
+  item_type: string;
+  confidence: number;
+  evidence: string;
+  existing_item_id: number | null;
+  existing_value: string | null;
+  relationship: "new" | "same" | "changed";
+};
+
+export type DocumentKnowledgePreview = {
+  document_id: number;
+  space_id: number;
+  space_name: string;
+  ai_enriched: boolean;
+  facts: KnowledgeFactProposal[];
+};
+
+export async function previewDocumentKnowledge(documentId: number, spaceId: number): Promise<DocumentKnowledgePreview> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/knowledge-preview?space_id=${spaceId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function captureDocumentKnowledgeFacts(
+  documentId: number,
+  spaceId: number,
+  facts: Array<{key:string;title?:string;value?:string;action?:"create"|"update"}>
+): Promise<{document_id:number;space_id:number;knowledge_item_ids:number[];created_or_updated:number;message:string}> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/capture-knowledge-facts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ space_id: spaceId, facts }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function captureDocumentToKnowledge(documentId: number, spaceId: number): Promise<{document_id:number;space_id:number;knowledge_item_id:number;title:string;message:string}> {
   const response = await fetch(`${API_URL}/documents/${documentId}/capture-knowledge?space_id=${spaceId}`, { method: "POST" });
   if (!response.ok) throw new Error(await readError(response));

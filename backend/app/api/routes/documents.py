@@ -36,6 +36,10 @@ from app.schemas.document import (
     DuplicateCheckResponse,
     DocumentRouteResponse,
     DocumentKnowledgeCaptureResponse,
+    DocumentKnowledgePreviewResponse,
+    DocumentKnowledgeCaptureRequest,
+    DocumentKnowledgeBulkCaptureResponse,
+    KnowledgeFactProposal,
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
@@ -61,6 +65,7 @@ from app.services.document_classification_service import (
 from app.services.entity_extraction_service import map_document_entities
 from app.services.document_relevance_service import assess_document_relevance
 from app.services.intelligent_ingestion_service import assess_intelligent_ingestion
+from app.services.knowledge_bridge_service import preview_document_knowledge, capture_document_facts
 
 
 router = APIRouter(
@@ -768,6 +773,58 @@ def route_document_to_project(
     database.add(link)
     database.commit()
     return DocumentRouteResponse(document_id=document_id, space_id=space.id, space_name=space.name, message=f"Asset routed to {space.name}.")
+
+
+
+@router.get("/{document_id}/knowledge-preview", response_model=DocumentKnowledgePreviewResponse)
+def preview_document_knowledge_route(
+    document_id: int,
+    space_id: int,
+    database: DatabaseSession,
+) -> DocumentKnowledgePreviewResponse:
+    try:
+        document, space, facts, ai_enriched = preview_document_knowledge(database, document_id, space_id)
+    except ValueError as error:
+        detail = str(error)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT if "Process the document" in detail else status.HTTP_404_NOT_FOUND,
+            detail=detail,
+        ) from error
+    return DocumentKnowledgePreviewResponse(
+        document_id=document.id,
+        space_id=space.id,
+        space_name=space.name,
+        ai_enriched=ai_enriched,
+        facts=[KnowledgeFactProposal(**fact.__dict__) for fact in facts],
+    )
+
+
+@router.post("/{document_id}/capture-knowledge-facts", response_model=DocumentKnowledgeBulkCaptureResponse)
+def capture_document_knowledge_facts(
+    document_id: int,
+    payload: DocumentKnowledgeCaptureRequest,
+    database: DatabaseSession,
+) -> DocumentKnowledgeBulkCaptureResponse:
+    try:
+        items = capture_document_facts(
+            database,
+            document_id,
+            payload.space_id,
+            [fact.model_dump() for fact in payload.facts],
+        )
+    except ValueError as error:
+        detail = str(error)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT if "Process the document" in detail else status.HTTP_404_NOT_FOUND,
+            detail=detail,
+        ) from error
+    return DocumentKnowledgeBulkCaptureResponse(
+        document_id=document_id,
+        space_id=payload.space_id,
+        knowledge_item_ids=[item.id for item in items],
+        created_or_updated=len(items),
+        message=f"Captured {len(items)} reusable knowledge item{'s' if len(items) != 1 else ''}.",
+    )
 
 
 @router.post("/{document_id}/capture-knowledge", response_model=DocumentKnowledgeCaptureResponse)

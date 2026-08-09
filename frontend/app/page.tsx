@@ -45,6 +45,8 @@ import {
   checkDocumentDuplicate,
   routeDocumentToProject,
   captureDocumentToKnowledge,
+  previewDocumentKnowledge,
+  captureDocumentKnowledgeFacts,
   moveDocumentToWorkspace,
   deleteDocument,
   mapDocumentEntities,
@@ -57,6 +59,7 @@ import {
   type DocumentRelevance,
   type IntelligentIngestionAssessment,
   type KnowledgeSpace,
+  type KnowledgeFactProposal,
   type GroundedAnswer,
   type DevelopmentStage,
   type MarketingCampaign,
@@ -92,6 +95,20 @@ type IngestionTrayItem = {
   assessment: IntelligentIngestionAssessment;
   status: "pending" | "working" | "done" | "removed";
   note?: string;
+};
+
+type KnowledgeBridgeReview = {
+  document: DocumentRecord;
+  spaceId: number;
+  spaceName: string;
+  facts: Array<KnowledgeFactProposal & { selected: boolean; draftTitle: string; draftValue: string; action: "create" | "update" }>;
+  aiEnriched: boolean;
+};
+
+type ProjectCreationDialog = {
+  item: IngestionTrayItem | null;
+  relevanceReview: AssetRelevanceReview | null;
+  suggestedName: string;
 };
 
 type UserLocation = {
@@ -2464,6 +2481,9 @@ export default function Home() {
   const [ingestionTrayOpen, setIngestionTrayOpen] = useState(false);
   const [ingestionTrayFilter, setIngestionTrayFilter] = useState<"all" | "strong_match" | "review" | "unrelated">("all");
   const [ingestionTargetSpaceId, setIngestionTargetSpaceId] = useState<number | null>(null);
+  const [knowledgeBridgeReview, setKnowledgeBridgeReview] = useState<KnowledgeBridgeReview | null>(null);
+  const [projectCreationDialog, setProjectCreationDialog] = useState<ProjectCreationDialog | null>(null);
+  const [projectCreationName, setProjectCreationName] = useState("");
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -3084,14 +3104,93 @@ async function handleGenerateBusinessPlan(
       updateIngestionTrayItem(item.document.id, { note: "Choose or create a project before capturing reusable Knowledge." });
       return;
     }
-    updateIngestionTrayItem(item.document.id, { status: "working", note: "Capturing reusable Knowledge…" });
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Finding reusable business facts…" });
     try {
       await routeDocumentToProject(item.document.id, targetSpaceId);
-      const result = await captureDocumentToKnowledge(item.document.id, targetSpaceId);
-      updateIngestionTrayItem(item.document.id, { status: "done", note: result.message });
-      setMessage(result.message);
+      const preview = await previewDocumentKnowledge(item.document.id, targetSpaceId);
+      const facts = preview.facts.map((fact) => ({
+        ...fact,
+        selected: fact.relationship !== "same",
+        draftTitle: fact.title,
+        draftValue: fact.value,
+        action: fact.relationship === "changed" && fact.existing_item_id ? "update" as const : "create" as const,
+      }));
+      setKnowledgeBridgeReview({
+        document: item.document,
+        spaceId: targetSpaceId,
+        spaceName: preview.space_name,
+        facts,
+        aiEnriched: preview.ai_enriched,
+      });
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: preview.facts.length ? "Review reusable Knowledge before saving." : "No durable business facts were found." });
     } catch (requestError) {
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Knowledge capture failed." });
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Knowledge preview failed." });
+    }
+  }
+
+  async function saveKnowledgeBridgeReview() {
+    if (!knowledgeBridgeReview) return;
+    const selected = knowledgeBridgeReview.facts.filter((fact) => fact.selected);
+    if (selected.length === 0) {
+      setKnowledgeBridgeReview(null);
+      return;
+    }
+    try {
+      const result = await captureDocumentKnowledgeFacts(
+        knowledgeBridgeReview.document.id,
+        knowledgeBridgeReview.spaceId,
+        selected.map((fact) => ({
+          key: fact.key,
+          title: fact.draftTitle,
+          value: fact.draftValue,
+          action: fact.action,
+        })),
+      );
+      updateIngestionTrayItem(knowledgeBridgeReview.document.id, { status: "done", note: result.message });
+      setMessage(`${result.message} Source evidence remains in Business Intelligence.`);
+      setKnowledgeBridgeReview(null);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Knowledge facts could not be saved.");
+    }
+  }
+
+  function openProjectCreationDialog(item: IngestionTrayItem | null, relevanceReview: AssetRelevanceReview | null, suggestedName: string) {
+    setProjectCreationName(suggestedName || "New Project");
+    setProjectCreationDialog({ item, relevanceReview, suggestedName });
+  }
+
+  async function confirmProjectCreation() {
+    if (!projectCreationDialog || selectedCompanyId === null) return;
+    const name = projectCreationName.trim();
+    if (name.length < 2) {
+      setError("Project name must contain at least 2 characters.");
+      return;
+    }
+    try {
+      const sourceDocument = projectCreationDialog.item?.document ?? projectCreationDialog.relevanceReview?.document;
+      const created = await createKnowledgeSpace({
+        company_id: selectedCompanyId,
+        name,
+        description: sourceDocument ? `Created by Intelligent Ingestion for ${sourceDocument.original_filename}.` : "Created by Intelligent Ingestion.",
+        color: "cyan",
+      });
+      setIngestionTargetSpaceId(created.id);
+      if (projectCreationDialog.item) {
+        const assessment = await getDocumentIngestionAssessment(selectedCompanyId, projectCreationDialog.item.document.id, created.id);
+        await routeDocumentToProject(projectCreationDialog.item.document.id, created.id);
+        updateIngestionTrayItem(projectCreationDialog.item.document.id, {
+          assessment,
+          status: "pending",
+          note: `Created ${created.name} and linked this asset to it. Choose whether to map entities or capture Knowledge.`,
+        });
+      }
+      if (projectCreationDialog.relevanceReview) {
+        setAssetRelevanceReview(null);
+      }
+      setProjectCreationDialog(null);
+      setMessage(`${created.name} project created.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The new project could not be created.");
     }
   }
 
@@ -3115,19 +3214,8 @@ async function handleGenerateBusinessPlan(
   }
 
   async function createSuggestedProject(item: IngestionTrayItem) {
-    if (selectedCompanyId === null) return;
     const suggestedName = item.assessment.relevance.suggested_new_space_name?.trim() || "New Project";
-    updateIngestionTrayItem(item.document.id, { status: "working", note: `Creating ${suggestedName}…` });
-    try {
-      const created = await createKnowledgeSpace({ company_id: selectedCompanyId, name: suggestedName, description: `Created by Intelligent Ingestion for ${item.document.original_filename}.`, color: "cyan" });
-      setIngestionTargetSpaceId(created.id);
-      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, created.id);
-      await routeDocumentToProject(item.document.id, created.id);
-      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Created ${created.name} and linked this asset to it. Choose whether to map entities or capture Knowledge.` });
-      setMessage(`${created.name} project created.`);
-    } catch (requestError) {
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The new project could not be created." });
-    }
+    openProjectCreationDialog(item, null, suggestedName);
   }
 
   async function removeIngestionItem(item: IngestionTrayItem) {
@@ -3994,6 +4082,100 @@ async function handleGenerateBusinessPlan(
             </aside>
           )}
 
+          {knowledgeBridgeReview && (
+            <div className="knowledge-bridge-backdrop" role="presentation">
+              <section className="knowledge-bridge-dialog" role="dialog" aria-modal="true" aria-label="Capture reusable Knowledge">
+                <header>
+                  <div>
+                    <span>✦ Knowledge Bridge</span>
+                    <h2>Choose what GrowthOS should remember</h2>
+                    <p>{knowledgeBridgeReview.document.original_filename} → {knowledgeBridgeReview.spaceName}</p>
+                  </div>
+                  <button type="button" aria-label="Close Knowledge Bridge" onClick={() => setKnowledgeBridgeReview(null)}>×</button>
+                </header>
+                <div className="knowledge-bridge-body">
+                  <div className="knowledge-bridge-summary">
+                    <strong>{knowledgeBridgeReview.facts.length} reusable fact{knowledgeBridgeReview.facts.length === 1 ? "" : "s"} found</strong>
+                    <span>{knowledgeBridgeReview.aiEnriched ? "Deterministic extraction + local AI enrichment" : "Deterministic extraction; local AI enrichment was unavailable or unnecessary"}</span>
+                  </div>
+                  {knowledgeBridgeReview.facts.length === 0 && (
+                    <div className="knowledge-bridge-empty">GrowthOS did not find a durable business fact worth adding to long-term Knowledge. The original asset remains safely stored in Business Intelligence.</div>
+                  )}
+                  {knowledgeBridgeReview.facts.map((fact, index) => (
+                    <article key={`${fact.key}-${index}`} className={cx("knowledge-fact-card", fact.relationship === "changed" && "changed", !fact.selected && "not-selected")}>
+                      <label className="knowledge-fact-select">
+                        <input
+                          type="checkbox"
+                          checked={fact.selected}
+                          onChange={(event) => setKnowledgeBridgeReview((current) => current ? ({
+                            ...current,
+                            facts: current.facts.map((entry, entryIndex) => entryIndex === index ? { ...entry, selected: event.target.checked } : entry),
+                          }) : current)}
+                        />
+                        <span>{fact.relationship === "changed" ? "Update existing Knowledge" : fact.relationship === "same" ? "Already known" : "Capture this fact"}</span>
+                        <b>{fact.confidence}%</b>
+                      </label>
+                      <input
+                        value={fact.draftTitle}
+                        onChange={(event) => setKnowledgeBridgeReview((current) => current ? ({
+                          ...current,
+                          facts: current.facts.map((entry, entryIndex) => entryIndex === index ? { ...entry, draftTitle: event.target.value } : entry),
+                        }) : current)}
+                        aria-label="Knowledge fact title"
+                      />
+                      <textarea
+                        value={fact.draftValue}
+                        onChange={(event) => setKnowledgeBridgeReview((current) => current ? ({
+                          ...current,
+                          facts: current.facts.map((entry, entryIndex) => entryIndex === index ? { ...entry, draftValue: event.target.value } : entry),
+                        }) : current)}
+                        aria-label="Knowledge fact value"
+                      />
+                      {fact.relationship === "changed" && fact.existing_value && (
+                        <div className="knowledge-fact-change">
+                          <span>Existing Knowledge</span>
+                          <strong>{fact.existing_value}</strong>
+                          <span>New evidence</span>
+                          <strong>{fact.value}</strong>
+                        </div>
+                      )}
+                      {fact.evidence && <small>Source evidence: {fact.evidence}</small>}
+                    </article>
+                  ))}
+                </div>
+                <footer>
+                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview((current) => current ? ({ ...current, facts: current.facts.map((fact) => ({ ...fact, selected: true })) }) : current)}>Select all</button>
+                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview(null)}>Keep as evidence only</button>
+                  <button type="button" className="primary-button" onClick={() => void saveKnowledgeBridgeReview()} disabled={!knowledgeBridgeReview.facts.some((fact) => fact.selected)}>Save selected Knowledge</button>
+                </footer>
+              </section>
+            </div>
+          )}
+
+          {projectCreationDialog && (
+            <div className="project-create-backdrop" role="presentation">
+              <section className="project-create-dialog" role="dialog" aria-modal="true" aria-label="Create project">
+                <header>
+                  <div>
+                    <span>✦ New project</span>
+                    <h2>Name this project</h2>
+                    <p>GrowthOS suggested a destination, but you stay in control.</p>
+                  </div>
+                  <button type="button" aria-label="Close project creation" onClick={() => setProjectCreationDialog(null)}>×</button>
+                </header>
+                <label>
+                  Project name
+                  <input autoFocus value={projectCreationName} onChange={(event) => setProjectCreationName(event.target.value)} />
+                </label>
+                {projectCreationDialog.suggestedName && <small>Suggested: {projectCreationDialog.suggestedName}</small>}
+                <footer>
+                  <button type="button" className="secondary-button" onClick={() => setProjectCreationDialog(null)}>Cancel</button>
+                  <button type="button" className="primary-button" onClick={() => void confirmProjectCreation()}>Create project</button>
+                </footer>
+              </section>
+            </div>
+          )}
+
           {assetRelevanceReview && (
             <div className="relevance-gate-backdrop" role="presentation">
               <section className={cx("relevance-gate", `level-${assetRelevanceReview.relevance.level}`)} role="dialog" aria-modal="true" aria-label="Check project fit">
@@ -4046,16 +4228,11 @@ async function handleGenerateBusinessPlan(
                     </button>
                   )}
                   {!assetRelevanceReview.relevance.suggested_space_id && assetRelevanceReview.relevance.suggested_new_space_name && selectedCompanyId !== null && (
-                    <button type="button" className="secondary-button" onClick={() => void (async () => {
-                      try {
-                        const created = await createKnowledgeSpace({ company_id: selectedCompanyId, name: assetRelevanceReview.relevance.suggested_new_space_name!, description: `Created by Intelligent Ingestion for ${assetRelevanceReview.document.original_filename}.`, color: "cyan" });
-                        setIngestionTargetSpaceId(created.id);
-                        setAssetRelevanceReview(null);
-                        setMessage(`${created.name} project created. Try mapping again when ready.`);
-                      } catch (requestError) {
-                        setError(requestError instanceof Error ? requestError.message : "The new project could not be created.");
-                      }
-                    })()}>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => openProjectCreationDialog(null, assetRelevanceReview, assetRelevanceReview.relevance.suggested_new_space_name!)}
+                    >
                       Create {assetRelevanceReview.relevance.suggested_new_space_name}
                     </button>
                   )}

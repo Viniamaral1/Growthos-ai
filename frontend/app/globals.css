@@ -8012,3 +8012,191 @@ button.executive-role:not(.active):hover {
   background: #0a1c2d;
   outline: none;
 }
+
+
+/* Knowledge Bridge — Intelligent Ingestion v1.3 */
+.knowledge-bridge-backdrop,
+.project-create-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 10, 20, .72);
+  backdrop-filter: blur(8px);
+}
+
+.knowledge-bridge-dialog,
+.project-create-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(820px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid rgba(55, 214, 211, .28);
+  border-radius: 24px;
+  background: #0b1b2d;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .48);
+}
+
+.knowledge-bridge-dialog > header,
+.project-create-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 28px;
+  border-bottom: 1px solid rgba(144, 164, 190, .14);
+}
+
+.knowledge-bridge-dialog > header span,
+.project-create-dialog > header span {
+  color: #42d7d3;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.knowledge-bridge-dialog > header h2,
+.project-create-dialog > header h2 {
+  margin: 6px 0 4px;
+  color: #f6f9fc;
+  font-size: 24px;
+}
+
+.knowledge-bridge-dialog > header p,
+.project-create-dialog > header p {
+  margin: 0;
+  color: #93a7bd;
+}
+
+.knowledge-bridge-dialog > header button,
+.project-create-dialog > header button {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, .28);
+  background: transparent;
+  color: #fb7185;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.knowledge-bridge-body {
+  overflow: auto;
+  padding: 22px 28px 28px;
+  display: grid;
+  gap: 14px;
+}
+
+.knowledge-bridge-summary,
+.knowledge-bridge-empty {
+  display: grid;
+  gap: 5px;
+  padding: 15px 17px;
+  border-radius: 16px;
+  background: rgba(66, 215, 211, .06);
+  border: 1px solid rgba(66, 215, 211, .15);
+  color: #9db1c6;
+}
+
+.knowledge-bridge-summary strong { color: #eef7f8; }
+.knowledge-bridge-summary span { font-size: 13px; }
+
+.knowledge-fact-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(144, 164, 190, .16);
+  background: #0e2135;
+  transition: opacity .18s ease, border-color .18s ease;
+}
+
+.knowledge-fact-card.changed { border-color: rgba(251, 191, 36, .36); }
+.knowledge-fact-card.not-selected { opacity: .52; }
+
+.knowledge-fact-select {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: #dce8f2;
+  font-weight: 700;
+}
+
+.knowledge-fact-select input { width: 18px; height: 18px; }
+.knowledge-fact-select b { color: #42d7d3; font-size: 13px; }
+
+.knowledge-fact-card > input,
+.knowledge-fact-card > textarea,
+.project-create-dialog input {
+  width: 100%;
+  border: 1px solid rgba(144, 164, 190, .18);
+  border-radius: 12px;
+  background: #091a2b;
+  color: #f6f9fc;
+  padding: 11px 13px;
+  outline: none;
+}
+
+.knowledge-fact-card > textarea {
+  min-height: 82px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.knowledge-fact-change {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 6px 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(251, 191, 36, .07);
+  color: #91a5bb;
+}
+
+.knowledge-fact-change strong { color: #f2f6fa; font-weight: 650; }
+.knowledge-fact-card small { color: #8197ad; }
+
+.knowledge-bridge-dialog > footer,
+.project-create-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 28px 22px;
+  border-top: 1px solid rgba(144, 164, 190, .14);
+  background: #0a192a;
+}
+
+.project-create-dialog {
+  width: min(520px, calc(100vw - 32px));
+  grid-template-rows: auto auto auto;
+}
+
+.project-create-dialog > label {
+  display: grid;
+  gap: 8px;
+  padding: 24px 28px 8px;
+  color: #a8bbce;
+  font-weight: 700;
+}
+
+.project-create-dialog > small {
+  padding: 0 28px 20px;
+  color: #7f95ac;
+}
+
+@media (max-width: 720px) {
+  .knowledge-bridge-backdrop,
+  .project-create-backdrop { padding: 10px; }
+  .knowledge-bridge-dialog { max-height: calc(100vh - 20px); border-radius: 18px; }
+  .knowledge-bridge-dialog > header,
+  .knowledge-bridge-body,
+  .knowledge-bridge-dialog > footer { padding-left: 18px; padding-right: 18px; }
+  .knowledge-bridge-dialog > footer { flex-wrap: wrap; justify-content: stretch; }
+  .knowledge-bridge-dialog > footer button { flex: 1 1 160px; }
+  .knowledge-fact-change { grid-template-columns: 1fr; }
+}

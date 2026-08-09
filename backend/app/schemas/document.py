@@ -102,3 +102,44 @@ class DocumentKnowledgeCaptureResponse(BaseModel):
     knowledge_item_id: int
     title: str
     message: str
+
+
+class KnowledgeFactProposal(BaseModel):
+    key: str
+    title: str
+    value: str
+    summary: str
+    item_type: str
+    confidence: int
+    evidence: str
+    existing_item_id: int | None = None
+    existing_value: str | None = None
+    relationship: str = "new"
+
+
+class DocumentKnowledgePreviewResponse(BaseModel):
+    document_id: int
+    space_id: int
+    space_name: str
+    ai_enriched: bool
+    facts: list[KnowledgeFactProposal]
+
+
+class KnowledgeFactSelection(BaseModel):
+    key: str
+    title: str | None = None
+    value: str | None = None
+    action: str = "create"
+
+
+class DocumentKnowledgeCaptureRequest(BaseModel):
+    space_id: int
+    facts: list[KnowledgeFactSelection]
+
+
+class DocumentKnowledgeBulkCaptureResponse(BaseModel):
+    document_id: int
+    space_id: int
+    knowledge_item_ids: list[int]
+    created_or_updated: int
+    message: str

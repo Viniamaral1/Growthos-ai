@@ -32,7 +32,7 @@ class EntitySource:
     text: str
 
 
-def _clip(value: object, maximum: int = 1400) -> str:
+def _clip(value: object, maximum: int = 18000) -> str:
     return " ".join(str(value or "").split())[:maximum]
 
 
@@ -213,41 +213,70 @@ def pending_document_count(database: Session, company_id: int) -> int:
     return sum(1 for document_id in processed_ids if document_id not in mapped_ids)
 
 
+def _representative_chunks(text: str, chunk_size: int = 950) -> list[str]:
+    clean = " ".join((text or "").split())
+    if not clean:
+        return []
+    if len(clean) <= chunk_size:
+        return [clean]
+    starts = [0]
+    if len(clean) > chunk_size * 2:
+        starts.append(max(0, len(clean) // 2 - chunk_size // 2))
+    starts.append(max(0, len(clean) - chunk_size))
+    chunks: list[str] = []
+    for start in starts:
+        chunk = clean[start:start + chunk_size]
+        if chunk and chunk not in chunks:
+            chunks.append(chunk)
+    return chunks[:3]
+
+
 def _call_local_ai(company_name: str, source: EntitySource) -> list[dict[str, object]]:
-    # Keep this deliberately small. Deterministic extraction has already handled obvious
-    # values; the model is only enriching ambiguous business entities.
-    prompt = f"""Extract up to 8 business entities from ONE source for workspace {company_name!r}.
+    # Large assets are sampled in small representative chunks. Each request is bounded,
+    # so one slow chunk cannot block the entire document mapping operation.
+    chunks = _representative_chunks(source.text)
+    if not chunks:
+        return []
+
+    collected: list[dict[str, object]] = []
+    failures = 0
+
+    for index, chunk in enumerate(chunks, start=1):
+        prompt = f"""Extract up to 6 business entities from ONE document chunk for workspace {company_name!r}.
 Return JSON array only. Do not guess.
 Types: person, organisation, supplier, customer, product, contract, location, risk, opportunity.
 Each object: entity_type, name, description, confidence, evidence.
 SOURCE TITLE: {source.title}
-TEXT: {_clip(source.text, 1200)}"""
-
-    try:
-        response = httpx.post(
-            f"{get_ollama_base_url()}/api/chat",
-            json={
-                "model": get_ollama_model(),
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": "Return valid compact JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                "options": {
-                    "temperature": 0.0,
-                    "num_predict": 320,
-                    "num_ctx": 2048,
+CHUNK {index}/{len(chunks)}:
+{chunk}"""
+        try:
+            response = httpx.post(
+                f"{get_ollama_base_url()}/api/chat",
+                json={
+                    "model": get_ollama_model(),
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": "Return valid compact JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "options": {
+                        "temperature": 0.0,
+                        "num_predict": 260,
+                        "num_ctx": 2048,
+                    },
                 },
-            },
-            timeout=httpx.Timeout(12.0, connect=3.0),
-        )
-        response.raise_for_status()
-        raw = response.json().get("message", {}).get("content", "")
-    except (httpx.TimeoutException, httpx.HTTPError, ValueError, TypeError) as error:
-        raise RuntimeError(f"Local AI enrichment failed: {error}") from error
+                timeout=httpx.Timeout(8.0, connect=3.0),
+            )
+            response.raise_for_status()
+            raw = response.json().get("message", {}).get("content", "")
+            collected.extend(_extract_json(raw))
+        except (httpx.TimeoutException, httpx.HTTPError, ValueError, TypeError):
+            failures += 1
+            continue
 
-    return _extract_json(raw)
-
+    if failures == len(chunks):
+        raise RuntimeError("Local AI enrichment timed out on all bounded chunks")
+    return collected
 
 def _clean_candidates(candidates: list[dict[str, object]]) -> dict[tuple[str, str], dict[str, object]]:
     cleaned: dict[tuple[str, str], dict[str, object]] = {}
@@ -390,16 +419,32 @@ def map_source_entities(database: Session, company_id: int, source: EntitySource
     cleaned = _clean_candidates(deterministic + ai_candidates)
 
     if not cleaned and ai_error:
+        # A slow local model should never make the whole asset unusable.
+        # Persist a partial zero-entity result so the UI can retry enrichment later
+        # without returning a 503 or losing the document's processing state.
         _set_extraction_state(
             database,
             company_id=company_id,
             source_kind=source.kind,
             source_id=source.source_id,
-            status="failed",
-            error=ai_error,
+            status="partial",
+            entity_count=0,
+            error="AI enrichment timed out. No deterministic entities were found yet; retry enrichment when convenient.",
         )
         database.commit()
-        raise RuntimeError(ai_error)
+        return {
+            "company_id": company_id,
+            "source_kind": source.kind,
+            "source_id": source.source_id,
+            "created": 0,
+            "linked": 0,
+            "model": get_ollama_model(),
+            "pending_documents": pending_document_count(database, company_id),
+            "partial": True,
+            "ai_enriched": False,
+            "warning": "AI enrichment timed out. No deterministic entities were found yet; retry enrichment when convenient.",
+            "message": f"Saved a partial entity map for {source.title}. AI enrichment can be retried later.",
+        }
 
     created, linked = _persist_candidates(database, company_id, source, cleaned)
     partial = ai_error is not None
