@@ -125,6 +125,11 @@ class KnowledgeFactProposal(BaseModel):
     relationship: str = "new"
     calendar_candidate: bool = False
     calendar_reason: str | None = None
+    rationale: list[str] = Field(default_factory=list)
+    source_quality: str = "direct_document"
+    change_summary: str | None = None
+    numeric_delta: float | None = None
+    numeric_delta_percent: float | None = None
 
 
 class DocumentKnowledgePreviewResponse(BaseModel):

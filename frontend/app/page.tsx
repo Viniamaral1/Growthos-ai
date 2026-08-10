@@ -354,6 +354,7 @@ function KnowledgeView({
   targetSpaceId,
   onTargetSpaceChange,
   onCaptureKnowledge,
+  knowledgeActionId,
 }: {
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
@@ -373,6 +374,7 @@ function KnowledgeView({
   targetSpaceId: number | null;
   onTargetSpaceChange: (spaceId: number | null) => void;
   onCaptureKnowledge: (document: DocumentRecord) => void;
+  knowledgeActionId: number | null;
 }) {
   const [formatFilter, setFormatFilter] = useState<string>("ALL");
   const [preview, setPreview] = useState<{
@@ -697,8 +699,14 @@ function KnowledgeView({
                       {document.knowledge_space_name && <small>Project: {document.knowledge_space_name}</small>}
                     </div>
                     {ready && (
-                      <button type="button" onClick={() => onCaptureKnowledge(document)}>
-                        {document.knowledge_status === "captured" ? "View / update" : document.knowledge_status === "needs_update" ? "Review update" : "Capture to Knowledge"}
+                      <button type="button" onClick={() => onCaptureKnowledge(document)} disabled={knowledgeActionId !== null}>
+                        {knowledgeActionId === document.id
+                          ? "Checking destination…"
+                          : document.knowledge_status === "captured"
+                            ? "View / update"
+                            : document.knowledge_status === "needs_update"
+                              ? "Review update"
+                              : "Capture to Knowledge"}
                       </button>
                     )}
                     {document.knowledge_status === "captured" && <span className="asset-knowledge-complete">✓ Captured</span>}
@@ -2508,6 +2516,8 @@ export default function Home() {
   const [projectCreationDialog, setProjectCreationDialog] = useState<ProjectCreationDialog | null>(null);
   const [projectCreationName, setProjectCreationName] = useState("");
   const [projectCreationBusy, setProjectCreationBusy] = useState(false);
+  const [knowledgeBridgeLoadingId, setKnowledgeBridgeLoadingId] = useState<number | null>(null);
+  const [knowledgeBridgeSaving, setKnowledgeBridgeSaving] = useState(false);
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -3122,6 +3132,38 @@ async function handleGenerateBusinessPlan(
     }
   }
 
+  async function startDocumentKnowledgeCapture(document: DocumentRecord) {
+    if (selectedCompanyId === null || knowledgeBridgeLoadingId !== null) return;
+
+    // Existing captured Knowledge opens directly for review/update. A new capture always
+    // re-checks routing so GrowthOS never silently assumes an old project destination.
+    if ((document.knowledge_status === "captured" || document.knowledge_status === "needs_update") && document.knowledge_space_id) {
+      await openDocumentKnowledgeBridge(document, document.knowledge_space_id);
+      return;
+    }
+
+    setKnowledgeBridgeLoadingId(document.id);
+    setMessage(`Checking the best Knowledge destination for ${document.original_filename}…`);
+    try {
+      const preferred = document.project_space_id ?? ingestionTargetSpaceId;
+      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, document.id, preferred);
+      const trayItem: IngestionTrayItem = {
+        document,
+        assessment,
+        status: "pending",
+        note: "Review the project destination, then choose Capture to Knowledge.",
+      };
+      setIngestionTrayItems((current) => [trayItem, ...current.filter((candidate) => candidate.document.id !== document.id)]);
+      setIngestionTrayFilter("all");
+      setIngestionTrayOpen(true);
+      setMessage("GrowthOS re-checked the destination before Knowledge capture.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The Knowledge destination could not be reviewed.");
+    } finally {
+      setKnowledgeBridgeLoadingId(null);
+    }
+  }
+
   async function openDocumentKnowledgeBridge(document: DocumentRecord, preferredSpaceId: number | null = null) {
     if (selectedCompanyId === null) return;
     let spaceId = document.project_space_id ?? preferredSpaceId ?? ingestionTargetSpaceId;
@@ -3170,12 +3212,14 @@ async function handleGenerateBusinessPlan(
   }
 
   async function saveKnowledgeBridgeReview() {
-    if (!knowledgeBridgeReview) return;
+    if (!knowledgeBridgeReview || knowledgeBridgeSaving) return;
     const selected = knowledgeBridgeReview.facts.filter((fact) => fact.selected);
     if (selected.length === 0) {
       setKnowledgeBridgeReview(null);
       return;
     }
+    setKnowledgeBridgeSaving(true);
+    setMessage("Saving selected Knowledge and preserving source evidence…");
     try {
       const result = await captureDocumentKnowledgeFacts(
         knowledgeBridgeReview.document.id,
@@ -3189,10 +3233,12 @@ async function handleGenerateBusinessPlan(
       );
       updateIngestionTrayItem(knowledgeBridgeReview.document.id, { status: "done", note: result.message });
       if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
-      setMessage(`${result.message} Source evidence remains in Business Intelligence.`);
+      setMessage(`✓ ${result.message} Source evidence remains in Business Intelligence.`);
       setKnowledgeBridgeReview(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Knowledge facts could not be saved.");
+    } finally {
+      setKnowledgeBridgeSaving(false);
     }
   }
 
@@ -3566,7 +3612,8 @@ async function handleGenerateBusinessPlan(
         onRelevanceReview={setAssetRelevanceReview}
         targetSpaceId={ingestionTargetSpaceId}
         onTargetSpaceChange={setIngestionTargetSpaceId}
-        onCaptureKnowledge={(document) => void openDocumentKnowledgeBridge(document)}
+        onCaptureKnowledge={(document) => void startDocumentKnowledgeCapture(document)}
+        knowledgeActionId={knowledgeBridgeLoadingId}
       />
     );
   } else if (view === "assistant") {
@@ -4116,7 +4163,7 @@ async function handleGenerateBusinessPlan(
                           {item.assessment.recommended_actions.slice(0, 3).map((action) => <span key={action}>{action}</span>)}
                         </div>
                         {item.note && <small>{item.note}</small>}
-                        {item.status === "pending" && (
+                        {item.status === "pending" ? (
                           <footer>
                             <button type="button" className="primary-button" onClick={() => void acceptIngestionItem(item)}>Keep & map</button>
                             {item.assessment.relevance.suggested_space_id && (
@@ -4125,10 +4172,13 @@ async function handleGenerateBusinessPlan(
                             {item.assessment.relevance.no_confident_existing_match && item.assessment.relevance.suggested_new_space_name && (
                               <button type="button" className="secondary-button" onClick={() => void createSuggestedProject(item)}>Create {item.assessment.relevance.suggested_new_space_name}</button>
                             )}
+                            <button type="button" className="secondary-button" onClick={() => openProjectCreationDialog(item, null, item.assessment.relevance.suggested_new_space_name ?? "New Project")}>Create another project</button>
                             <button type="button" className="secondary-button" onClick={() => void keepInProjectOnly(item)}>Keep only</button>
                             <button type="button" className="secondary-button" onClick={() => void captureIngestionKnowledge(item)}>Capture to Knowledge</button>
                             <button type="button" className="ingestion-remove-button" onClick={() => void removeIngestionItem(item)}>Remove</button>
                           </footer>
+                        ) : (
+                          <footer className="ingestion-working-footer"><button type="button" className="secondary-button" disabled>Processing your request…</button></footer>
                         )}
                       </article>
                     ))}
@@ -4150,7 +4200,7 @@ async function handleGenerateBusinessPlan(
                     <h2>Choose what GrowthOS should remember</h2>
                     <p>{knowledgeBridgeReview.document.original_filename} → {knowledgeBridgeReview.spaceName}</p>
                   </div>
-                  <button type="button" aria-label="Close Knowledge Bridge" onClick={() => setKnowledgeBridgeReview(null)}>×</button>
+                  <button type="button" aria-label="Close Knowledge Bridge" onClick={() => setKnowledgeBridgeReview(null)} disabled={knowledgeBridgeSaving}>×</button>
                 </header>
                 <div className="knowledge-bridge-body">
                   <div className="knowledge-bridge-summary">
@@ -4198,6 +4248,21 @@ async function handleGenerateBusinessPlan(
                           <strong>{fact.value}</strong>
                         </div>
                       )}
+                      {fact.relationship === "changed" && fact.change_summary && (
+                        <div className="knowledge-change-intelligence">
+                          <strong>Detected change</strong>
+                          <span>{fact.change_summary}</span>
+                          {fact.numeric_delta !== null && fact.numeric_delta !== undefined && <small>Difference: {fact.numeric_delta > 0 ? "+" : ""}{fact.numeric_delta.toLocaleString()}</small>}
+                          {fact.numeric_delta_percent !== null && fact.numeric_delta_percent !== undefined && <small>Change: {fact.numeric_delta_percent > 0 ? "+" : ""}{fact.numeric_delta_percent.toFixed(1)}%</small>}
+                        </div>
+                      )}
+                      {fact.rationale?.length > 0 && (
+                        <details className="knowledge-fact-why">
+                          <summary>Why GrowthOS identified this</summary>
+                          <ul>{fact.rationale.map((reason, reasonIndex) => <li key={`${fact.key}-reason-${reasonIndex}`}>{reason}</li>)}</ul>
+                          <small>Source quality: {fact.source_quality.replaceAll("_", " ")}</small>
+                        </details>
+                      )}
                       {fact.calendar_candidate && (
                         <div className="knowledge-calendar-candidate">
                           <span>◷ Calendar candidate</span>
@@ -4209,9 +4274,9 @@ async function handleGenerateBusinessPlan(
                   ))}
                 </div>
                 <footer>
-                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview((current) => current ? ({ ...current, facts: current.facts.map((fact) => ({ ...fact, selected: true })) }) : current)}>Select all</button>
-                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview(null)}>Keep as evidence only</button>
-                  <button type="button" className="primary-button" onClick={() => void saveKnowledgeBridgeReview()} disabled={!knowledgeBridgeReview.facts.some((fact) => fact.selected)}>Save selected Knowledge</button>
+                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview((current) => current ? ({ ...current, facts: current.facts.map((fact) => ({ ...fact, selected: true })) }) : current)} disabled={knowledgeBridgeSaving}>Select all</button>
+                  <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview(null)} disabled={knowledgeBridgeSaving}>Keep as evidence only</button>
+                  <button type="button" className="primary-button" onClick={() => void saveKnowledgeBridgeReview()} disabled={knowledgeBridgeSaving || !knowledgeBridgeReview.facts.some((fact) => fact.selected)}>{knowledgeBridgeSaving ? "Saving Knowledge…" : "Save selected Knowledge"}</button>
                 </footer>
               </section>
             </div>

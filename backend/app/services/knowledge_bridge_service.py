@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -29,6 +30,11 @@ class KnowledgeFact:
     relationship: str = "new"
     calendar_candidate: bool = False
     calendar_reason: str | None = None
+    rationale: tuple[str, ...] = ()
+    source_quality: str = "direct_document"
+    change_summary: str | None = None
+    numeric_delta: float | None = None
+    numeric_delta_percent: float | None = None
 
 
 def _clean(value: object, maximum: int = 500) -> str:
@@ -49,6 +55,8 @@ def _fact(
     confidence: int = 94,
     calendar_candidate: bool = False,
     calendar_reason: str | None = None,
+    rationale: tuple[str, ...] = (),
+    source_quality: str = "direct_document",
 ) -> KnowledgeFact:
     return KnowledgeFact(
         key=_normalise(key)[:120],
@@ -60,8 +68,52 @@ def _fact(
         evidence=_clean(evidence, 300),
         calendar_candidate=calendar_candidate,
         calendar_reason=_clean(calendar_reason, 180) if calendar_reason else None,
+        rationale=tuple(_clean(reason, 220) for reason in rationale if _clean(reason, 220)),
+        source_quality=source_quality,
     )
 
+
+
+
+def _current_value(value: str) -> str:
+    """Return the current value without legacy inline history notes."""
+    return re.split(r"\n\nPrevious value:", value or "", maxsplit=1, flags=re.I)[0].strip()
+
+
+def _encode_tag(prefix: str, value: str | None) -> str | None:
+    if not value:
+        return None
+    encoded = base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{prefix}:{encoded}"
+
+
+def _number_from_value(value: str) -> float | None:
+    match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", value or "")
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _change_metrics(old_value: str, new_value: str) -> tuple[str | None, float | None, float | None]:
+    old_number = _number_from_value(old_value)
+    new_number = _number_from_value(new_value)
+    if old_number is None or new_number is None:
+        return (f"Changed from {old_value} to {new_value}.", None, None)
+    delta = new_number - old_number
+    percent = (delta / old_number * 100.0) if old_number else None
+    direction = "increased" if delta > 0 else "decreased" if delta < 0 else "did not change"
+    summary = f"Value {direction} from {old_value} to {new_value}."
+    return (summary, delta, percent)
+
+
+def _context_label(text: str, start: int) -> str:
+    line_start = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
+    prefix = _clean(text[line_start:start], 90)
+    prefix = re.sub(r"[^A-Za-z0-9 &/_-]+", " ", prefix).strip(" -:")
+    return prefix[-70:].strip()
 
 def _deterministic_facts(text: str) -> list[KnowledgeFact]:
     facts: list[KnowledgeFact] = []
@@ -74,30 +126,49 @@ def _deterministic_facts(text: str) -> list[KnowledgeFact]:
             facts.append(fact)
 
     label_patterns = {
+        "company": ("Company", "organisation"),
+        "organisation": ("Organisation", "organisation"),
         "supplier": ("Supplier", "supplier"),
         "vendor": ("Supplier", "supplier"),
+        "supplier contact": ("Supplier contact", "contact"),
+        "primary contact": ("Primary contact", "contact"),
         "customer": ("Customer", "customer"),
         "client": ("Customer", "customer"),
         "contract id": ("Contract ID", "contract"),
-        "contract": ("Contract", "contract"),
-        "agreement": ("Agreement", "contract"),
+        "quotation id": ("Quotation ID", "contract"),
+        "quote id": ("Quotation ID", "contract"),
         "payment terms": ("Payment terms", "commercial"),
         "estimated annual value": ("Estimated annual value", "finance"),
+        "estimated annual contract value": ("Estimated annual contract value", "finance"),
+        "annual contract value": ("Annual contract value", "finance"),
         "annual value": ("Annual value", "finance"),
+        "estimated annual volume": ("Estimated annual volume", "commercial"),
+        "annual volume": ("Annual volume", "commercial"),
+        "minimum order": ("Minimum order", "commercial"),
+        "delivery frequency": ("Delivery frequency", "commercial"),
+        "price review frequency": ("Price review frequency", "commercial"),
+        "contract duration": ("Contract duration", "contract"),
         "price": ("Price", "finance"),
         "pricing": ("Pricing", "finance"),
         "contract start": ("Contract start", "date"),
         "contract end": ("Contract end", "date"),
+        "contract expiry": ("Contract expiry", "date"),
         "expiry": ("Expiry", "date"),
         "expiry date": ("Expiry date", "date"),
         "review date": ("Review date", "date"),
+        "commercial review date": ("Commercial review date", "date"),
+        "quote date": ("Quote date", "date"),
+        "valid until": ("Valid until", "date"),
+        "audit date": ("Audit date", "date"),
         "primary location": ("Primary location", "location"),
         "delivery location": ("Delivery location", "location"),
+        "location": ("Location", "location"),
         "product": ("Product", "product"),
         "service": ("Service", "product"),
+        "target": ("Target", "strategy"),
     }
     labels = "|".join(sorted((re.escape(key) for key in label_patterns), key=len, reverse=True))
-    for match in re.finditer(rf"(?im)^\s*({labels})\s*[:\-]\s*([^\n\r]{{2,220}})", text):
+    for match in re.finditer(rf"(?im)^\s*({labels})\s*[:\-]\s*([^\n\r]{{2,260}})", text):
         raw_label = match.group(1).lower().strip()
         title, item_type = label_patterns[raw_label]
         value = match.group(2).strip()
@@ -106,42 +177,103 @@ def _deterministic_facts(text: str) -> list[KnowledgeFact]:
             f"{item_type}-{raw_label}", title, value, match.group(0),
             item_type=item_type, confidence=98, calendar_candidate=is_calendar,
             calendar_reason=f"Detected {title.lower()} that may be useful as a reminder or calendar event." if is_calendar else None,
+            rationale=(
+                f"The document labels this value as {title.lower()}.",
+                "It is a durable business fact that can be checked against future evidence.",
+            ),
         ))
 
-    # Payment terms are often written in prose.
+    # Payment terms written in prose.
     for match in re.finditer(r"\b(?:payable|payment(?:s)?(?: are)?(?: due)?|invoice(?:s)?(?: are)? payable)\s+(?:within\s+)?(\d{1,3})\s+days\b", text, re.I):
-        add(_fact("commercial-payment-terms", "Payment terms", f"{match.group(1)} days", match.group(0), item_type="commercial", confidence=97))
+        add(_fact(
+            "commercial-payment-terms", "Payment terms", f"{match.group(1)} days", match.group(0),
+            item_type="commercial", confidence=97,
+            rationale=("Payment timing affects cash flow and supplier terms.", "This can be compared with contracts and later quotations."),
+        ))
 
     # Explicit contract/reference identifiers.
-    for match in re.finditer(r"\b(?:contract|agreement|reference|ref(?:erence)?)\s*(?:id|no\.?|number|#|:)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
-        add(_fact("contract-id", "Contract ID", match.group(1), match.group(0), item_type="contract", confidence=99))
+    for match in re.finditer(r"\b(?:contract|agreement|quotation|quote|reference|ref(?:erence)?)\s*(?:id|no\.?|number|#|:)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
+        if any(fact.item_type == "contract" and _normalise(fact.value) == _normalise(match.group(1)) for fact in facts):
+            continue
+        add(_fact(
+            "contract-reference", "Contract / quotation reference", match.group(1), match.group(0),
+            item_type="contract", confidence=99,
+            rationale=("A stable reference helps link future documents to the same commercial record.",),
+        ))
 
-    # Commercial values.
-    for match in re.finditer(r"(?<!\w)(?:£|\$|€)\s?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:per|/)\s*(?:kg|unit|month|year))?", text, re.I):
-        add(_fact(f"finance-value-{len(facts)}", "Commercial value", match.group(0), match.group(0), item_type="finance", confidence=96))
+    # Commercial values. Keep a context-derived key so unit price is not confused with annual value.
+    for match in re.finditer(r"(?<!\w)(?:£|\$|€)\s?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:per|/)\s*(?:kg|unit|month|year|litre|liter|l))?", text, re.I):
+        if any(fact.item_type == "finance" and _normalise(fact.value) == _normalise(match.group(0)) for fact in facts):
+            continue
+        context_label = _context_label(text, match.start())
+        context_norm = _normalise(context_label)
+        if any(term in context_norm for term in ("annual", "contract-value", "estimated-value", "commercial-value")):
+            title = "Annual / commercial value"
+            key = "finance-annual-commercial-value"
+        elif any(term in context_norm for term in ("chicken", "turkey", "beef", "pork", "diesel", "price", "unit")) or " per " in match.group(0).lower() or "/" in match.group(0):
+            product_label = context_label[-55:] if context_label else "Unit price"
+            title = f"{product_label} price" if product_label and "price" not in product_label.lower() else (product_label or "Unit price")
+            key = f"finance-unit-price-{context_norm or _normalise(match.group(0))}"
+        else:
+            title = context_label or "Commercial value"
+            key = f"finance-value-{context_norm or _normalise(match.group(0))}"
+        add(_fact(
+            key, title, match.group(0), _clean(text[max(0, match.start()-90):min(len(text), match.end()+90)], 300),
+            item_type="finance", confidence=96,
+            rationale=("A monetary value was found in the source evidence.", "Financial values are useful for change and opportunity detection."),
+        ))
 
-    # Important dates.
+    # Important dates. Use nearby business language to make stable keys and useful titles.
     date_patterns = [
         r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
         r"\b\d{4}-\d{2}-\d{2}\b",
         r"\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b",
         r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b",
     ]
+    date_labels = [
+        ("commercial review", "Commercial review date"), ("review", "Review date"),
+        ("valid until", "Valid until"), ("quote date", "Quote date"),
+        ("contract start", "Contract start"), ("contract end", "Contract end"),
+        ("expiry", "Expiry date"), ("renew", "Renewal date"),
+        ("payment", "Payment date"), ("due", "Due date"),
+        ("meeting", "Meeting date"), ("audit", "Audit date"), ("delivery", "Delivery date"),
+    ]
     for pattern in date_patterns:
         for match in re.finditer(pattern, text, re.I):
-            context_start = max(0, match.start() - 90)
-            context_end = min(len(text), match.end() + 90)
+            if any(fact.item_type == "date" and _normalise(fact.value) == _normalise(match.group(0)) for fact in facts):
+                continue
+            context_start = max(0, match.start() - 100)
+            context_end = min(len(text), match.end() + 100)
             context = text[context_start:context_end]
-            calendar_terms = ("meeting", "deadline", "renew", "expiry", "review", "due", "payment", "audit", "appointment", "delivery")
-            is_calendar = any(term in context.lower() for term in calendar_terms)
+            lower_context = context.lower()
+            found = next(((needle, title) for needle, title in date_labels if needle in lower_context), None)
+            if found:
+                needle, title = found
+                key = f"date-{_normalise(title)}"
+                is_calendar = True
+            else:
+                title = "Business date"
+                key = f"date-{_normalise(match.group(0))}"
+                is_calendar = False
             add(_fact(
-                f"date-{_normalise(match.group(0))}", "Business date", match.group(0), context,
+                key, title, match.group(0), context,
                 item_type="date", confidence=96, calendar_candidate=is_calendar,
-                calendar_reason="This date appears near a meeting, deadline, renewal, review, payment, audit or delivery reference." if is_calendar else None,
+                calendar_reason=f"This date appears near a {found[0]} reference." if found else None,
+                rationale=(
+                    f"The date appears in business context{f' related to {found[0]}' if found else ''}.",
+                    "Dates can support timelines, reminders and evidence freshness checks.",
+                ),
             ))
 
-    return facts[:18]
+    # Simple action/risk cues. These are intentionally conservative.
+    for match in re.finditer(r"(?im)^\s*(?:action|recommended action|recommendation)\s*[:\-]\s*([^\n\r]{8,240})", text):
+        add(_fact(f"task-{_normalise(match.group(1))[:60]}", "Recommended action", match.group(1), match.group(0), item_type="task", confidence=91,
+                  rationale=("The source explicitly labels this as an action or recommendation.",)))
+    for match in re.finditer(r"(?im)^\s*(?:risk|issue|concern)\s*[:\-]\s*([^\n\r]{8,240})", text):
+        add(_fact(f"risk-{_normalise(match.group(1))[:60]}", "Risk / issue", match.group(1), match.group(0), item_type="risk", confidence=91,
+                  rationale=("The source explicitly identifies this as a risk or issue.",)))
 
+    return facts[:28]
 
 def _extract_json(raw: str) -> list[dict]:
     text = raw.strip()
@@ -208,6 +340,10 @@ TEXT: {text}"""
             key, title, value, evidence, item_type=item_type, confidence=confidence,
             calendar_candidate=calendar_candidate,
             calendar_reason="This looks like a dated business event or deadline." if calendar_candidate else None,
+            rationale=(
+                "Local AI identified this as a durable business fact rather than temporary document wording.",
+                "The proposed value is grounded in the quoted source evidence.",
+            ),
         ))
     return result[:8]
 
@@ -215,32 +351,48 @@ TEXT: {text}"""
 def _with_existing(database: Session, space_id: int, facts: list[KnowledgeFact]) -> list[KnowledgeFact]:
     items = list(database.scalars(select(KnowledgeItem).where(KnowledgeItem.space_id == space_id)).all())
     output: list[KnowledgeFact] = []
+    generic_titles = {"business-date", "commercial-value", "annual-commercial-value", "price", "pricing"}
+
     for fact in facts:
         exact: KnowledgeItem | None = None
         related: KnowledgeItem | None = None
         key_tag = f"fact-key:{fact.key}"
         for item in items:
-            tags = (item.tags_json or "").lower()
+            tags = item.tags_json or ""
             if key_tag in tags:
                 exact = item
                 break
-            title_norm = _normalise(item.title)
-            if title_norm and (title_norm == _normalise(fact.title) or title_norm in fact.key or _normalise(fact.title) in title_norm):
-                related = item
+
+        if exact is None and _normalise(fact.title) not in generic_titles:
+            for item in items:
+                if (item.item_type or "fact") != fact.item_type:
+                    continue
+                if _normalise(item.title) == _normalise(fact.title):
+                    related = item
+                    break
+
         existing = exact or related
         if existing is None:
             output.append(fact)
             continue
-        old_value = _clean(existing.content, 1200)
-        same = _normalise(old_value) == _normalise(fact.value) or _normalise(fact.value) in _normalise(old_value)
-        output.append(KnowledgeFact(
-            **{**fact.__dict__,
-               "existing_item_id": existing.id,
-               "existing_value": old_value,
-               "relationship": "same" if same else "changed"}
-        ))
-    return output
 
+        old_value = _current_value(_clean(existing.content, 1200))
+        same = _normalise(old_value) == _normalise(fact.value)
+        if same:
+            output.append(KnowledgeFact(**{**fact.__dict__, "existing_item_id": existing.id, "existing_value": old_value, "relationship": "same"}))
+            continue
+
+        change_summary, delta, delta_percent = _change_metrics(old_value, fact.value)
+        output.append(KnowledgeFact(**{
+            **fact.__dict__,
+            "existing_item_id": existing.id,
+            "existing_value": old_value,
+            "relationship": "changed",
+            "change_summary": change_summary,
+            "numeric_delta": delta,
+            "numeric_delta_percent": delta_percent,
+        }))
+    return output
 
 def preview_document_knowledge(database: Session, document_id: int, space_id: int) -> tuple[Document, KnowledgeSpace, list[KnowledgeFact], bool]:
     document = database.get(Document, document_id)
@@ -293,23 +445,36 @@ def capture_document_facts(
             f"source-hash:{source_hash}",
             f"fact-key:{proposal.key}",
             f"confidence:{proposal.confidence}",
+            f"source-quality:{proposal.source_quality}",
         ]
+        evidence_tag = _encode_tag("evidence-b64", proposal.evidence)
+        if evidence_tag:
+            tags.append(evidence_tag)
+        for reason in proposal.rationale:
+            reason_tag = _encode_tag("reason-b64", reason)
+            if reason_tag:
+                tags.append(reason_tag)
         if proposal.calendar_candidate:
             tags.append("calendar-candidate")
+            calendar_tag = _encode_tag("calendar-reason-b64", proposal.calendar_reason)
+            if calendar_tag:
+                tags.append(calendar_tag)
         if proposal.existing_item_id and str(incoming.get("action") or "update") == "update":
             item = database.get(KnowledgeItem, proposal.existing_item_id)
             if item is None:
                 continue
-            old = item.content
-            history_note = f"\n\nPrevious value: {old}" if old and _normalise(old) != _normalise(value) else ""
+            old = _current_value(item.content)
             item.title = title
             item.summary = _clean(f"{title}: {value}", 5000)
-            item.content = value + history_note
+            item.content = value
             try:
                 previous_tags = json.loads(item.tags_json or "[]")
             except (TypeError, json.JSONDecodeError):
                 previous_tags = []
-            merged_tags = [tag for tag in previous_tags if isinstance(tag, str)] + tags + ["updated-from-document"]
+            merged_tags = [tag for tag in previous_tags if isinstance(tag, str)] + tags + ["updated-from-document", "relationship:changed"]
+            history_tag = _encode_tag("previous-value-b64", old) if old and _normalise(old) != _normalise(value) else None
+            if history_tag:
+                merged_tags.append(history_tag)
             item.tags_json = json.dumps(list(dict.fromkeys(merged_tags)))
             database.add(item)
             created_or_updated.append(item)

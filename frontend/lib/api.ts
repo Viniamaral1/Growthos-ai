@@ -701,6 +701,11 @@ export type KnowledgeFactProposal = {
   relationship: "new" | "same" | "changed";
   calendar_candidate: boolean;
   calendar_reason: string | null;
+  rationale: string[];
+  source_quality: string;
+  change_summary: string | null;
+  numeric_delta: number | null;
+  numeric_delta_percent: number | null;
 };
 
 export type DocumentKnowledgePreview = {

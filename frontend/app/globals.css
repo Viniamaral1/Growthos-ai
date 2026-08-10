@@ -8276,3 +8276,102 @@ button.executive-role:not(.active):hover {
 @media (max-width: 720px) {
   .asset-knowledge-state { align-items: flex-start; flex-wrap: wrap; }
 }
+
+/* Foundation polish v0.10.2 — long-running actions + explainable Knowledge */
+.ingestion-working-footer {
+  opacity: .78;
+}
+
+.knowledge-fact-why,
+.knowledge-item-explanation {
+  margin-top: 10px;
+  border: 1px solid rgba(93, 215, 224, .16);
+  border-radius: 12px;
+  background: rgba(9, 25, 42, .45);
+  overflow: hidden;
+}
+
+.knowledge-fact-why summary,
+.knowledge-item-explanation summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: var(--cyan, #49d7dc);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.knowledge-fact-why ul,
+.knowledge-item-explanation > div {
+  margin: 0;
+  padding: 0 14px 12px 28px;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.knowledge-item-explanation > div {
+  padding-left: 14px;
+}
+
+.knowledge-item-explanation ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.knowledge-change-intelligence {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 190, 65, .24);
+  border-radius: 12px;
+  background: rgba(255, 190, 65, .06);
+}
+
+.knowledge-change-intelligence strong {
+  color: #ffd27a;
+}
+
+.knowledge-change-intelligence small,
+.knowledge-change-intelligence span {
+  color: var(--text-soft);
+}
+
+.knowledge-source-why-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.knowledge-source-why-stats span,
+.knowledge-history-inline span {
+  border: 1px solid rgba(93, 215, 224, .18);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(93, 215, 224, .06);
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.knowledge-source-fact-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.knowledge-history-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.knowledge-history-inline small {
+  color: var(--text-soft);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+button:disabled {
+  cursor: wait;
+}

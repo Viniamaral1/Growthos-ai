@@ -27,6 +27,8 @@ const TYPE_META: Record<string, { label: string; icon: string }> = {
   date: { label: "Dates", icon: "◷" },
   supplier: { label: "Suppliers", icon: "◇" },
   customer: { label: "Customers", icon: "◎" },
+  organisation: { label: "Organisations", icon: "▦" },
+  contact: { label: "Contacts", icon: "◉" },
   contract: { label: "Contracts", icon: "▣" },
   commercial: { label: "Commercial", icon: "%" },
   location: { label: "Locations", icon: "⌖" },
@@ -67,6 +69,47 @@ function confidenceFromItem(item: KnowledgeItem): number | null {
   if (!tag) return null;
   const value = Number(tag.slice("confidence:".length));
   return Number.isFinite(value) ? value : null;
+}
+
+function decodeTaggedValue(item: KnowledgeItem, prefix: string): string[] {
+  return itemTags(item)
+    .filter((tag) => tag.startsWith(`${prefix}:`))
+    .map((tag) => {
+      const encoded = tag.slice(prefix.length + 1);
+      try {
+        const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
+        return decodeURIComponent(Array.from(atob(padded.replaceAll("-", "+").replaceAll("_", "/"))).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join(""));
+      } catch {
+        return "";
+      }
+    })
+    .filter(Boolean);
+}
+
+function evidenceFromItem(item: KnowledgeItem): string | null {
+  return decodeTaggedValue(item, "evidence-b64")[0] ?? null;
+}
+
+function reasonsFromItem(item: KnowledgeItem): string[] {
+  return decodeTaggedValue(item, "reason-b64");
+}
+
+function previousValuesFromItem(item: KnowledgeItem): string[] {
+  const tagged = decodeTaggedValue(item, "previous-value-b64");
+  const legacy = [...item.content.matchAll(/Previous value:\s*([^\n]+)/gi)].map((match) => match[1].trim());
+  return [...new Set([...tagged, ...legacy])];
+}
+
+function calendarReasonFromItem(item: KnowledgeItem): string | null {
+  return decodeTaggedValue(item, "calendar-reason-b64")[0] ?? null;
+}
+
+function sourceQualityFromItem(item: KnowledgeItem): string {
+  return itemTags(item).find((tag) => tag.startsWith("source-quality:"))?.slice("source-quality:".length).replaceAll("_", " ") ?? "direct source document";
+}
+
+function currentItemContent(item: KnowledgeItem): string {
+  return item.content.split(/\n\nPrevious value:/i)[0].trim();
 }
 
 function sourceDocumentMetas(item: KnowledgeItem): Array<{ id: number; filename: string | null }> {
@@ -669,7 +712,12 @@ export default function KnowledgeSpacesPanel({
               <div className="knowledge-source-summary"><strong>{selectedSourceGroup.items.length} reusable facts</strong><span>Structured Knowledge stays linked to the original evidence rather than duplicating the whole file.</span></div>
               <details className="knowledge-source-why">
                 <summary>Why GrowthOS captured this</summary>
-                <p>GrowthOS kept only durable business facts from the source. The original document remains in Business Intelligence as evidence.</p>
+                <p>GrowthOS kept durable business facts that can be compared with future evidence. The original document remains in Business Intelligence.</p>
+                <div className="knowledge-source-why-stats">
+                  <span>{selectedSourceGroup.items.length} reusable facts</span>
+                  <span>Average confidence {Math.round(selectedSourceGroup.items.reduce((sum, item) => sum + (confidenceFromItem(item) ?? 0), 0) / Math.max(1, selectedSourceGroup.items.filter((item) => confidenceFromItem(item) !== null).length))}%</span>
+                  <span>{selectedSourceGroup.items.filter((item) => itemTags(item).includes("calendar-candidate")).length} calendar candidates</span>
+                </div>
                 <div>{[...new Set(selectedSourceGroup.items.map((item) => TYPE_META[item.item_type]?.label ?? item.item_type))].map((type) => <span key={type}>{type}</span>)}</div>
               </details>
               {(Object.entries(
@@ -684,7 +732,22 @@ export default function KnowledgeSpacesPanel({
                   <div>
                     {groupItems.map((item) => (
                       <article key={item.id}>
-                        <div><strong>{item.title}</strong><p>{item.content}</p></div>
+                        <div className="knowledge-source-fact-main">
+                          <strong>{item.title}</strong>
+                          <p>{currentItemContent(item)}</p>
+                          {previousValuesFromItem(item).length > 0 && (
+                            <div className="knowledge-history-inline"><small>Previous values</small>{previousValuesFromItem(item).slice(-4).map((value) => <span key={value}>{value}</span>)}</div>
+                          )}
+                          <details className="knowledge-item-explanation">
+                            <summary>Why / evidence</summary>
+                            <div>
+                              {reasonsFromItem(item).length > 0 ? <ul>{reasonsFromItem(item).map((reason) => <li key={reason}>{reason}</li>)}</ul> : <p>This structured fact was extracted from the linked Business Intelligence source.</p>}
+                              {evidenceFromItem(item) && <p><strong>Source evidence:</strong> {evidenceFromItem(item)}</p>}
+                              {itemTags(item).includes("calendar-candidate") && <p><strong>Calendar candidate:</strong> {calendarReasonFromItem(item) ?? "This appears to be a dated business event or deadline."}</p>}
+                              <p><strong>Source quality:</strong> {sourceQualityFromItem(item)}</p>
+                            </div>
+                          </details>
+                        </div>
                         <div>
                           {confidenceFromItem(item) !== null && <span className="calendar-chip">Confidence {confidenceFromItem(item)}%</span>}
                           {itemTags(item).includes("calendar-candidate") && <span className="calendar-chip">◷ Calendar candidate</span>}
