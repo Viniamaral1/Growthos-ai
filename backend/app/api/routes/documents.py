@@ -40,6 +40,8 @@ from app.schemas.document import (
     DocumentKnowledgeCaptureRequest,
     DocumentKnowledgeBulkCaptureResponse,
     KnowledgeFactProposal,
+    DocumentDeleteDependencyResponse,
+    DocumentDeleteResponse,
 )
 from app.schemas.document_chunk import (
     DocumentChunkResponse,
@@ -110,6 +112,56 @@ def _project_for_document(database: Session, document_id: int) -> tuple[int | No
     return (link.space_id, space.name if space is not None else None)
 
 
+
+
+
+def _knowledge_items_for_document(database: Session, document: Document) -> list[KnowledgeItem]:
+    marker = f"source-document:{document.id}"
+    return list(database.scalars(
+        select(KnowledgeItem).where(
+            KnowledgeItem.company_id == document.company_id,
+            KnowledgeItem.tags_json.contains(marker),
+        )
+    ).all())
+
+
+def _parsed_tags(item: KnowledgeItem) -> list[str]:
+    try:
+        raw = json.loads(item.tags_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        raw = []
+    return [tag for tag in raw if isinstance(tag, str)] if isinstance(raw, list) else []
+
+
+def _source_document_ids(tags: list[str]) -> set[int]:
+    result: set[int] = set()
+    for tag in tags:
+        if not tag.startswith("source-document:"):
+            continue
+        try:
+            result.add(int(tag.split(":", 1)[1]))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _mark_knowledge_source_deleted(item: KnowledgeItem, document: Document, *, unlink: bool) -> None:
+    tags = _parsed_tags(item)
+    source_prefixes = (
+        f"source-document:{document.id}",
+        f"source-file:{document.original_filename}",
+        f"source-hash:{_document_text_hash(document)}",
+    )
+    if unlink:
+        tags = [tag for tag in tags if tag not in source_prefixes]
+        # Evidence text is document-specific, so remove it when provenance is explicitly unlinked.
+        tags = [tag for tag in tags if not tag.startswith("evidence-b64:")]
+        tags.append(f"evidence-unlinked-document:{document.id}")
+    else:
+        tags.append(f"source-deleted-document:{document.id}")
+        tags.append("evidence-status:source-deleted")
+    item.tags_json = json.dumps(list(dict.fromkeys(tags)))
+    database.add(item)
 
 
 def _document_text_hash(document: Document) -> str:
@@ -931,26 +983,99 @@ def map_document_entities_from_library(
         ) from error
 
 
+@router.get(
+    "/{document_id}/delete-dependencies",
+    response_model=DocumentDeleteDependencyResponse,
+)
+def get_document_delete_dependencies(
+    document_id: int,
+    database: DatabaseSession,
+) -> DocumentDeleteDependencyResponse:
+    document = database.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    knowledge_items = _knowledge_items_for_document(database, document)
+    exclusive = 0
+    multi_source = 0
+    calendar_candidates = 0
+    task_or_risk = 0
+    for item in knowledge_items:
+        tags = _parsed_tags(item)
+        source_ids = _source_document_ids(tags)
+        if len(source_ids) <= 1:
+            exclusive += 1
+        else:
+            multi_source += 1
+        if "calendar-candidate" in tags:
+            calendar_candidates += 1
+        if (item.item_type or "").lower() in {"task", "risk"}:
+            task_or_risk += 1
+
+    graph_entities = len(set(database.scalars(
+        select(BusinessEntitySource.entity_id).where(
+            BusinessEntitySource.company_id == document.company_id,
+            BusinessEntitySource.source_kind == "document",
+            BusinessEntitySource.source_id == document.id,
+        )
+    ).all()))
+    space_id, space_name = _project_for_document(database, document.id)
+    return DocumentDeleteDependencyResponse(
+        document_id=document.id,
+        filename=document.original_filename,
+        knowledge_items=len(knowledge_items),
+        knowledge_items_exclusive=exclusive,
+        knowledge_items_multi_source=multi_source,
+        graph_entities=graph_entities,
+        calendar_candidates=calendar_candidates,
+        task_or_risk_items=task_or_risk,
+        project_space_id=space_id,
+        project_space_name=space_name,
+        message="GrowthOS checked what currently depends on this evidence before deletion.",
+    )
+
+
 @router.delete(
     "/{document_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=DocumentDeleteResponse,
 )
 def delete_document(
     document_id: int,
     database: DatabaseSession,
-) -> None:
-    """Delete an uploaded asset, its chunks, and its stored file."""
+    mode: str = "document_only",
+) -> DocumentDeleteResponse:
+    """Delete one asset with dependency-aware Knowledge lifecycle handling.
+
+    document_only: keep captured Knowledge and retain historical provenance markers.
+    unlink: keep Knowledge but remove this document as supporting evidence.
+    cascade: delete Knowledge supported only by this document; unlink it from multi-source Knowledge.
+    """
+    if mode not in {"document_only", "unlink", "cascade"}:
+        raise HTTPException(status_code=400, detail="Unknown delete mode.")
 
     document = database.get(Document, document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
     file_path = Path(document.file_path)
+    knowledge_items = _knowledge_items_for_document(database, document)
+    removed_knowledge = 0
+    unlinked_knowledge = 0
+    removed_graph_links = 0
 
     try:
+        for item in knowledge_items:
+            tags = _parsed_tags(item)
+            source_ids = _source_document_ids(tags)
+            if mode == "cascade" and len(source_ids) <= 1:
+                database.delete(item)
+                removed_knowledge += 1
+            elif mode == "unlink" or mode == "cascade":
+                _mark_knowledge_source_deleted(item, document, unlink=True)
+                unlinked_knowledge += 1
+            else:
+                _mark_knowledge_source_deleted(item, document, unlink=False)
+
         related_entity_ids = set(database.scalars(
             select(BusinessEntitySource.entity_id).where(
                 BusinessEntitySource.company_id == document.company_id,
@@ -966,11 +1091,11 @@ def delete_document(
             )
         ).all())
 
-        database.execute(delete(BusinessEntitySource).where(
+        removed_graph_links = database.execute(delete(BusinessEntitySource).where(
             BusinessEntitySource.company_id == document.company_id,
             BusinessEntitySource.source_kind == "document",
             BusinessEntitySource.source_id == document_id,
-        ))
+        )).rowcount or 0
         database.execute(delete(BusinessEntityExtraction).where(
             BusinessEntityExtraction.company_id == document.company_id,
             BusinessEntityExtraction.source_kind == "document",
@@ -979,20 +1104,13 @@ def delete_document(
         database.flush()
 
         for entity_id in related_entity_ids:
-            remaining_link = database.scalar(
-                select(BusinessEntitySource.id).where(
-                    BusinessEntitySource.entity_id == entity_id
-                ).limit(1)
-            )
+            remaining_link = database.scalar(select(BusinessEntitySource.id).where(BusinessEntitySource.entity_id == entity_id).limit(1))
             entity = database.get(BusinessEntity, entity_id)
             if entity is not None and remaining_link is None:
                 database.delete(entity)
 
-        database.execute(
-            delete(DocumentChunk).where(
-                DocumentChunk.document_id == document_id
-            )
-        )
+        database.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+        database.execute(delete(DocumentProjectLink).where(DocumentProjectLink.document_id == document_id))
         database.delete(document)
         database.commit()
     except Exception:
@@ -1003,6 +1121,16 @@ def delete_document(
         if file_path.exists():
             file_path.unlink()
     except OSError:
-        # The database deletion is authoritative; an orphaned local file can
-        # be cleaned up separately without making the user-facing deletion fail.
         pass
+
+    if mode == "cascade":
+        message = f"Asset deleted. Removed {removed_knowledge} exclusive Knowledge item(s) and unlinked {unlinked_knowledge} multi-source item(s)."
+    elif mode == "unlink":
+        message = f"Asset deleted and unlinked from {unlinked_knowledge} Knowledge item(s)."
+    else:
+        message = "Asset deleted. Captured Knowledge was retained and marked so GrowthOS knows the original evidence was removed."
+    return DocumentDeleteResponse(
+        document_id=document_id, mode=mode, removed_knowledge_items=removed_knowledge,
+        unlinked_knowledge_items=unlinked_knowledge, removed_graph_links=removed_graph_links, message=message,
+    )
+

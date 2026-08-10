@@ -130,6 +130,9 @@ class KnowledgeFactProposal(BaseModel):
     change_summary: str | None = None
     numeric_delta: float | None = None
     numeric_delta_percent: float | None = None
+    comparison_kind: str | None = None
+    delta_display: str | None = None
+    comparison_reason: str | None = None
 
 
 class DocumentKnowledgePreviewResponse(BaseModel):
@@ -157,4 +160,27 @@ class DocumentKnowledgeBulkCaptureResponse(BaseModel):
     space_id: int
     knowledge_item_ids: list[int]
     created_or_updated: int
+    message: str
+
+
+class DocumentDeleteDependencyResponse(BaseModel):
+    document_id: int
+    filename: str
+    knowledge_items: int = 0
+    knowledge_items_exclusive: int = 0
+    knowledge_items_multi_source: int = 0
+    graph_entities: int = 0
+    calendar_candidates: int = 0
+    task_or_risk_items: int = 0
+    project_space_id: int | None = None
+    project_space_name: str | None = None
+    message: str
+
+
+class DocumentDeleteResponse(BaseModel):
+    document_id: int
+    mode: str
+    removed_knowledge_items: int = 0
+    unlinked_knowledge_items: int = 0
+    removed_graph_links: int = 0
     message: str

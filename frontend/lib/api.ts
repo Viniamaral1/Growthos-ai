@@ -602,17 +602,41 @@ export async function getDocumentText(
   return response.json();
 }
 
+export type DocumentDeleteDependencies = {
+  document_id: number;
+  filename: string;
+  knowledge_items: number;
+  knowledge_items_exclusive: number;
+  knowledge_items_multi_source: number;
+  graph_entities: number;
+  calendar_candidates: number;
+  task_or_risk_items: number;
+  project_space_id: number | null;
+  project_space_name: string | null;
+  message: string;
+};
+
+export type DocumentDeleteMode = "document_only" | "unlink" | "cascade";
+
+export async function getDocumentDeleteDependencies(documentId: number): Promise<DocumentDeleteDependencies> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/delete-dependencies`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function deleteDocument(
   documentId: number,
-): Promise<void> {
+  mode: DocumentDeleteMode = "document_only",
+): Promise<{document_id:number;mode:DocumentDeleteMode;removed_knowledge_items:number;unlinked_knowledge_items:number;removed_graph_links:number;message:string}> {
   const response = await fetch(
-    `${API_URL}/documents/${documentId}`,
+    `${API_URL}/documents/${documentId}?mode=${encodeURIComponent(mode)}`,
     { method: "DELETE" },
   );
 
   if (!response.ok) {
     throw new Error(await readError(response));
   }
+  return response.json();
 }
 
 export async function uploadDocument(
@@ -706,6 +730,9 @@ export type KnowledgeFactProposal = {
   change_summary: string | null;
   numeric_delta: number | null;
   numeric_delta_percent: number | null;
+  comparison_kind: "money" | "quantity" | "date" | "duration" | "identifier" | "text" | null;
+  delta_display: string | null;
+  comparison_reason: string | null;
 };
 
 export type DocumentKnowledgePreview = {

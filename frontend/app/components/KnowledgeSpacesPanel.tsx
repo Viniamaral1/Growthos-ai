@@ -133,6 +133,18 @@ function sourceDocumentMeta(item: KnowledgeItem): { id: number; filename: string
   return sourceDocumentMetas(item)[0] ?? null;
 }
 
+function evidenceHealthFromItem(item: KnowledgeItem): { label: string; status: "healthy" | "warning" | "unlinked" } {
+  const tags = itemTags(item);
+  const sourceCount = new Set(sourceDocumentMetas(item).map((source) => source.id)).size;
+  if (tags.some((tag) => tag.startsWith("evidence-unlinked-document:"))) {
+    return { label: sourceCount > 0 ? `${sourceCount} supporting source${sourceCount === 1 ? "" : "s"} · one unlinked` : "Evidence unlinked", status: "unlinked" };
+  }
+  if (tags.some((tag) => tag.startsWith("source-deleted-document:")) || tags.includes("evidence-status:source-deleted")) {
+    return { label: sourceCount > 1 ? `${sourceCount - 1} other supporting source${sourceCount - 1 === 1 ? "" : "s"}` : "Original evidence deleted", status: "warning" };
+  }
+  return { label: sourceCount > 0 ? `${sourceCount} supporting source${sourceCount === 1 ? "" : "s"}` : "Captured Knowledge", status: "healthy" };
+}
+
 export default function KnowledgeSpacesPanel({
   company,
   onError,
@@ -474,12 +486,17 @@ export default function KnowledgeSpacesPanel({
                           {sourceGroups.map((group) => {
                             const types = [...new Set(group.items.map((item) => TYPE_META[item.item_type]?.label ?? item.item_type))];
                             const calendarCount = group.items.filter((item) => itemTags(item).includes("calendar-candidate")).length;
+                            const health = group.items.some((item) => evidenceHealthFromItem(item).status === "warning")
+                              ? { label: "Some original evidence was deleted", status: "warning" as const }
+                              : group.items.some((item) => evidenceHealthFromItem(item).status === "unlinked")
+                                ? { label: "Some evidence was unlinked", status: "unlinked" as const }
+                                : { label: "Evidence linked", status: "healthy" as const };
                             return (
                               <article key={group.documentId} tabIndex={0} onClick={() => setSelectedSourceGroup(group)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedSourceGroup(group); }}>
                                 <header><span>▤ Business Intelligence source</span><time>{new Date(group.items[0]?.updated_at ?? Date.now()).toLocaleDateString()}</time></header>
                                 <h3>{group.filename}</h3>
                                 <p>{group.items.length} reusable {group.items.length === 1 ? "fact" : "facts"} captured</p>
-                                <div className="knowledge-source-tags">{types.slice(0, 5).map((type) => <span key={type}>{type}</span>)}{calendarCount > 0 && <span>◷ {calendarCount} calendar candidate{calendarCount === 1 ? "" : "s"}</span>}</div>
+                                <div className="knowledge-source-tags">{types.slice(0, 5).map((type) => <span key={type}>{type}</span>)}{calendarCount > 0 && <span>◷ {calendarCount} calendar candidate{calendarCount === 1 ? "" : "s"}</span>}<span className={`evidence-health ${health.status}`}>{health.label}</span></div>
                                 <footer><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedSourceGroup(group); }}>Open knowledge</button><span>Grouped by source</span></footer>
                               </article>
                             );
@@ -690,6 +707,11 @@ export default function KnowledgeSpacesPanel({
         .knowledge-source-category article p { margin: 5px 0 0; color: var(--text-soft); white-space: pre-wrap; }
         .knowledge-source-category article > div:last-child { display: grid; gap: 7px; justify-items: end; min-width: 110px; }
 
+
+        .evidence-health.healthy { border-color: rgba(52, 211, 153, .28) !important; color: #7ee7bd !important; }
+        .evidence-health.warning { border-color: rgba(251, 191, 36, .35) !important; color: #f6c95f !important; }
+        .evidence-health.unlinked { border-color: rgba(248, 113, 113, .32) !important; color: #fb8f9d !important; }
+
         @media (max-width: 850px) {
           :global(.knowledge-spaces-layout.sidebar-collapsed) {
             grid-template-columns: 54px minmax(0, 1fr);
@@ -750,6 +772,7 @@ export default function KnowledgeSpacesPanel({
                         </div>
                         <div>
                           {confidenceFromItem(item) !== null && <span className="calendar-chip">Confidence {confidenceFromItem(item)}%</span>}
+                          <span className={`calendar-chip evidence-health ${evidenceHealthFromItem(item).status}`}>{evidenceHealthFromItem(item).label}</span>
                           {itemTags(item).includes("calendar-candidate") && <span className="calendar-chip">◷ Calendar candidate</span>}
                           <button type="button" onClick={() => { setSelectedSourceGroup(null); openItem(item); }}>Open / edit</button>
                         </div>

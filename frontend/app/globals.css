@@ -8375,3 +8375,119 @@ button.executive-role:not(.active):hover {
 button:disabled {
   cursor: wait;
 }
+
+/* v0.10.3 — dependency-aware deletion lifecycle */
+.delete-lifecycle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2700;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 9, 19, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.delete-lifecycle-dialog {
+  width: min(760px, 96vw);
+  max-height: min(820px, 92vh);
+  overflow: hidden;
+  border: 1px solid rgba(67, 211, 211, 0.28);
+  border-radius: 24px;
+  background: var(--surface, #0b1d2f);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.48);
+}
+
+.delete-lifecycle-dialog > header,
+.delete-lifecycle-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.delete-lifecycle-dialog > footer {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  border-bottom: 0;
+}
+
+.delete-lifecycle-dialog header span {
+  color: #43d3d3;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.delete-lifecycle-dialog h2 { margin: 5px 0 0; }
+
+.delete-lifecycle-body {
+  display: grid;
+  gap: 14px;
+  padding: 22px 24px;
+  overflow: auto;
+  max-height: 68vh;
+}
+
+.delete-dependency-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.delete-dependency-grid > div {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.delete-dependency-grid strong { font-size: 1.4rem; }
+.delete-dependency-grid span { color: var(--muted, #95a8bf); font-size: 0.88rem; }
+
+.delete-choice {
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.delete-choice:hover { border-color: rgba(67, 211, 211, 0.48); }
+.delete-choice strong { font-size: 1rem; }
+.delete-choice strong em {
+  margin-left: 8px;
+  color: #43d3d3;
+  font-style: normal;
+  font-size: 0.78rem;
+}
+.delete-choice span { color: var(--muted, #95a8bf); font-weight: 400; }
+.delete-choice.recommended { border-color: rgba(67, 211, 211, 0.38); }
+.delete-choice.destructive { border-color: rgba(248, 113, 113, 0.3); }
+.delete-choice.destructive strong { color: #fb7185; }
+
+.delete-safety-note {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(67, 211, 211, 0.07);
+  border: 1px solid rgba(67, 211, 211, 0.18);
+}
+
+.delete-processing {
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #43d3d3;
+  background: rgba(67, 211, 211, 0.08);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .delete-dependency-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

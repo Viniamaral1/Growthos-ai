@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import re
+from datetime import datetime
 from dataclasses import dataclass
 
 import httpx
@@ -35,6 +36,9 @@ class KnowledgeFact:
     change_summary: str | None = None
     numeric_delta: float | None = None
     numeric_delta_percent: float | None = None
+    comparison_kind: str | None = None
+    delta_display: str | None = None
+    comparison_reason: str | None = None
 
 
 def _clean(value: object, maximum: int = 500) -> str:
@@ -97,17 +101,66 @@ def _number_from_value(value: str) -> float | None:
         return None
 
 
-def _change_metrics(old_value: str, new_value: str) -> tuple[str | None, float | None, float | None]:
-    old_number = _number_from_value(old_value)
-    new_number = _number_from_value(new_value)
-    if old_number is None or new_number is None:
-        return (f"Changed from {old_value} to {new_value}.", None, None)
-    delta = new_number - old_number
-    percent = (delta / old_number * 100.0) if old_number else None
-    direction = "increased" if delta > 0 else "decreased" if delta < 0 else "did not change"
-    summary = f"Value {direction} from {old_value} to {new_value}."
-    return (summary, delta, percent)
+def _date_from_value(value: str) -> datetime | None:
+    cleaned = _clean(value, 120)
+    formats = (
+        "%d %B %Y", "%d %b %Y", "%B %d %Y", "%B %d, %Y",
+        "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y",
+    )
+    for fmt in formats:
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    return None
 
+
+def _comparison_kind(fact: KnowledgeFact, old_value: str, new_value: str) -> str:
+    if fact.item_type == "date" or _date_from_value(old_value) or _date_from_value(new_value):
+        return "date"
+    if fact.item_type == "contract" or any(token in fact.key for token in ("reference", "contract-id", "quotation-id", "quote-id")):
+        return "identifier"
+    lower = f"{fact.title} {fact.key} {old_value} {new_value}".lower()
+    if any(symbol in lower for symbol in ("£", "$", "€")) or fact.item_type == "finance":
+        return "money"
+    if any(token in lower for token in ("kg", "litre", "liter", "units", "volume", "quantity", "minimum order")):
+        return "quantity"
+    if any(token in lower for token in ("days", "weeks", "months", "payment terms", "duration", "frequency")):
+        return "duration"
+    return "text"
+
+
+def _change_metrics(fact: KnowledgeFact, old_value: str, new_value: str) -> tuple[str | None, float | None, float | None, str, str | None]:
+    kind = _comparison_kind(fact, old_value, new_value)
+    if _normalise(old_value) == _normalise(new_value):
+        return (f"No change detected. The value remains {new_value}.", None, None, kind, "No change")
+
+    if kind == "date":
+        old_date, new_date = _date_from_value(old_value), _date_from_value(new_value)
+        if old_date and new_date:
+            days = (new_date - old_date).days
+            direction = "later" if days > 0 else "earlier"
+            return (f"Date changed from {old_value} to {new_value}.", None, None, kind, f"{abs(days)} days {direction}")
+        return (f"Date changed from {old_value} to {new_value}.", None, None, kind, "Date changed")
+
+    if kind == "identifier":
+        return (f"Reference changed from {old_value} to {new_value}.", None, None, kind, "Reference changed")
+
+    old_number, new_number = _number_from_value(old_value), _number_from_value(new_value)
+    if kind in {"money", "quantity", "duration"} and old_number is not None and new_number is not None:
+        delta = new_number - old_number
+        percent = (delta / old_number * 100.0) if old_number else None
+        direction = "increased" if delta > 0 else "decreased"
+        unit_match = re.search(r"(?:£|\$|€|kg|litres?|liters?|days?|weeks?|months?|/\s*kg|per\s+kg)", new_value, re.I)
+        unit = unit_match.group(0) if unit_match else ""
+        pretty_delta = f"{delta:+,.2f}".rstrip("0").rstrip(".")
+        if unit and unit in "£$€":
+            pretty_delta = f"{unit}{abs(delta):,.2f}".rstrip("0").rstrip(".") if delta >= 0 else f"-{unit}{abs(delta):,.2f}".rstrip("0").rstrip(".")
+        elif unit:
+            pretty_delta = f"{pretty_delta} {unit}"
+        return (f"Value {direction} from {old_value} to {new_value}.", delta, percent, kind, pretty_delta)
+
+    return (f"Changed from {old_value} to {new_value}.", None, None, kind, "Changed")
 
 def _context_label(text: str, start: int) -> str:
     line_start = max(text.rfind("\n", 0, start), text.rfind("\r", 0, start)) + 1
@@ -382,7 +435,7 @@ def _with_existing(database: Session, space_id: int, facts: list[KnowledgeFact])
             output.append(KnowledgeFact(**{**fact.__dict__, "existing_item_id": existing.id, "existing_value": old_value, "relationship": "same"}))
             continue
 
-        change_summary, delta, delta_percent = _change_metrics(old_value, fact.value)
+        change_summary, delta, delta_percent, comparison_kind, delta_display = _change_metrics(fact, old_value, fact.value)
         output.append(KnowledgeFact(**{
             **fact.__dict__,
             "existing_item_id": existing.id,
@@ -391,6 +444,9 @@ def _with_existing(database: Session, space_id: int, facts: list[KnowledgeFact])
             "change_summary": change_summary,
             "numeric_delta": delta,
             "numeric_delta_percent": delta_percent,
+            "comparison_kind": comparison_kind,
+            "delta_display": delta_display,
+            "comparison_reason": f"Compared within {fact.item_type} using the same fact key: {fact.key}.",
         }))
     return output
 

@@ -49,6 +49,7 @@ import {
   captureDocumentKnowledgeFacts,
   moveDocumentToWorkspace,
   deleteDocument,
+  getDocumentDeleteDependencies,
   mapDocumentEntities,
   processDocument,
   uploadDocument,
@@ -56,6 +57,8 @@ import {
   type BusinessPlan,
   type Company,
   type DocumentRecord,
+  type DocumentDeleteDependencies,
+  type DocumentDeleteMode,
   type DocumentRelevance,
   type IntelligentIngestionAssessment,
   type KnowledgeSpace,
@@ -348,6 +351,7 @@ function KnowledgeView({
   onMarketingDocument,
   onDocumentsChanged,
   onError,
+  onSuccess,
   entityMappingMode,
   onEntityMappingModeChange,
   onRelevanceReview,
@@ -368,6 +372,7 @@ function KnowledgeView({
   onMarketingDocument: (document: DocumentRecord) => void;
   onDocumentsChanged: (documents: DocumentRecord[]) => void;
   onError: (message: string) => void;
+  onSuccess: (message: string) => void;
   entityMappingMode: EntityMappingMode;
   onEntityMappingModeChange: (mode: EntityMappingMode) => void;
   onRelevanceReview: (review: AssetRelevanceReview) => void;
@@ -385,6 +390,8 @@ function KnowledgeView({
   const [entityMappingId, setEntityMappingId] = useState<number | null>(null);
   const [entityNotice, setEntityNotice] = useState<{ documentId: number; message: string } | null>(null);
   const [knowledgeSpaces, setKnowledgeSpaces] = useState<KnowledgeSpace[]>([]);
+  const [deleteReview, setDeleteReview] = useState<{ document: DocumentRecord; dependencies: DocumentDeleteDependencies } | null>(null);
+  const [deleteLoadingId, setDeleteLoadingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (selectedCompanyId === null) {
@@ -446,13 +453,32 @@ function KnowledgeView({
   }
 
   async function removeAsset(document: DocumentRecord) {
-    if (!window.confirm(`Delete “${document.original_filename}”?\n\nThis removes the asset and its search index.`)) return;
+    if (deleteLoadingId !== null) return;
+    setDeleteLoadingId(document.id);
     try {
-      await deleteDocument(document.id);
+      const dependencies = await getDocumentDeleteDependencies(document.id);
+      setDeleteReview({ document, dependencies });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "GrowthOS could not inspect this asset's dependencies.");
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  }
+
+  async function confirmDeleteAsset(mode: DocumentDeleteMode) {
+    if (!deleteReview || deleteLoadingId !== null) return;
+    const document = deleteReview.document;
+    setDeleteLoadingId(document.id);
+    try {
+      const result = await deleteDocument(document.id, mode);
       onDocumentsChanged(documents.filter((candidate) => candidate.id !== document.id));
       if (preview?.document.id === document.id) setPreview(null);
+      setDeleteReview(null);
+      onSuccess(result.message);
     } catch (error) {
       onError(error instanceof Error ? error.message : "The asset could not be deleted.");
+    } finally {
+      setDeleteLoadingId(null);
     }
   }
 
@@ -720,7 +746,7 @@ function KnowledgeView({
                     <button type="button" onClick={() => void openPreview(document)} disabled={!ready}>Open</button>
                     <button type="button" onClick={() => onAskDocument(document)} disabled={!ready}>✦ Ask AI</button>
                     <button type="button" onClick={() => onSelectDocument(document.id)} disabled={!ready}>{active ? "✓ Active" : "Use source"}</button>
-                    <button type="button" className="danger" onClick={() => void removeAsset(document)}>Delete</button>
+                    <button type="button" className="danger" onClick={() => void removeAsset(document)} disabled={deleteLoadingId !== null}>{deleteLoadingId === document.id ? "Checking…" : "Delete"}</button>
                   </footer>
                 </article>
               );
@@ -728,6 +754,38 @@ function KnowledgeView({
           </div>
         )}
       </section>
+
+      {deleteReview && (
+        <div className="delete-lifecycle-backdrop" role="presentation">
+          <section className="delete-lifecycle-dialog" role="dialog" aria-modal="true" aria-label="Delete asset safely">
+            <header>
+              <div><span>✦ Knowledge lifecycle</span><h2>Delete {deleteReview.document.original_filename}?</h2></div>
+              <button type="button" aria-label="Close deletion review" onClick={() => setDeleteReview(null)} disabled={deleteLoadingId !== null}>×</button>
+            </header>
+            <div className="delete-lifecycle-body">
+              <p>GrowthOS checked what depends on this evidence before deleting it.</p>
+              <div className="delete-dependency-grid">
+                <div><strong>{deleteReview.dependencies.knowledge_items}</strong><span>Knowledge facts</span></div>
+                <div><strong>{deleteReview.dependencies.graph_entities}</strong><span>Graph entities</span></div>
+                <div><strong>{deleteReview.dependencies.calendar_candidates}</strong><span>Calendar candidates</span></div>
+                <div><strong>{deleteReview.dependencies.task_or_risk_items}</strong><span>Tasks / risks</span></div>
+              </div>
+              {deleteReview.dependencies.knowledge_items_multi_source > 0 && <p className="delete-safety-note">{deleteReview.dependencies.knowledge_items_multi_source} Knowledge item(s) also have other supporting documents, so GrowthOS can preserve them safely.</p>}
+              <button type="button" className="delete-choice recommended" onClick={() => void confirmDeleteAsset("document_only")} disabled={deleteLoadingId !== null}>
+                <strong>Delete document only <em>Recommended</em></strong><span>Remove the uploaded file. Keep captured Knowledge and mark its original evidence as deleted.</span>
+              </button>
+              <button type="button" className="delete-choice" onClick={() => void confirmDeleteAsset("unlink")} disabled={deleteLoadingId !== null}>
+                <strong>Delete + unlink evidence</strong><span>Keep the Knowledge, but remove this file as supporting evidence.</span>
+              </button>
+              <button type="button" className="delete-choice destructive" onClick={() => void confirmDeleteAsset("cascade")} disabled={deleteLoadingId !== null}>
+                <strong>Delete everything created only from this document</strong><span>Exclusive Knowledge is removed. Multi-source Knowledge is preserved and only this evidence link is removed.</span>
+              </button>
+              {deleteLoadingId !== null && <div className="delete-processing">Processing your request…</div>}
+            </div>
+            <footer><button type="button" onClick={() => setDeleteReview(null)} disabled={deleteLoadingId !== null}>Cancel</button></footer>
+          </section>
+        </div>
+      )}
 
       {preview && (
         <div className="asset-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>
@@ -3607,6 +3665,7 @@ async function handleGenerateBusinessPlan(
         }
         onDocumentsChanged={setDocuments}
         onError={setError}
+        onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
         entityMappingMode={entityMappingMode}
         onEntityMappingModeChange={changeEntityMappingMode}
         onRelevanceReview={setAssetRelevanceReview}
@@ -4252,8 +4311,9 @@ async function handleGenerateBusinessPlan(
                         <div className="knowledge-change-intelligence">
                           <strong>Detected change</strong>
                           <span>{fact.change_summary}</span>
-                          {fact.numeric_delta !== null && fact.numeric_delta !== undefined && <small>Difference: {fact.numeric_delta > 0 ? "+" : ""}{fact.numeric_delta.toLocaleString()}</small>}
-                          {fact.numeric_delta_percent !== null && fact.numeric_delta_percent !== undefined && <small>Change: {fact.numeric_delta_percent > 0 ? "+" : ""}{fact.numeric_delta_percent.toFixed(1)}%</small>}
+                          {fact.delta_display && <small>Difference: {fact.delta_display}</small>}
+                          {fact.numeric_delta_percent !== null && fact.numeric_delta_percent !== undefined && fact.comparison_kind !== "date" && fact.comparison_kind !== "identifier" && <small>Change: {fact.numeric_delta_percent > 0 ? "+" : ""}{fact.numeric_delta_percent.toFixed(1)}%</small>}
+                          {fact.comparison_reason && <small>{fact.comparison_reason}</small>}
                         </div>
                       )}
                       {fact.rationale?.length > 0 && (
