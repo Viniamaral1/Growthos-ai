@@ -23,6 +23,16 @@ const TYPE_META: Record<string, { label: string; icon: string }> = {
   strategy: { label: "Strategy", icon: "◆" },
   task: { label: "Tasks", icon: "✓" },
   note: { label: "Notes", icon: "▤" },
+  finance: { label: "Finance", icon: "£" },
+  date: { label: "Dates", icon: "◷" },
+  supplier: { label: "Suppliers", icon: "◇" },
+  customer: { label: "Customers", icon: "◎" },
+  contract: { label: "Contracts", icon: "▣" },
+  commercial: { label: "Commercial", icon: "%" },
+  location: { label: "Locations", icon: "⌖" },
+  product: { label: "Products", icon: "□" },
+  risk: { label: "Risks", icon: "!" },
+  fact: { label: "Facts", icon: "•" },
 };
 
 function downloadBlob(filename: string, content: string, type: string) {
@@ -43,6 +53,43 @@ function activeSpaceStorageKey(companyId: number) {
   return `growthos-active-knowledge-space:${companyId}`;
 }
 
+function itemTags(item: KnowledgeItem): string[] {
+  try {
+    const value = JSON.parse(item.tags_json || "[]");
+    return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function confidenceFromItem(item: KnowledgeItem): number | null {
+  const tag = itemTags(item).find((value) => value.startsWith("confidence:"));
+  if (!tag) return null;
+  const value = Number(tag.slice("confidence:".length));
+  return Number.isFinite(value) ? value : null;
+}
+
+function sourceDocumentMetas(item: KnowledgeItem): Array<{ id: number; filename: string | null }> {
+  const tags = itemTags(item);
+  const result: Array<{ id: number; filename: string | null }> = [];
+  for (let index = 0; index < tags.length; index += 1) {
+    const tag = tags[index];
+    if (!tag.startsWith("source-document:")) continue;
+    const id = Number(tag.slice("source-document:".length));
+    if (!Number.isFinite(id)) continue;
+    const followingFile = tags.slice(index + 1).find((candidate) => candidate.startsWith("source-file:") || candidate.startsWith("source-document:"));
+    result.push({
+      id,
+      filename: followingFile?.startsWith("source-file:") ? followingFile.slice("source-file:".length) : null,
+    });
+  }
+  return result;
+}
+
+function sourceDocumentMeta(item: KnowledgeItem): { id: number; filename: string | null } | null {
+  return sourceDocumentMetas(item)[0] ?? null;
+}
+
 export default function KnowledgeSpacesPanel({
   company,
   onError,
@@ -59,6 +106,7 @@ export default function KnowledgeSpacesPanel({
   const [search, setSearch] = useState("");
   const [activeType, setActiveType] = useState<string>("all");
   const [selected, setSelected] = useState<KnowledgeItem | null>(null);
+  const [selectedSourceGroup, setSelectedSourceGroup] = useState<{ documentId: number; filename: string; items: KnowledgeItem[] } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
@@ -117,6 +165,34 @@ export default function KnowledgeSpacesPanel({
   }, [items]);
 
   const visibleItems = activeType === "all" ? items : grouped.get(activeType) ?? [];
+
+  const sourceGroups = useMemo(() => {
+    if (activeType !== "all") return [];
+    const byDocument = new Map<number, { documentId: number; filename: string; items: KnowledgeItem[] }>();
+    for (const item of visibleItems) {
+      const sources = sourceDocumentMetas(item);
+      for (const source of sources) {
+        const group = byDocument.get(source.id) ?? {
+          documentId: source.id,
+          filename: source.filename ?? `Business Intelligence source #${source.id}`,
+          items: [],
+        };
+        if (!group.items.some((candidate) => candidate.id === item.id)) group.items.push(item);
+        if (source.filename) group.filename = source.filename;
+        byDocument.set(source.id, group);
+      }
+    }
+    return [...byDocument.values()].sort((a, b) => {
+      const aDate = Math.max(...a.items.map((item) => new Date(item.updated_at).getTime()));
+      const bDate = Math.max(...b.items.map((item) => new Date(item.updated_at).getTime()));
+      return bDate - aDate;
+    });
+  }, [visibleItems, activeType]);
+
+  const standaloneItems = useMemo(() => {
+    if (activeType !== "all") return visibleItems;
+    return visibleItems.filter((item) => sourceDocumentMeta(item) === null);
+  }, [visibleItems, activeType]);
 
   async function addSpace() {
     if (!company || name.trim().length < 2) return;
@@ -345,16 +421,42 @@ export default function KnowledgeSpacesPanel({
                 )}
 
                 {visibleItems.length === 0 ? <div className="empty-panel">Nothing has been captured in this category yet.</div> : (
-                  <div className="knowledge-item-grid">
-                    {visibleItems.map((item) => (
-                      <article key={item.id} tabIndex={0} onClick={() => openItem(item)} onKeyDown={(event) => { if (event.key === "Enter") openItem(item); }}>
-                        <header><span>{TYPE_META[item.item_type]?.icon ?? "▤"} {TYPE_META[item.item_type]?.label ?? item.item_type}</span><time>{new Date(item.created_at).toLocaleDateString()}</time></header>
-                        <h3>{item.title}</h3>
-                        <p>{item.summary}</p>
-                        <footer><button type="button" onClick={(event) => { event.stopPropagation(); openItem(item); }}>Open</button><span>{item.source_conversation_id ? "From conversation" : "Captured item"}</span></footer>
-                      </article>
-                    ))}
-                  </div>
+                  <>
+                    {activeType === "all" && sourceGroups.length > 0 && (
+                      <section className="knowledge-source-section">
+                        <div className="knowledge-source-heading">
+                          <div><strong>Captured from Business Intelligence</strong><span>One source object, with its reusable facts grouped underneath.</span></div>
+                        </div>
+                        <div className="knowledge-source-grid">
+                          {sourceGroups.map((group) => {
+                            const types = [...new Set(group.items.map((item) => TYPE_META[item.item_type]?.label ?? item.item_type))];
+                            const calendarCount = group.items.filter((item) => itemTags(item).includes("calendar-candidate")).length;
+                            return (
+                              <article key={group.documentId} tabIndex={0} onClick={() => setSelectedSourceGroup(group)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedSourceGroup(group); }}>
+                                <header><span>▤ Business Intelligence source</span><time>{new Date(group.items[0]?.updated_at ?? Date.now()).toLocaleDateString()}</time></header>
+                                <h3>{group.filename}</h3>
+                                <p>{group.items.length} reusable {group.items.length === 1 ? "fact" : "facts"} captured</p>
+                                <div className="knowledge-source-tags">{types.slice(0, 5).map((type) => <span key={type}>{type}</span>)}{calendarCount > 0 && <span>◷ {calendarCount} calendar candidate{calendarCount === 1 ? "" : "s"}</span>}</div>
+                                <footer><button type="button" onClick={(event) => { event.stopPropagation(); setSelectedSourceGroup(group); }}>Open knowledge</button><span>Grouped by source</span></footer>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+                    {standaloneItems.length > 0 && (
+                      <div className="knowledge-item-grid">
+                        {standaloneItems.map((item) => (
+                          <article key={item.id} tabIndex={0} onClick={() => openItem(item)} onKeyDown={(event) => { if (event.key === "Enter") openItem(item); }}>
+                            <header><span>{TYPE_META[item.item_type]?.icon ?? "▤"} {TYPE_META[item.item_type]?.label ?? item.item_type}</span><time>{new Date(item.created_at).toLocaleDateString()}</time></header>
+                            <h3>{item.title}</h3>
+                            <p>{item.summary}</p>
+                            <footer><button type="button" onClick={(event) => { event.stopPropagation(); openItem(item); }}>Open</button><span>{item.source_conversation_id ? "From conversation" : "Captured item"}</span></footer>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             ) : <div className="empty-panel">Create or select a knowledge space.</div>}
@@ -512,6 +614,39 @@ export default function KnowledgeSpacesPanel({
           font-size: 15px;
         }
 
+        .knowledge-source-section {
+          display: grid;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .knowledge-source-heading div { display: grid; gap: 3px; }
+        .knowledge-source-heading strong { color: var(--text); font-size: 12px; }
+        .knowledge-source-heading span { color: var(--muted); font-size: 9px; }
+        .knowledge-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+        .knowledge-source-grid > article { border: 1px solid rgba(59,214,208,.18); border-radius: 15px; padding: 16px; background: rgba(9,25,42,.72); cursor: pointer; display: grid; gap: 10px; }
+        .knowledge-source-grid header, .knowledge-source-grid footer { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+        .knowledge-source-grid header span, .knowledge-source-grid footer span { color: var(--muted); font-size: 8px; }
+        .knowledge-source-grid h3 { margin: 0; font-size: 14px; }
+        .knowledge-source-grid p { margin: 0; color: var(--text-soft); font-size: 10px; }
+        .knowledge-source-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+        .knowledge-source-tags span, .calendar-chip { border: 1px solid rgba(59,214,208,.16); border-radius: 999px; padding: 4px 7px; color: var(--cyan); font-size: 8px; background: rgba(59,214,208,.05); }
+        .knowledge-source-preview { width: min(980px, calc(100vw - 40px)); max-height: min(86vh, 900px); }
+        .knowledge-source-content { overflow: auto; padding: 22px; display: grid; gap: 18px; }
+        .knowledge-source-summary { display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+        .knowledge-source-summary span { color: var(--muted); font-size: 9px; }
+        .knowledge-source-why { border: 1px solid rgba(148,163,184,.14); border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,.015); }
+        .knowledge-source-why summary { color: var(--cyan); font-weight: 800; cursor: pointer; }
+        .knowledge-source-why p { color: var(--text-soft); font-size: 9px; }
+        .knowledge-source-why div { display: flex; flex-wrap: wrap; gap: 6px; }
+        .knowledge-source-why div span { border: 1px solid var(--border); border-radius: 999px; padding: 4px 7px; color: var(--muted); font-size: 8px; }
+        .knowledge-source-category { display: grid; gap: 8px; }
+        .knowledge-source-category h3 { margin: 0; font-size: 11px; color: var(--cyan); text-transform: uppercase; letter-spacing: .05em; }
+        .knowledge-source-category > div { display: grid; gap: 8px; }
+        .knowledge-source-category article { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+        .knowledge-source-category article p { margin: 5px 0 0; color: var(--text-soft); white-space: pre-wrap; }
+        .knowledge-source-category article > div:last-child { display: grid; gap: 7px; justify-items: end; min-width: 110px; }
+
         @media (max-width: 850px) {
           :global(.knowledge-spaces-layout.sidebar-collapsed) {
             grid-template-columns: 54px minmax(0, 1fr);
@@ -522,6 +657,49 @@ export default function KnowledgeSpacesPanel({
           }
         }
       `}</style>
+
+      {selectedSourceGroup && (
+        <div className="knowledge-preview-backdrop knowledge-source-backdrop" role="presentation" onMouseDown={() => setSelectedSourceGroup(null)}>
+          <section className="knowledge-preview knowledge-source-preview" role="dialog" aria-modal="true" aria-label="Source knowledge" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div><span>▤</span><div><small>Business Intelligence source</small><h2>{selectedSourceGroup.filename}</h2></div></div>
+              <button type="button" onClick={() => setSelectedSourceGroup(null)}>×</button>
+            </header>
+            <div className="knowledge-source-content">
+              <div className="knowledge-source-summary"><strong>{selectedSourceGroup.items.length} reusable facts</strong><span>Structured Knowledge stays linked to the original evidence rather than duplicating the whole file.</span></div>
+              <details className="knowledge-source-why">
+                <summary>Why GrowthOS captured this</summary>
+                <p>GrowthOS kept only durable business facts from the source. The original document remains in Business Intelligence as evidence.</p>
+                <div>{[...new Set(selectedSourceGroup.items.map((item) => TYPE_META[item.item_type]?.label ?? item.item_type))].map((type) => <span key={type}>{type}</span>)}</div>
+              </details>
+              {(Object.entries(
+                selectedSourceGroup.items.reduce<Record<string, KnowledgeItem[]>>((acc, item) => {
+                  const key = item.item_type || "fact";
+                  acc[key] = [...(acc[key] ?? []), item];
+                  return acc;
+                }, {}),
+              ) as Array<[string, KnowledgeItem[]]>).map(([type, groupItems]) => (
+                <section className="knowledge-source-category" key={type}>
+                  <h3>{TYPE_META[type]?.icon ?? "•"} {TYPE_META[type]?.label ?? type}</h3>
+                  <div>
+                    {groupItems.map((item) => (
+                      <article key={item.id}>
+                        <div><strong>{item.title}</strong><p>{item.content}</p></div>
+                        <div>
+                          {confidenceFromItem(item) !== null && <span className="calendar-chip">Confidence {confidenceFromItem(item)}%</span>}
+                          {itemTags(item).includes("calendar-candidate") && <span className="calendar-chip">◷ Calendar candidate</span>}
+                          <button type="button" onClick={() => { setSelectedSourceGroup(null); openItem(item); }}>Open / edit</button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <footer><div /><div><button type="button" onClick={() => setSelectedSourceGroup(null)}>Close</button></div></footer>
+          </section>
+        </div>
+      )}
 
       {selected && (
         <div className="knowledge-preview-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>

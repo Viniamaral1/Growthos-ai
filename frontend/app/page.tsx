@@ -353,6 +353,7 @@ function KnowledgeView({
   onRelevanceReview,
   targetSpaceId,
   onTargetSpaceChange,
+  onCaptureKnowledge,
 }: {
   selectedCompanyId: number | null;
   documents: DocumentRecord[];
@@ -371,6 +372,7 @@ function KnowledgeView({
   onRelevanceReview: (review: AssetRelevanceReview) => void;
   targetSpaceId: number | null;
   onTargetSpaceChange: (spaceId: number | null) => void;
+  onCaptureKnowledge: (document: DocumentRecord) => void;
 }) {
   const [formatFilter, setFormatFilter] = useState<string>("ALL");
   const [preview, setPreview] = useState<{
@@ -527,6 +529,13 @@ function KnowledgeView({
     return "Not analysed";
   }
 
+  function knowledgeStatusLabel(document: DocumentRecord): string {
+    if (document.processing_status !== "processed") return "Available after processing";
+    if (document.knowledge_status === "needs_update") return `${document.knowledge_item_count} captured · source changed`;
+    if (document.knowledge_status === "captured") return `${document.knowledge_item_count} reusable ${document.knowledge_item_count === 1 ? "fact" : "facts"} captured`;
+    return "Not captured";
+  }
+
   return (
     <>
       <PageHeading
@@ -680,6 +689,20 @@ function KnowledgeView({
                     )}
                     {ready && document.entity_mapping_status === "completed" && <span className="asset-entity-complete">✓ Mapped</span>}
                     {ready && document.entity_mapping_status === "partial" && <span className="asset-entity-complete">✓ Partial map</span>}
+                  </div>
+                  <div className={cx("asset-knowledge-state", `state-${document.knowledge_status ?? "not_captured"}`)}>
+                    <div>
+                      <span>Knowledge</span>
+                      <strong>{knowledgeStatusLabel(document)}</strong>
+                      {document.knowledge_space_name && <small>Project: {document.knowledge_space_name}</small>}
+                    </div>
+                    {ready && (
+                      <button type="button" onClick={() => onCaptureKnowledge(document)}>
+                        {document.knowledge_status === "captured" ? "View / update" : document.knowledge_status === "needs_update" ? "Review update" : "Capture to Knowledge"}
+                      </button>
+                    )}
+                    {document.knowledge_status === "captured" && <span className="asset-knowledge-complete">✓ Captured</span>}
+                    {document.knowledge_status === "needs_update" && <span className="asset-knowledge-update">! Needs review</span>}
                   </div>
                   {entityNotice?.documentId === document.id && <p className="asset-entity-notice">{entityNotice.message}</p>}
                   {document.processing_error && <p className="asset-error">{document.processing_error}</p>}
@@ -2484,6 +2507,7 @@ export default function Home() {
   const [knowledgeBridgeReview, setKnowledgeBridgeReview] = useState<KnowledgeBridgeReview | null>(null);
   const [projectCreationDialog, setProjectCreationDialog] = useState<ProjectCreationDialog | null>(null);
   const [projectCreationName, setProjectCreationName] = useState("");
+  const [projectCreationBusy, setProjectCreationBusy] = useState(false);
   const [question, setQuestion] = useState("");
 
   const [answer, setAnswer] =
@@ -3098,16 +3122,28 @@ async function handleGenerateBusinessPlan(
     }
   }
 
-  async function captureIngestionKnowledge(item: IngestionTrayItem) {
-    const targetSpaceId = item.assessment.relevance.target_space_id;
-    if (!targetSpaceId) {
-      updateIngestionTrayItem(item.document.id, { note: "Choose or create a project before capturing reusable Knowledge." });
-      return;
-    }
-    updateIngestionTrayItem(item.document.id, { status: "working", note: "Finding reusable business facts…" });
+  async function openDocumentKnowledgeBridge(document: DocumentRecord, preferredSpaceId: number | null = null) {
+    if (selectedCompanyId === null) return;
+    let spaceId = document.project_space_id ?? preferredSpaceId ?? ingestionTargetSpaceId;
     try {
-      await routeDocumentToProject(item.document.id, targetSpaceId);
-      const preview = await previewDocumentKnowledge(item.document.id, targetSpaceId);
+      if (!spaceId) {
+        const assessment = await getDocumentIngestionAssessment(selectedCompanyId, document.id, null);
+        if (assessment.relevance.best_space_id && (assessment.relevance.best_confidence ?? 0) >= 58) {
+          spaceId = assessment.relevance.best_space_id;
+        } else {
+          const trayItem: IngestionTrayItem = { document, assessment, status: "pending", note: "Choose or create a project for reusable Knowledge." };
+          setIngestionTrayItems((current) => [trayItem, ...current.filter((candidate) => candidate.document.id !== document.id)]);
+          setIngestionTrayOpen(true);
+          if (assessment.relevance.suggested_new_space_name) {
+            openProjectCreationDialog(trayItem, null, assessment.relevance.suggested_new_space_name);
+          } else {
+            setMessage("Choose a Knowledge project before capturing this asset.");
+          }
+          return;
+        }
+      }
+      await routeDocumentToProject(document.id, spaceId);
+      const preview = await previewDocumentKnowledge(document.id, spaceId);
       const facts = preview.facts.map((fact) => ({
         ...fact,
         selected: fact.relationship !== "same",
@@ -3116,16 +3152,21 @@ async function handleGenerateBusinessPlan(
         action: fact.relationship === "changed" && fact.existing_item_id ? "update" as const : "create" as const,
       }));
       setKnowledgeBridgeReview({
-        document: item.document,
-        spaceId: targetSpaceId,
+        document,
+        spaceId,
         spaceName: preview.space_name,
         facts,
         aiEnriched: preview.ai_enriched,
       });
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: preview.facts.length ? "Review reusable Knowledge before saving." : "No durable business facts were found." });
     } catch (requestError) {
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "Knowledge preview failed." });
+      setError(requestError instanceof Error ? requestError.message : "Knowledge preview failed.");
     }
+  }
+
+  async function captureIngestionKnowledge(item: IngestionTrayItem) {
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Finding reusable business facts…" });
+    await openDocumentKnowledgeBridge(item.document, item.assessment.relevance.target_space_id);
+    updateIngestionTrayItem(item.document.id, { status: "pending", note: "Review reusable Knowledge before saving." });
   }
 
   async function saveKnowledgeBridgeReview() {
@@ -3147,6 +3188,7 @@ async function handleGenerateBusinessPlan(
         })),
       );
       updateIngestionTrayItem(knowledgeBridgeReview.document.id, { status: "done", note: result.message });
+      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
       setMessage(`${result.message} Source evidence remains in Business Intelligence.`);
       setKnowledgeBridgeReview(null);
     } catch (requestError) {
@@ -3160,37 +3202,45 @@ async function handleGenerateBusinessPlan(
   }
 
   async function confirmProjectCreation() {
-    if (!projectCreationDialog || selectedCompanyId === null) return;
+    if (!projectCreationDialog || selectedCompanyId === null || projectCreationBusy) return;
     const name = projectCreationName.trim();
     if (name.length < 2) {
       setError("Project name must contain at least 2 characters.");
       return;
     }
+    setProjectCreationBusy(true);
+    setError("");
     try {
+      const existingSpaces = await getKnowledgeSpaces(selectedCompanyId);
+      let created = existingSpaces.find((space) => space.name.trim().toLowerCase() === name.toLowerCase()) ?? null;
+      const alreadyExisted = Boolean(created);
       const sourceDocument = projectCreationDialog.item?.document ?? projectCreationDialog.relevanceReview?.document;
-      const created = await createKnowledgeSpace({
-        company_id: selectedCompanyId,
-        name,
-        description: sourceDocument ? `Created by Intelligent Ingestion for ${sourceDocument.original_filename}.` : "Created by Intelligent Ingestion.",
-        color: "cyan",
-      });
+      if (!created) {
+        created = await createKnowledgeSpace({
+          company_id: selectedCompanyId,
+          name,
+          description: sourceDocument ? `Created by Intelligent Ingestion for ${sourceDocument.original_filename}.` : "Created by Intelligent Ingestion.",
+          color: "cyan",
+        });
+      }
       setIngestionTargetSpaceId(created.id);
+      if (sourceDocument) await routeDocumentToProject(sourceDocument.id, created.id);
       if (projectCreationDialog.item) {
         const assessment = await getDocumentIngestionAssessment(selectedCompanyId, projectCreationDialog.item.document.id, created.id);
-        await routeDocumentToProject(projectCreationDialog.item.document.id, created.id);
         updateIngestionTrayItem(projectCreationDialog.item.document.id, {
           assessment,
           status: "pending",
-          note: `Created ${created.name} and linked this asset to it. Choose whether to map entities or capture Knowledge.`,
+          note: `${alreadyExisted ? "Using existing" : "Created"} ${created.name} and linked this asset to it.`,
         });
       }
-      if (projectCreationDialog.relevanceReview) {
-        setAssetRelevanceReview(null);
-      }
+      if (projectCreationDialog.relevanceReview) setAssetRelevanceReview(null);
       setProjectCreationDialog(null);
-      setMessage(`${created.name} project created.`);
+      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
+      setMessage(alreadyExisted ? `${created.name} already existed, so GrowthOS used that project.` : `✓ ${created.name} project created in Knowledge.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The new project could not be created.");
+    } finally {
+      setProjectCreationBusy(false);
     }
   }
 
@@ -3516,6 +3566,7 @@ async function handleGenerateBusinessPlan(
         onRelevanceReview={setAssetRelevanceReview}
         targetSpaceId={ingestionTargetSpaceId}
         onTargetSpaceChange={setIngestionTargetSpaceId}
+        onCaptureKnowledge={(document) => void openDocumentKnowledgeBridge(document)}
       />
     );
   } else if (view === "assistant") {
@@ -4051,6 +4102,16 @@ async function handleGenerateBusinessPlan(
                           <strong>Why GrowthOS thinks this</strong>
                           <ul>{item.assessment.relevance.reasons.slice(0, 4).map((reason, index) => <li key={`${item.document.id}-${index}`}>{reason}</li>)}</ul>
                         </div>
+                        <details className="confidence-breakdown">
+                          <summary title="Check the percentage breakdown behind this project-match decision">Why this score?</summary>
+                          <div>
+                            {Object.entries(item.assessment.relevance.confidence_breakdown ?? {}).map(([key, value]) => (
+                              <p key={key}><span>{key.replaceAll("_", " ")}</span><b>{Number(value) > 0 ? "+" : ""}{Number(value)}%</b></p>
+                            ))}
+                            {item.assessment.relevance.detected_domains?.length > 0 && <small>Detected domain: {item.assessment.relevance.detected_domains.join(", ")}</small>}
+                            {item.assessment.relevance.penalties?.map((penalty) => <small key={penalty} className="penalty">{penalty}</small>)}
+                          </div>
+                        </details>
                         <div className="ingestion-actions-preview">
                           {item.assessment.recommended_actions.slice(0, 3).map((action) => <span key={action}>{action}</span>)}
                         </div>
@@ -4065,9 +4126,7 @@ async function handleGenerateBusinessPlan(
                               <button type="button" className="secondary-button" onClick={() => void createSuggestedProject(item)}>Create {item.assessment.relevance.suggested_new_space_name}</button>
                             )}
                             <button type="button" className="secondary-button" onClick={() => void keepInProjectOnly(item)}>Keep only</button>
-                            {item.assessment.recommended_actions.some((action) => action.toLowerCase().includes("knowledge")) && (
-                              <button type="button" className="secondary-button" onClick={() => void captureIngestionKnowledge(item)}>Capture to Knowledge</button>
-                            )}
+                            <button type="button" className="secondary-button" onClick={() => void captureIngestionKnowledge(item)}>Capture to Knowledge</button>
                             <button type="button" className="ingestion-remove-button" onClick={() => void removeIngestionItem(item)}>Remove</button>
                           </footer>
                         )}
@@ -4139,6 +4198,12 @@ async function handleGenerateBusinessPlan(
                           <strong>{fact.value}</strong>
                         </div>
                       )}
+                      {fact.calendar_candidate && (
+                        <div className="knowledge-calendar-candidate">
+                          <span>◷ Calendar candidate</span>
+                          <small>{fact.calendar_reason ?? "This date may be useful as a reminder or calendar event."}</small>
+                        </div>
+                      )}
                       {fact.evidence && <small>Source evidence: {fact.evidence}</small>}
                     </article>
                   ))}
@@ -4161,7 +4226,7 @@ async function handleGenerateBusinessPlan(
                     <h2>Name this project</h2>
                     <p>GrowthOS suggested a destination, but you stay in control.</p>
                   </div>
-                  <button type="button" aria-label="Close project creation" onClick={() => setProjectCreationDialog(null)}>×</button>
+                  <button type="button" aria-label="Close project creation" onClick={() => setProjectCreationDialog(null)} disabled={projectCreationBusy}>×</button>
                 </header>
                 <label>
                   Project name
@@ -4169,8 +4234,10 @@ async function handleGenerateBusinessPlan(
                 </label>
                 {projectCreationDialog.suggestedName && <small>Suggested: {projectCreationDialog.suggestedName}</small>}
                 <footer>
-                  <button type="button" className="secondary-button" onClick={() => setProjectCreationDialog(null)}>Cancel</button>
-                  <button type="button" className="primary-button" onClick={() => void confirmProjectCreation()}>Create project</button>
+                  <button type="button" className="secondary-button" onClick={() => setProjectCreationDialog(null)} disabled={projectCreationBusy}>Cancel</button>
+                  <button type="button" className="primary-button" onClick={() => void confirmProjectCreation()} disabled={projectCreationBusy || projectCreationName.trim().length < 2}>
+                    {projectCreationBusy ? "Creating project…" : "Create project"}
+                  </button>
                 </footer>
               </section>
             </div>
@@ -4206,6 +4273,16 @@ async function handleGenerateBusinessPlan(
                       ))}
                     </ul>
                   </div>
+                  <details className="confidence-breakdown relevance-breakdown">
+                    <summary title="Check the percentage breakdown behind this decision">Check score breakdown</summary>
+                    <div>
+                      {Object.entries(assetRelevanceReview.relevance.confidence_breakdown ?? {}).map(([key, value]) => (
+                        <p key={key}><span>{key.replaceAll("_", " ")}</span><b>{Number(value) > 0 ? "+" : ""}{Number(value)}%</b></p>
+                      ))}
+                      {assetRelevanceReview.relevance.detected_domains?.length > 0 && <small>Detected domain: {assetRelevanceReview.relevance.detected_domains.join(", ")}</small>}
+                      {assetRelevanceReview.relevance.project_domains?.length > 0 && <small>Project domain: {assetRelevanceReview.relevance.project_domains.join(", ")}</small>}
+                    </div>
+                  </details>
                   {assetRelevanceReview.relevance.suggested_space_name && (
                     <div className="relevance-alternative">
                       <span>Possible better project</span>

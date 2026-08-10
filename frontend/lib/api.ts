@@ -57,6 +57,10 @@ export type DocumentRecord = {
   entity_mapped_at: string | null;
   project_space_id: number | null;
   project_space_name: string | null;
+  knowledge_status: "not_captured" | "captured" | "needs_update";
+  knowledge_item_count: number;
+  knowledge_space_id: number | null;
+  knowledge_space_name: string | null;
 };
 
 
@@ -83,6 +87,10 @@ export type DocumentRelevance = {
   best_confidence: number | null;
   best_is_stronger: boolean;
   no_confident_existing_match: boolean;
+  confidence_breakdown: Record<string, number>;
+  detected_domains: string[];
+  project_domains: string[];
+  penalties: string[];
   method: string;
 };
 
@@ -691,6 +699,8 @@ export type KnowledgeFactProposal = {
   existing_item_id: number | null;
   existing_value: string | null;
   relationship: "new" | "same" | "changed";
+  calendar_candidate: boolean;
+  calendar_reason: string | null;
 };
 
 export type DocumentKnowledgePreview = {

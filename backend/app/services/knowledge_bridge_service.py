@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ class KnowledgeFact:
     existing_item_id: int | None = None
     existing_value: str | None = None
     relationship: str = "new"
+    calendar_candidate: bool = False
+    calendar_reason: str | None = None
 
 
 def _clean(value: object, maximum: int = 500) -> str:
@@ -36,7 +39,17 @@ def _normalise(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-def _fact(key: str, title: str, value: str, evidence: str, *, item_type: str = "fact", confidence: int = 94) -> KnowledgeFact:
+def _fact(
+    key: str,
+    title: str,
+    value: str,
+    evidence: str,
+    *,
+    item_type: str = "fact",
+    confidence: int = 94,
+    calendar_candidate: bool = False,
+    calendar_reason: str | None = None,
+) -> KnowledgeFact:
     return KnowledgeFact(
         key=_normalise(key)[:120],
         title=_clean(title, 180),
@@ -45,6 +58,8 @@ def _fact(key: str, title: str, value: str, evidence: str, *, item_type: str = "
         item_type=item_type,
         confidence=max(0, min(100, confidence)),
         evidence=_clean(evidence, 300),
+        calendar_candidate=calendar_candidate,
+        calendar_reason=_clean(calendar_reason, 180) if calendar_reason else None,
     )
 
 
@@ -86,7 +101,12 @@ def _deterministic_facts(text: str) -> list[KnowledgeFact]:
         raw_label = match.group(1).lower().strip()
         title, item_type = label_patterns[raw_label]
         value = match.group(2).strip()
-        add(_fact(f"{item_type}-{raw_label}", title, value, match.group(0), item_type=item_type, confidence=98))
+        is_calendar = item_type == "date"
+        add(_fact(
+            f"{item_type}-{raw_label}", title, value, match.group(0),
+            item_type=item_type, confidence=98, calendar_candidate=is_calendar,
+            calendar_reason=f"Detected {title.lower()} that may be useful as a reminder or calendar event." if is_calendar else None,
+        ))
 
     # Payment terms are often written in prose.
     for match in re.finditer(r"\b(?:payable|payment(?:s)?(?: are)?(?: due)?|invoice(?:s)?(?: are)? payable)\s+(?:within\s+)?(\d{1,3})\s+days\b", text, re.I):
@@ -109,7 +129,16 @@ def _deterministic_facts(text: str) -> list[KnowledgeFact]:
     ]
     for pattern in date_patterns:
         for match in re.finditer(pattern, text, re.I):
-            add(_fact(f"date-{_normalise(match.group(0))}", "Business date", match.group(0), match.group(0), item_type="date", confidence=96))
+            context_start = max(0, match.start() - 90)
+            context_end = min(len(text), match.end() + 90)
+            context = text[context_start:context_end]
+            calendar_terms = ("meeting", "deadline", "renew", "expiry", "review", "due", "payment", "audit", "appointment", "delivery")
+            is_calendar = any(term in context.lower() for term in calendar_terms)
+            add(_fact(
+                f"date-{_normalise(match.group(0))}", "Business date", match.group(0), context,
+                item_type="date", confidence=96, calendar_candidate=is_calendar,
+                calendar_reason="This date appears near a meeting, deadline, renewal, review, payment, audit or delivery reference." if is_calendar else None,
+            ))
 
     return facts[:18]
 
@@ -173,7 +202,13 @@ TEXT: {text}"""
         key = _clean(candidate.get("key"), 120) or title
         item_type = _clean(candidate.get("item_type"), 40) or "fact"
         evidence = _clean(candidate.get("evidence"), 300)
-        result.append(_fact(key, title, value, evidence, item_type=item_type, confidence=confidence))
+        calendar_text = f"{title} {value} {evidence}".lower()
+        calendar_candidate = item_type == "date" and any(term in calendar_text for term in ("meeting", "deadline", "renew", "expiry", "review", "due", "payment", "audit", "delivery"))
+        result.append(_fact(
+            key, title, value, evidence, item_type=item_type, confidence=confidence,
+            calendar_candidate=calendar_candidate,
+            calendar_reason="This looks like a dated business event or deadline." if calendar_candidate else None,
+        ))
     return result[:8]
 
 
@@ -249,13 +284,18 @@ def capture_document_facts(
         value = _clean(incoming.get("value") or proposal.value, 5000)
         if not title or not value:
             continue
+        source_hash = hashlib.sha256((document.extracted_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
         tags = [
             "business-intelligence",
             "knowledge-bridge",
             f"source-document:{document.id}",
+            f"source-file:{document.original_filename}",
+            f"source-hash:{source_hash}",
             f"fact-key:{proposal.key}",
             f"confidence:{proposal.confidence}",
         ]
+        if proposal.calendar_candidate:
+            tags.append("calendar-candidate")
         if proposal.existing_item_id and str(incoming.get("action") or "update") == "update":
             item = database.get(KnowledgeItem, proposal.existing_item_id)
             if item is None:
@@ -265,7 +305,12 @@ def capture_document_facts(
             item.title = title
             item.summary = _clean(f"{title}: {value}", 5000)
             item.content = value + history_note
-            item.tags_json = json.dumps(tags + ["updated-from-document"])
+            try:
+                previous_tags = json.loads(item.tags_json or "[]")
+            except (TypeError, json.JSONDecodeError):
+                previous_tags = []
+            merged_tags = [tag for tag in previous_tags if isinstance(tag, str)] + tags + ["updated-from-document"]
+            item.tags_json = json.dumps(list(dict.fromkeys(merged_tags)))
             database.add(item)
             created_or_updated.append(item)
         else:

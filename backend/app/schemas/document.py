@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DocumentResponse(BaseModel):
@@ -29,6 +29,10 @@ class DocumentResponse(BaseModel):
     entity_mapped_at: datetime | None = None
     project_space_id: int | None = None
     project_space_name: str | None = None
+    knowledge_status: str = "not_captured"
+    knowledge_item_count: int = 0
+    knowledge_space_id: int | None = None
+    knowledge_space_name: str | None = None
 
 
 class DocumentTextResponse(BaseModel):
@@ -64,6 +68,10 @@ class DocumentRelevanceResponse(BaseModel):
     best_confidence: int | None = None
     best_is_stronger: bool = False
     no_confident_existing_match: bool = False
+    confidence_breakdown: dict[str, int] = Field(default_factory=dict)
+    detected_domains: list[str] = Field(default_factory=list)
+    project_domains: list[str] = Field(default_factory=list)
+    penalties: list[str] = Field(default_factory=list)
     method: str
 
 
@@ -115,6 +123,8 @@ class KnowledgeFactProposal(BaseModel):
     existing_item_id: int | None = None
     existing_value: str | None = None
     relationship: str = "new"
+    calendar_candidate: bool = False
+    calendar_reason: str | None = None
 
 
 class DocumentKnowledgePreviewResponse(BaseModel):

@@ -110,10 +110,55 @@ def _project_for_document(database: Session, document_id: int) -> tuple[int | No
     return (link.space_id, space.name if space is not None else None)
 
 
+
+
+def _document_text_hash(document: Document) -> str:
+    return hashlib.sha256((document.extracted_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+
+
+def _knowledge_state_for_document(database: Session, document: Document) -> dict[str, object]:
+    marker = f"source-document:{document.id}"
+    items = list(database.scalars(
+        select(KnowledgeItem)
+        .where(KnowledgeItem.company_id == document.company_id, KnowledgeItem.tags_json.contains(marker))
+        .order_by(KnowledgeItem.updated_at.desc())
+    ).all())
+    if not items:
+        return {
+            "knowledge_status": "not_captured",
+            "knowledge_item_count": 0,
+            "knowledge_space_id": None,
+            "knowledge_space_name": None,
+        }
+    current_hash = _document_text_hash(document)
+    captured_hashes: set[str] = set()
+    for item in items:
+        try:
+            tags = json.loads(item.tags_json or "[]")
+        except (TypeError, json.JSONDecodeError):
+            tags = []
+        for tag in tags if isinstance(tags, list) else []:
+            if isinstance(tag, str) and tag.startswith("source-hash:"):
+                captured_hashes.add(tag.split(":", 1)[1])
+    status_value = "needs_update" if captured_hashes and current_hash not in captured_hashes else "captured"
+    primary = items[0]
+    space = database.get(KnowledgeSpace, primary.space_id)
+    return {
+        "knowledge_status": status_value,
+        "knowledge_item_count": len(items),
+        "knowledge_space_id": primary.space_id,
+        "knowledge_space_name": space.name if space is not None else None,
+    }
+
 def _document_response_with_project(database: Session, document: Document, state: BusinessEntityExtraction | None = None) -> DocumentResponse:
     response = _document_response(document, state)
     space_id, space_name = _project_for_document(database, document.id)
-    return response.model_copy(update={"project_space_id": space_id, "project_space_name": space_name})
+    knowledge_state = _knowledge_state_for_document(database, document)
+    return response.model_copy(update={
+        "project_space_id": space_id,
+        "project_space_name": space_name,
+        **knowledge_state,
+    })
 
 
 def _document_response(
