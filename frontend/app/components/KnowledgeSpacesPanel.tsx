@@ -149,10 +149,14 @@ export default function KnowledgeSpacesPanel({
   company,
   onError,
   onSuccess,
+  activeSpaceId,
+  onActiveSpaceChange,
 }: {
   company: Company | null;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
+  activeSpaceId?: number | null;
+  onActiveSpaceChange?: (spaceId: number | null) => void;
 }) {
   const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
   const [active, setActive] = useState<KnowledgeSpace | null>(null);
@@ -185,6 +189,8 @@ export default function KnowledgeSpacesPanel({
       .then((result) => {
         setSpaces(result);
         setActive((current) => {
+          const requested = activeSpaceId ? result.find((space) => space.id === activeSpaceId) : null;
+          if (requested) return requested;
           const currentMatch = result.find((space) => space.id === current?.id);
           if (currentMatch) return currentMatch;
           const storedId = Number(window.localStorage.getItem(activeSpaceStorageKey(company.id)) || "0");
@@ -192,11 +198,23 @@ export default function KnowledgeSpacesPanel({
         });
       })
       .catch((error) => onError(error instanceof Error ? error.message : "Knowledge spaces could not be loaded."));
-  }, [company?.id]);
+  }, [company?.id, activeSpaceId]);
+
+  useEffect(() => {
+    if (!activeSpaceId || spaces.length === 0) return;
+    const requested = spaces.find((space) => space.id === activeSpaceId);
+    if (requested && requested.id !== active?.id) {
+      setActive(requested);
+      setActiveType("all");
+      setSelected(null);
+      setSelectedSourceGroup(null);
+    }
+  }, [activeSpaceId, spaces, active?.id]);
 
   useEffect(() => {
     if (company && active) {
       window.localStorage.setItem(activeSpaceStorageKey(company.id), String(active.id));
+      onActiveSpaceChange?.(active.id);
     }
   }, [company?.id, active?.id]);
 
@@ -412,7 +430,7 @@ export default function KnowledgeSpacesPanel({
                 className={active?.id === space.id ? "active" : ""}
                 aria-label={space.name}
                 data-tooltip={sidebarCollapsed ? space.name : undefined}
-                onClick={() => { setActive(space); setActiveType("all"); setSelected(null); }}
+                onClick={() => { setActive(space); setActiveType("all"); setSelected(null); setSelectedSourceGroup(null); onActiveSpaceChange?.(space.id); }}
               >
                 <span>▦</span><div><strong>{space.name}</strong><small>{space.description ?? "Saved business knowledge"}</small></div>
               </button>

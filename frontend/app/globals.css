@@ -8614,3 +8614,58 @@ button:disabled {
   .library-scope-actions { justify-content: flex-start; }
   .asset-project-route { align-items: flex-start; flex-direction: column; }
 }
+
+/* v0.10.6 — shared project context + linked source/Knowledge movement */
+.project-ranked-list > button.selected {
+  border-color: rgba(67, 211, 211, .72);
+  background: rgba(67, 211, 211, .09);
+  box-shadow: inset 0 0 0 1px rgba(67, 211, 211, .12);
+}
+.project-route-confirmation {
+  margin: 0 28px 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(67, 211, 211, .22);
+  border-radius: 16px;
+  background: rgba(8, 31, 48, .76);
+  display: grid;
+  gap: 7px;
+}
+.project-route-confirmation > span,
+.linked-move-options > span {
+  color: #7ea4bb;
+  font-size: .76rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.project-route-confirmation > strong { color: #eafafa; }
+.project-route-confirmation ul { margin: 0; padding-left: 19px; color: #a9becd; }
+.project-route-confirmation p { margin: 0; color: #a9becd; }
+.linked-move-options {
+  margin: 0 28px 18px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 16px;
+  background: rgba(255,255,255,.018);
+  display: grid;
+  gap: 9px;
+}
+.linked-move-options label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148,163,184,.12);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.linked-move-options label.selected {
+  border-color: rgba(67,211,211,.42);
+  background: rgba(67,211,211,.055);
+}
+.linked-move-options label input { margin-top: 3px; }
+.linked-move-options label div { display: grid; gap: 2px; }
+.linked-move-options label strong { color: #eef8fa; }
+.linked-move-options label small { color: #8fa8ba; }
+.project-move-dialog footer { gap: 10px; flex-wrap: wrap; }
+.project-move-dialog footer .routing-helper { margin-right: auto; }

@@ -120,6 +120,8 @@ class DocumentRouteResponse(BaseModel):
     document_id: int
     space_id: int
     space_name: str
+    mode: str = "linked"
+    moved_knowledge_items: int = 0
     message: str
 
 

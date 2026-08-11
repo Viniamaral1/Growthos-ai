@@ -716,8 +716,17 @@ export async function checkDocumentDuplicate(companyId: number, file: File): Pro
   return response.json();
 }
 
-export async function routeDocumentToProject(documentId: number, spaceId: number): Promise<{document_id:number;space_id:number;space_name:string;message:string}> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/route?space_id=${spaceId}`, { method: "POST" });
+export type DocumentProjectMoveMode = "linked" | "document_only" | "knowledge_only";
+
+export async function routeDocumentToProject(
+  documentId: number,
+  spaceId: number,
+  mode: DocumentProjectMoveMode = "linked",
+): Promise<{document_id:number;space_id:number;space_name:string;mode:DocumentProjectMoveMode;moved_knowledge_items:number;message:string}> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/route?space_id=${spaceId}&mode=${encodeURIComponent(mode)}`,
+    { method: "POST" },
+  );
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
 }

@@ -855,6 +855,7 @@ def route_document_to_project(
     document_id: int,
     space_id: int,
     database: DatabaseSession,
+    mode: str = "linked",
 ) -> DocumentRouteResponse:
     document = database.get(Document, document_id)
     space = database.get(KnowledgeSpace, space_id)
@@ -862,14 +863,39 @@ def route_document_to_project(
         raise HTTPException(status_code=404, detail="Document not found.")
     if space is None or space.company_id != document.company_id or space.is_archived:
         raise HTTPException(status_code=404, detail="Destination project not found.")
-    link = database.scalar(select(DocumentProjectLink).where(DocumentProjectLink.document_id == document_id))
-    if link is None:
-        link = DocumentProjectLink(document_id=document_id, space_id=space_id)
-    else:
-        link.space_id = space_id
-    database.add(link)
+    if mode not in {"linked", "document_only", "knowledge_only"}:
+        raise HTTPException(status_code=400, detail="Unsupported project move mode.")
+
+    moved_knowledge = 0
+    if mode in {"linked", "document_only"}:
+        link = database.scalar(select(DocumentProjectLink).where(DocumentProjectLink.document_id == document_id))
+        if link is None:
+            link = DocumentProjectLink(document_id=document_id, space_id=space_id)
+        else:
+            link.space_id = space_id
+        database.add(link)
+
+    if mode in {"linked", "knowledge_only"}:
+        for item in _knowledge_items_for_document(database, document):
+            if item.space_id != space_id:
+                item.space_id = space_id
+                database.add(item)
+                moved_knowledge += 1
+
     database.commit()
-    return DocumentRouteResponse(document_id=document_id, space_id=space.id, space_name=space.name, message=f"Asset routed to {space.name}.")
+    action = {
+        "linked": "Asset and linked Knowledge moved",
+        "document_only": "Asset moved",
+        "knowledge_only": "Linked Knowledge moved",
+    }[mode]
+    return DocumentRouteResponse(
+        document_id=document_id,
+        space_id=space.id,
+        space_name=space.name,
+        mode=mode,
+        moved_knowledge_items=moved_knowledge,
+        message=f"{action} to {space.name}.",
+    )
 
 
 

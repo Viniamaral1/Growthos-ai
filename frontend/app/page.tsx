@@ -399,6 +399,8 @@ function KnowledgeView({
   const [deleteDetailSection, setDeleteDetailSection] = useState<"knowledge" | "graph" | "calendar" | "tasks" | null>(null);
   const [libraryScope, setLibraryScope] = useState<"project" | "all" | "review">(targetSpaceId === null ? "all" : "project");
   const [routeReview, setRouteReview] = useState<{ document: DocumentRecord; assessment: IntelligentIngestionAssessment } | null>(null);
+  const [routeSelectedSpaceId, setRouteSelectedSpaceId] = useState<number | null>(null);
+  const [routeMoveMode, setRouteMoveMode] = useState<"linked" | "document_only" | "knowledge_only">("linked");
   const [routeLoadingId, setRouteLoadingId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -466,6 +468,8 @@ function KnowledgeView({
     try {
       const assessment = await getDocumentIngestionAssessment(selectedCompanyId, document.id, document.project_space_id ?? targetSpaceId);
       setRouteReview({ document, assessment });
+      setRouteSelectedSpaceId(document.project_space_id ?? assessment.relevance.best_space_id ?? assessment.relevance.target_space_id ?? null);
+      setRouteMoveMode(document.knowledge_item_count > 0 ? "linked" : "document_only");
     } catch (error) {
       onError(error instanceof Error ? error.message : "GrowthOS could not rank project destinations.");
     } finally {
@@ -473,15 +477,29 @@ function KnowledgeView({
     }
   }
 
-  async function moveDocumentProject(spaceId: number) {
-    if (!routeReview || routeLoadingId !== null) return;
+  async function moveDocumentProject() {
+    if (!routeReview || routeSelectedSpaceId === null || routeLoadingId !== null) return;
     const document = routeReview.document;
     setRouteLoadingId(document.id);
     try {
-      const result = await routeDocumentToProject(document.id, spaceId);
-      onDocumentsChanged(documents.map((candidate) => candidate.id === document.id ? { ...candidate, project_space_id: result.space_id, project_space_name: result.space_name } : candidate));
+      const result = await routeDocumentToProject(document.id, routeSelectedSpaceId, routeMoveMode);
+      onDocumentsChanged(documents.map((candidate) => {
+        if (candidate.id !== document.id) return candidate;
+        if (routeMoveMode === "knowledge_only") {
+          return { ...candidate, knowledge_space_id: result.space_id, knowledge_space_name: result.space_name };
+        }
+        return {
+          ...candidate,
+          project_space_id: result.space_id,
+          project_space_name: result.space_name,
+          ...(routeMoveMode === "linked" && candidate.knowledge_item_count > 0
+            ? { knowledge_space_id: result.space_id, knowledge_space_name: result.space_name }
+            : {}),
+        };
+      }));
       setRouteReview(null);
-      onSuccess(`${document.original_filename} moved to ${result.space_name}.`);
+      setRouteSelectedSpaceId(null);
+      onSuccess(result.message);
     } catch (error) {
       onError(error instanceof Error ? error.message : "The asset could not be moved to that project.");
     } finally {
@@ -832,14 +850,20 @@ function KnowledgeView({
             <header>
               <div>
                 <span>✦ Project routing</span>
-                <h2>Change project</h2>
+                <h2>Choose a destination</h2>
                 <p>{routeReview.document.original_filename}</p>
               </div>
-              <button type="button" aria-label="Close project routing" onClick={() => setRouteReview(null)} disabled={routeLoadingId !== null}>×</button>
+              <button type="button" aria-label="Close project routing" onClick={() => { setRouteReview(null); setRouteSelectedSpaceId(null); }} disabled={routeLoadingId !== null}>×</button>
             </header>
             <div className="project-ranked-list">
               {(routeReview.assessment.relevance.ranked_projects ?? []).map((project, index) => (
-                <button type="button" key={project.space_id} onClick={() => void moveDocumentProject(project.space_id)} disabled={routeLoadingId !== null}>
+                <button
+                  type="button"
+                  key={project.space_id}
+                  className={cx(routeSelectedSpaceId === project.space_id && "selected")}
+                  onClick={() => setRouteSelectedSpaceId(project.space_id)}
+                  disabled={routeLoadingId !== null}
+                >
                   <div>
                     <strong>{project.space_name}</strong>
                     <span>{project.space_id === routeReview.document.project_space_id ? "Current project" : index === 0 ? "Best match" : project.level === "high" ? "Strong match" : project.level === "medium" ? "Review" : "Low fit"}</span>
@@ -849,11 +873,44 @@ function KnowledgeView({
                 </button>
               ))}
             </div>
+            {routeSelectedSpaceId !== null && (() => {
+              const selectedProject = (routeReview.assessment.relevance.ranked_projects ?? []).find((project) => project.space_id === routeSelectedSpaceId);
+              if (!selectedProject) return null;
+              return (
+                <div className="project-route-confirmation">
+                  <span>Why GrowthOS suggests this project</span>
+                  <strong>{selectedProject.space_name} · {selectedProject.confidence}%</strong>
+                  {selectedProject.reasons.length > 0 ? (
+                    <ul>{selectedProject.reasons.slice(0, 3).map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}</ul>
+                  ) : <p>The project is available as a user-selected destination.</p>}
+                </div>
+              );
+            })()}
+            {routeReview.document.knowledge_item_count > 0 && (
+              <div className="linked-move-options">
+                <span>This asset has {routeReview.document.knowledge_item_count} linked Knowledge {routeReview.document.knowledge_item_count === 1 ? "fact" : "facts"}.</span>
+                <label className={cx(routeMoveMode === "linked" && "selected")}>
+                  <input type="radio" name="route-move-mode" checked={routeMoveMode === "linked"} onChange={() => setRouteMoveMode("linked")} />
+                  <div><strong>Move document + linked Knowledge</strong><small>Recommended · keeps the source and its captured Knowledge aligned.</small></div>
+                </label>
+                <label className={cx(routeMoveMode === "document_only" && "selected")}>
+                  <input type="radio" name="route-move-mode" checked={routeMoveMode === "document_only"} onChange={() => setRouteMoveMode("document_only")} />
+                  <div><strong>Move document only</strong><small>Keep captured Knowledge in its existing project.</small></div>
+                </label>
+                <label className={cx(routeMoveMode === "knowledge_only" && "selected")}>
+                  <input type="radio" name="route-move-mode" checked={routeMoveMode === "knowledge_only"} onChange={() => setRouteMoveMode("knowledge_only")} />
+                  <div><strong>Move Knowledge only</strong><small>Keep the original Business Intelligence asset where it is.</small></div>
+                </label>
+              </div>
+            )}
             <footer>
-              <span className="routing-helper">AI ranking is advisory. Choosing a project does not limit future company-wide matching.</span>
-              <button type="button" className="secondary-button" onClick={() => setRouteReview(null)} disabled={routeLoadingId !== null}>Cancel</button>
+              <span className="routing-helper">AI ranking is advisory. Select a project first, review why, then confirm the move.</span>
+              <button type="button" className="secondary-button" onClick={() => { setRouteReview(null); setRouteSelectedSpaceId(null); }} disabled={routeLoadingId !== null}>Cancel</button>
+              <button type="button" className="primary-button" onClick={() => void moveDocumentProject()} disabled={routeLoadingId !== null || routeSelectedSpaceId === null}>
+                {routeLoadingId !== null ? "Moving…" : "Confirm project change"}
+              </button>
             </footer>
-            {routeLoadingId !== null && <div className="delete-processing">Moving asset… Please wait.</div>}
+            {routeLoadingId !== null && <div className="delete-processing">Moving linked records… Please wait.</div>}
           </section>
         </div>
       )}
@@ -3322,7 +3379,13 @@ async function handleGenerateBusinessPlan(
     // Existing captured Knowledge opens directly for review/update. A new capture always
     // re-checks routing so GrowthOS never silently assumes an old project destination.
     if ((document.knowledge_status === "captured" || document.knowledge_status === "needs_update") && document.knowledge_space_id) {
-      await openDocumentKnowledgeBridge(document, document.knowledge_space_id);
+      setKnowledgeBridgeLoadingId(document.id);
+      setMessage(`Loading captured Knowledge for ${document.original_filename}…`);
+      try {
+        await openDocumentKnowledgeBridge(document, document.knowledge_space_id);
+      } finally {
+        setKnowledgeBridgeLoadingId(null);
+      }
       return;
     }
 
@@ -3867,6 +3930,10 @@ async function handleGenerateBusinessPlan(
     activeView = (
       <KnowledgeSpacesPanel
         company={selectedCompany}
+        activeSpaceId={ingestionTargetSpaceId}
+        onActiveSpaceChange={(spaceId) => {
+          if (spaceId !== null && spaceId !== ingestionTargetSpaceId) setIngestionTargetSpaceId(spaceId);
+        }}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
       />
