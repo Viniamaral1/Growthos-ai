@@ -711,6 +711,11 @@ export default function KnowledgeSpacesPanel({
         .evidence-health.healthy { border-color: rgba(52, 211, 153, .28) !important; color: #7ee7bd !important; }
         .evidence-health.warning { border-color: rgba(251, 191, 36, .35) !important; color: #f6c95f !important; }
         .evidence-health.unlinked { border-color: rgba(248, 113, 113, .32) !important; color: #fb8f9d !important; }
+        .knowledge-supporting-sources { position: relative; }
+        .knowledge-supporting-sources > summary { cursor: pointer; list-style: none; }
+        .knowledge-supporting-sources > summary::-webkit-details-marker { display: none; }
+        .knowledge-supporting-sources > div { display: grid; gap: 5px; margin-top: 6px; padding: 9px 10px; border-radius: 10px; background: rgba(7, 22, 38, .92); border: 1px solid rgba(148, 163, 184, .16); min-width: 220px; }
+        .knowledge-supporting-sources > div span { color: #9fb4c8; font-size: .76rem; }
 
         @media (max-width: 850px) {
           :global(.knowledge-spaces-layout.sidebar-collapsed) {
@@ -772,7 +777,16 @@ export default function KnowledgeSpacesPanel({
                         </div>
                         <div>
                           {confidenceFromItem(item) !== null && <span className="calendar-chip">Confidence {confidenceFromItem(item)}%</span>}
-                          <span className={`calendar-chip evidence-health ${evidenceHealthFromItem(item).status}`}>{evidenceHealthFromItem(item).label}</span>
+                          <details className="knowledge-supporting-sources">
+                            <summary className={`calendar-chip evidence-health ${evidenceHealthFromItem(item).status}`}>{evidenceHealthFromItem(item).label}</summary>
+                            <div>
+                              {sourceDocumentMetas(item).length > 0 ? sourceDocumentMetas(item).map((source) => (
+                                <span key={source.id}>▤ {source.filename ?? `Document #${source.id}`}</span>
+                              )) : <span>No active source document is currently linked.</span>}
+                              {itemTags(item).some((tag) => tag.startsWith("source-deleted-document:")) && <span>⚠ Original source was deleted; retained Knowledge is historical.</span>}
+                              {itemTags(item).some((tag) => tag.startsWith("evidence-unlinked-document:")) && <span>⚠ One source was explicitly unlinked from this fact.</span>}
+                            </div>
+                          </details>
                           {itemTags(item).includes("calendar-candidate") && <span className="calendar-chip">◷ Calendar candidate</span>}
                           <button type="button" onClick={() => { setSelectedSourceGroup(null); openItem(item); }}>Open / edit</button>
                         </div>

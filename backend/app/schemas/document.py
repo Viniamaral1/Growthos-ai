@@ -47,6 +47,24 @@ class DocumentTextResponse(BaseModel):
     character_count: int | None
     extracted_text: str | None
 
+
+class RankedProjectMatch(BaseModel):
+    space_id: int
+    space_name: str
+    confidence: int
+    level: str
+    reasons: list[str] = Field(default_factory=list)
+
+
+class DeleteDependencyItem(BaseModel):
+    kind: str
+    id: int | None = None
+    label: str
+    detail: str | None = None
+    project_space_id: int | None = None
+    project_space_name: str | None = None
+    supporting_sources: int | None = None
+
 class DocumentRelevanceResponse(BaseModel):
     document_id: int
     company_id: int
@@ -72,6 +90,7 @@ class DocumentRelevanceResponse(BaseModel):
     detected_domains: list[str] = Field(default_factory=list)
     project_domains: list[str] = Field(default_factory=list)
     penalties: list[str] = Field(default_factory=list)
+    ranked_projects: list[RankedProjectMatch] = Field(default_factory=list)
     method: str
 
 
@@ -172,6 +191,10 @@ class DocumentDeleteDependencyResponse(BaseModel):
     graph_entities: int = 0
     calendar_candidates: int = 0
     task_or_risk_items: int = 0
+    knowledge_details: list[DeleteDependencyItem] = Field(default_factory=list)
+    graph_details: list[DeleteDependencyItem] = Field(default_factory=list)
+    calendar_details: list[DeleteDependencyItem] = Field(default_factory=list)
+    task_or_risk_details: list[DeleteDependencyItem] = Field(default_factory=list)
     project_space_id: int | None = None
     project_space_name: str | None = None
     message: str

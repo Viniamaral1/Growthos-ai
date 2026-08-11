@@ -145,7 +145,7 @@ def _source_document_ids(tags: list[str]) -> set[int]:
     return result
 
 
-def _mark_knowledge_source_deleted(item: KnowledgeItem, document: Document, *, unlink: bool) -> None:
+def _mark_knowledge_source_deleted(database: Session, item: KnowledgeItem, document: Document, *, unlink: bool) -> None:
     tags = _parsed_tags(item)
     source_prefixes = (
         f"source-document:{document.id}",
@@ -1012,14 +1012,58 @@ def get_document_delete_dependencies(
         if (item.item_type or "").lower() in {"task", "risk"}:
             task_or_risk += 1
 
-    graph_entities = len(set(database.scalars(
+    graph_entity_ids = set(database.scalars(
         select(BusinessEntitySource.entity_id).where(
             BusinessEntitySource.company_id == document.company_id,
             BusinessEntitySource.source_kind == "document",
             BusinessEntitySource.source_id == document.id,
         )
-    ).all()))
+    ).all())
+    graph_entity_ids.update(database.scalars(
+        select(BusinessEntity.id).where(
+            BusinessEntity.company_id == document.company_id,
+            BusinessEntity.source_kind == "document",
+            BusinessEntity.source_id == document.id,
+        )
+    ).all())
+    graph_entities = len(graph_entity_ids)
+
     space_id, space_name = _project_for_document(database, document.id)
+    knowledge_details = []
+    calendar_details = []
+    task_or_risk_details = []
+    for item in knowledge_items:
+        tags = _parsed_tags(item)
+        source_count = len(_source_document_ids(tags))
+        detail = {
+            "kind": "knowledge",
+            "id": item.id,
+            "label": item.title,
+            "detail": (item.summary or item.content or "")[:180],
+            "project_space_id": item.space_id,
+            "project_space_name": database.get(KnowledgeSpace, item.space_id).name if database.get(KnowledgeSpace, item.space_id) is not None else None,
+            "supporting_sources": source_count,
+        }
+        knowledge_details.append(detail)
+        if "calendar-candidate" in tags:
+            calendar_details.append({**detail, "kind": "calendar"})
+        if (item.item_type or "").lower() in {"task", "risk"}:
+            task_or_risk_details.append({**detail, "kind": (item.item_type or "task").lower()})
+
+    graph_details = []
+    if graph_entity_ids:
+        for entity in database.scalars(
+            select(BusinessEntity).where(BusinessEntity.id.in_(graph_entity_ids)).order_by(BusinessEntity.entity_type, BusinessEntity.name)
+        ).all():
+            graph_details.append({
+                "kind": "graph",
+                "id": entity.id,
+                "label": entity.name,
+                "detail": f"{entity.entity_type.replace('_', ' ').title()} · confidence {round((entity.confidence or 0) * 100)}%",
+                "project_space_id": space_id,
+                "project_space_name": space_name,
+            })
+
     return DocumentDeleteDependencyResponse(
         document_id=document.id,
         filename=document.original_filename,
@@ -1029,6 +1073,10 @@ def get_document_delete_dependencies(
         graph_entities=graph_entities,
         calendar_candidates=calendar_candidates,
         task_or_risk_items=task_or_risk,
+        knowledge_details=knowledge_details,
+        graph_details=graph_details,
+        calendar_details=calendar_details,
+        task_or_risk_details=task_or_risk_details,
         project_space_id=space_id,
         project_space_name=space_name,
         message="GrowthOS checked what currently depends on this evidence before deletion.",
@@ -1071,10 +1119,10 @@ def delete_document(
                 database.delete(item)
                 removed_knowledge += 1
             elif mode == "unlink" or mode == "cascade":
-                _mark_knowledge_source_deleted(item, document, unlink=True)
+                _mark_knowledge_source_deleted(database, item, document, unlink=True)
                 unlinked_knowledge += 1
             else:
-                _mark_knowledge_source_deleted(item, document, unlink=False)
+                _mark_knowledge_source_deleted(database, item, document, unlink=False)
 
         related_entity_ids = set(database.scalars(
             select(BusinessEntitySource.entity_id).where(

@@ -8437,7 +8437,7 @@ button:disabled {
   gap: 10px;
 }
 
-.delete-dependency-grid > div {
+.delete-dependency-grid > button {
   display: grid;
   gap: 3px;
   padding: 14px;
@@ -8448,6 +8448,34 @@ button:disabled {
 
 .delete-dependency-grid strong { font-size: 1.4rem; }
 .delete-dependency-grid span { color: var(--muted, #95a8bf); font-size: 0.88rem; }
+.delete-dependency-grid button {
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.delete-dependency-grid button small { color: #43d3d3; font-size: .72rem; }
+.delete-dependency-grid button:hover { border-color: rgba(67, 211, 211, .42); }
+
+.delete-dependency-details {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(67, 211, 211, .18);
+  border-radius: 16px;
+  background: rgba(67, 211, 211, .035);
+}
+.delete-dependency-details > strong { color: #e8f7f7; }
+.delete-dependency-details > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(148,163,184,.11);
+}
+.delete-dependency-details > div span { font-weight: 700; }
+.delete-dependency-details > div small { color: var(--muted, #95a8bf); }
+.delete-dependency-details > div em { color: #72c9c9; font-size: .78rem; font-style: normal; }
 
 .delete-choice {
   width: 100%;
@@ -8490,4 +8518,36 @@ button:disabled {
 
 @media (max-width: 760px) {
   .delete-dependency-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* v0.10.4 — ranked project routing */
+.project-move-dialog {
+  width: min(680px, calc(100vw - 32px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.project-ranked-list {
+  display: grid;
+  gap: 10px;
+  padding: 20px 28px;
+  overflow: auto;
+}
+.project-ranked-list > button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(148,163,184,.16);
+  border-radius: 16px;
+  background: rgba(255,255,255,.025);
+  color: #edf7f8;
+  text-align: left;
+}
+.project-ranked-list > button:hover { border-color: rgba(67,211,211,.48); }
+.project-ranked-list > button > div { display: flex; gap: 10px; align-items: baseline; }
+.project-ranked-list > button > div span { color: #7ea4bb; font-size: .78rem; }
+.project-ranked-list > button > b { color: #43d3d3; }
+.project-ranked-list > button > small {
+  grid-column: 1 / -1;
+  color: #91a7bb;
 }

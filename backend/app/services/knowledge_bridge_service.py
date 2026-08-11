@@ -446,7 +446,10 @@ def _with_existing(database: Session, space_id: int, facts: list[KnowledgeFact])
             "numeric_delta_percent": delta_percent,
             "comparison_kind": comparison_kind,
             "delta_display": delta_display,
-            "comparison_reason": f"Compared within {fact.item_type} using the same fact key: {fact.key}.",
+            "comparison_reason": (
+                f"Matched because both records contain the same {fact.title.strip().rstrip('.') or fact.item_type.replace('_', ' ')} "
+                f"inside this Knowledge project."
+            ),
         }))
     return output
 

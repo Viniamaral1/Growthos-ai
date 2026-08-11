@@ -91,6 +91,13 @@ export type DocumentRelevance = {
   detected_domains: string[];
   project_domains: string[];
   penalties: string[];
+  ranked_projects: Array<{
+    space_id: number;
+    space_name: string;
+    confidence: number;
+    level: "high" | "medium" | "low";
+    reasons: string[];
+  }>;
   method: string;
 };
 
@@ -611,6 +618,10 @@ export type DocumentDeleteDependencies = {
   graph_entities: number;
   calendar_candidates: number;
   task_or_risk_items: number;
+  knowledge_details: Array<{kind:string;id:number|null;label:string;detail:string|null;project_space_id:number|null;project_space_name:string|null;supporting_sources:number|null;}>;
+  graph_details: Array<{kind:string;id:number|null;label:string;detail:string|null;project_space_id:number|null;project_space_name:string|null;supporting_sources:number|null;}>;
+  calendar_details: Array<{kind:string;id:number|null;label:string;detail:string|null;project_space_id:number|null;project_space_name:string|null;supporting_sources:number|null;}>;
+  task_or_risk_details: Array<{kind:string;id:number|null;label:string;detail:string|null;project_space_id:number|null;project_space_name:string|null;supporting_sources:number|null;}>;
   project_space_id: number | null;
   project_space_name: string | null;
   message: string;

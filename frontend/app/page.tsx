@@ -114,6 +114,10 @@ type ProjectCreationDialog = {
   suggestedName: string;
 };
 
+type ProjectMoveDialog = {
+  item: IngestionTrayItem;
+};
+
 type UserLocation = {
   label: string;
   timezone: string;
@@ -392,6 +396,7 @@ function KnowledgeView({
   const [knowledgeSpaces, setKnowledgeSpaces] = useState<KnowledgeSpace[]>([]);
   const [deleteReview, setDeleteReview] = useState<{ document: DocumentRecord; dependencies: DocumentDeleteDependencies } | null>(null);
   const [deleteLoadingId, setDeleteLoadingId] = useState<number | null>(null);
+  const [deleteDetailSection, setDeleteDetailSection] = useState<"knowledge" | "graph" | "calendar" | "tasks" | null>(null);
 
   useEffect(() => {
     if (selectedCompanyId === null) {
@@ -760,16 +765,37 @@ function KnowledgeView({
           <section className="delete-lifecycle-dialog" role="dialog" aria-modal="true" aria-label="Delete asset safely">
             <header>
               <div><span>✦ Knowledge lifecycle</span><h2>Delete {deleteReview.document.original_filename}?</h2></div>
-              <button type="button" aria-label="Close deletion review" onClick={() => setDeleteReview(null)} disabled={deleteLoadingId !== null}>×</button>
+              <button type="button" aria-label="Close deletion review" onClick={() => { setDeleteReview(null); setDeleteDetailSection(null); }} disabled={deleteLoadingId !== null}>×</button>
             </header>
             <div className="delete-lifecycle-body">
               <p>GrowthOS checked what depends on this evidence before deleting it.</p>
               <div className="delete-dependency-grid">
-                <div><strong>{deleteReview.dependencies.knowledge_items}</strong><span>Knowledge facts</span></div>
-                <div><strong>{deleteReview.dependencies.graph_entities}</strong><span>Graph entities</span></div>
-                <div><strong>{deleteReview.dependencies.calendar_candidates}</strong><span>Calendar candidates</span></div>
-                <div><strong>{deleteReview.dependencies.task_or_risk_items}</strong><span>Tasks / risks</span></div>
+                <button type="button" onClick={() => setDeleteDetailSection(deleteDetailSection === "knowledge" ? null : "knowledge")}><strong>{deleteReview.dependencies.knowledge_items}</strong><span>Knowledge facts</span><small>Inspect</small></button>
+                <button type="button" onClick={() => setDeleteDetailSection(deleteDetailSection === "graph" ? null : "graph")}><strong>{deleteReview.dependencies.graph_entities}</strong><span>Graph entities</span><small>Inspect</small></button>
+                <button type="button" onClick={() => setDeleteDetailSection(deleteDetailSection === "calendar" ? null : "calendar")}><strong>{deleteReview.dependencies.calendar_candidates}</strong><span>Calendar candidates</span><small>Inspect</small></button>
+                <button type="button" onClick={() => setDeleteDetailSection(deleteDetailSection === "tasks" ? null : "tasks")}><strong>{deleteReview.dependencies.task_or_risk_items}</strong><span>Tasks / risks</span><small>Inspect</small></button>
               </div>
+              {deleteDetailSection && (() => {
+                const details = deleteDetailSection === "knowledge"
+                  ? deleteReview.dependencies.knowledge_details
+                  : deleteDetailSection === "graph"
+                    ? deleteReview.dependencies.graph_details
+                    : deleteDetailSection === "calendar"
+                      ? deleteReview.dependencies.calendar_details
+                      : deleteReview.dependencies.task_or_risk_details;
+                return (
+                  <div className="delete-dependency-details">
+                    <strong>{deleteDetailSection === "knowledge" ? "Knowledge affected" : deleteDetailSection === "graph" ? "Graph relationships affected" : deleteDetailSection === "calendar" ? "Calendar candidates affected" : "Tasks / risks affected"}</strong>
+                    {details.length === 0 ? <p>Nothing in this category currently depends on the document.</p> : details.map((detail) => (
+                      <div key={`${detail.kind}-${detail.id ?? detail.label}`}>
+                        <span>{detail.label}</span>
+                        {detail.detail && <small>{detail.detail}</small>}
+                        <em>{detail.project_space_name ? `Stored in ${detail.project_space_name}` : "Workspace record"}{detail.supporting_sources ? ` · ${detail.supporting_sources} supporting source${detail.supporting_sources === 1 ? "" : "s"}` : ""}</em>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
               {deleteReview.dependencies.knowledge_items_multi_source > 0 && <p className="delete-safety-note">{deleteReview.dependencies.knowledge_items_multi_source} Knowledge item(s) also have other supporting documents, so GrowthOS can preserve them safely.</p>}
               <button type="button" className="delete-choice recommended" onClick={() => void confirmDeleteAsset("document_only")} disabled={deleteLoadingId !== null}>
                 <strong>Delete document only <em>Recommended</em></strong><span>Remove the uploaded file. Keep captured Knowledge and mark its original evidence as deleted.</span>
@@ -782,7 +808,7 @@ function KnowledgeView({
               </button>
               {deleteLoadingId !== null && <div className="delete-processing">Processing your request…</div>}
             </div>
-            <footer><button type="button" onClick={() => setDeleteReview(null)} disabled={deleteLoadingId !== null}>Cancel</button></footer>
+            <footer><button type="button" onClick={() => { setDeleteReview(null); setDeleteDetailSection(null); }} disabled={deleteLoadingId !== null}>Cancel</button></footer>
           </section>
         </div>
       )}
@@ -2574,6 +2600,8 @@ export default function Home() {
   const [projectCreationDialog, setProjectCreationDialog] = useState<ProjectCreationDialog | null>(null);
   const [projectCreationName, setProjectCreationName] = useState("");
   const [projectCreationBusy, setProjectCreationBusy] = useState(false);
+  const [projectMoveDialog, setProjectMoveDialog] = useState<ProjectMoveDialog | null>(null);
+  const [projectMoveBusy, setProjectMoveBusy] = useState(false);
   const [knowledgeBridgeLoadingId, setKnowledgeBridgeLoadingId] = useState<number | null>(null);
   const [knowledgeBridgeSaving, setKnowledgeBridgeSaving] = useState(false);
   const [question, setQuestion] = useState("");
@@ -3316,17 +3344,18 @@ async function handleGenerateBusinessPlan(
     setError("");
     try {
       const existingSpaces = await getKnowledgeSpaces(selectedCompanyId);
-      let created = existingSpaces.find((space) => space.name.trim().toLowerCase() === name.toLowerCase()) ?? null;
-      const alreadyExisted = Boolean(created);
-      const sourceDocument = projectCreationDialog.item?.document ?? projectCreationDialog.relevanceReview?.document;
-      if (!created) {
-        created = await createKnowledgeSpace({
-          company_id: selectedCompanyId,
-          name,
-          description: sourceDocument ? `Created by Intelligent Ingestion for ${sourceDocument.original_filename}.` : "Created by Intelligent Ingestion.",
-          color: "cyan",
-        });
+      const existing = existingSpaces.find((space) => space.name.trim().toLowerCase() === name.toLowerCase()) ?? null;
+      if (existing) {
+        setError(`${existing.name} already exists. Choose it from “Move / choose project” or enter a different project name.`);
+        return;
       }
+      const sourceDocument = projectCreationDialog.item?.document ?? projectCreationDialog.relevanceReview?.document;
+      const created = await createKnowledgeSpace({
+        company_id: selectedCompanyId,
+        name,
+        description: sourceDocument ? `Created by Intelligent Ingestion for ${sourceDocument.original_filename}.` : "Created by Intelligent Ingestion.",
+        color: "cyan",
+      });
       setIngestionTargetSpaceId(created.id);
       if (sourceDocument) await routeDocumentToProject(sourceDocument.id, created.id);
       if (projectCreationDialog.item) {
@@ -3334,13 +3363,13 @@ async function handleGenerateBusinessPlan(
         updateIngestionTrayItem(projectCreationDialog.item.document.id, {
           assessment,
           status: "pending",
-          note: `${alreadyExisted ? "Using existing" : "Created"} ${created.name} and linked this asset to it.`,
+          note: `Created ${created.name} and linked this asset to it.`,
         });
       }
       if (projectCreationDialog.relevanceReview) setAssetRelevanceReview(null);
       setProjectCreationDialog(null);
       if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
-      setMessage(alreadyExisted ? `${created.name} already existed, so GrowthOS used that project.` : `✓ ${created.name} project created in Knowledge.`);
+      setMessage(`✓ ${created.name} project created in Knowledge.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The new project could not be created.");
     } finally {
@@ -3355,15 +3384,29 @@ async function handleGenerateBusinessPlan(
     }
   }
 
-  async function reviewInSuggestedProject(item: IngestionTrayItem) {
-    const destinationId = item.assessment.relevance.suggested_space_id;
-    if (!destinationId || selectedCompanyId === null) return;
-    updateIngestionTrayItem(item.document.id, { status: "working", note: "Re-checking against the suggested project…" });
+  function openProjectMoveDialog(item: IngestionTrayItem) {
+    setProjectMoveDialog({ item });
+  }
+
+  async function moveReviewToProject(spaceId: number) {
+    if (!projectMoveDialog || selectedCompanyId === null || projectMoveBusy) return;
+    const item = projectMoveDialog.item;
+    setProjectMoveBusy(true);
+    updateIngestionTrayItem(item.document.id, { status: "working", note: "Re-checking against the selected project…" });
     try {
-      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, destinationId);
-      updateIngestionTrayItem(item.document.id, { assessment, status: "pending", note: `Now reviewing against ${assessment.relevance.target_space_name ?? "the suggested project"}.` });
+      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, item.document.id, spaceId);
+      await routeDocumentToProject(item.document.id, spaceId);
+      updateIngestionTrayItem(item.document.id, {
+        assessment,
+        status: "pending",
+        note: `Now reviewing against ${assessment.relevance.target_space_name ?? "the selected project"}.`,
+      });
+      setProjectMoveDialog(null);
+      setMessage(`✓ ${item.document.original_filename} is now being reviewed against ${assessment.relevance.target_space_name ?? "the selected project"}.`);
     } catch (requestError) {
-      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The suggested project could not be checked." });
+      updateIngestionTrayItem(item.document.id, { status: "pending", note: requestError instanceof Error ? requestError.message : "The selected project could not be checked." });
+    } finally {
+      setProjectMoveBusy(false);
     }
   }
 
@@ -4226,7 +4269,7 @@ async function handleGenerateBusinessPlan(
                           <footer>
                             <button type="button" className="primary-button" onClick={() => void acceptIngestionItem(item)}>Keep & map</button>
                             {item.assessment.relevance.suggested_space_id && (
-                              <button type="button" className="secondary-button" onClick={() => void reviewInSuggestedProject(item)}>Move / review in {item.assessment.relevance.suggested_space_name}</button>
+                              <button type="button" className="secondary-button" onClick={() => openProjectMoveDialog(item)}>Move / choose project</button>
                             )}
                             {item.assessment.relevance.no_confident_existing_match && item.assessment.relevance.suggested_new_space_name && (
                               <button type="button" className="secondary-button" onClick={() => void createSuggestedProject(item)}>Create {item.assessment.relevance.suggested_new_space_name}</button>
@@ -4338,6 +4381,38 @@ async function handleGenerateBusinessPlan(
                   <button type="button" className="secondary-button" onClick={() => setKnowledgeBridgeReview(null)} disabled={knowledgeBridgeSaving}>Keep as evidence only</button>
                   <button type="button" className="primary-button" onClick={() => void saveKnowledgeBridgeReview()} disabled={knowledgeBridgeSaving || !knowledgeBridgeReview.facts.some((fact) => fact.selected)}>{knowledgeBridgeSaving ? "Saving Knowledge…" : "Save selected Knowledge"}</button>
                 </footer>
+              </section>
+            </div>
+          )}
+
+          {projectMoveDialog && (
+            <div className="project-create-backdrop" role="presentation">
+              <section className="project-create-dialog project-move-dialog" role="dialog" aria-modal="true" aria-label="Choose project destination">
+                <header>
+                  <div>
+                    <span>✦ Project routing</span>
+                    <h2>Choose a destination</h2>
+                    <p>GrowthOS ranked the available projects. You can follow the recommendation or choose any other project.</p>
+                  </div>
+                  <button type="button" aria-label="Close project routing" onClick={() => setProjectMoveDialog(null)} disabled={projectMoveBusy}>×</button>
+                </header>
+                <div className="project-ranked-list">
+                  {(projectMoveDialog.item.assessment.relevance.ranked_projects ?? []).map((project, index) => (
+                    <button type="button" key={project.space_id} onClick={() => void moveReviewToProject(project.space_id)} disabled={projectMoveBusy}>
+                      <div>
+                        <strong>{project.space_name}</strong>
+                        <span>{index === 0 ? "Best match" : project.level === "high" ? "Strong match" : project.level === "medium" ? "Review" : "Low fit"}</span>
+                      </div>
+                      <b>{project.confidence}%</b>
+                      {project.reasons.length > 0 && <small>{project.reasons[0]}</small>}
+                    </button>
+                  ))}
+                </div>
+                <footer>
+                  <button type="button" className="secondary-button" onClick={() => { const item = projectMoveDialog.item; setProjectMoveDialog(null); openProjectCreationDialog(item, null, item.assessment.relevance.suggested_new_space_name ?? "New Project"); }} disabled={projectMoveBusy}>Create new project</button>
+                  <button type="button" className="secondary-button" onClick={() => setProjectMoveDialog(null)} disabled={projectMoveBusy}>Cancel</button>
+                </footer>
+                {projectMoveBusy && <div className="delete-processing">Processing your request…</div>}
               </section>
             </div>
           )}

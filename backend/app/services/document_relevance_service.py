@@ -243,7 +243,7 @@ def assess_document_relevance(database: Session, company_id: int, document_id: i
             "suggested_new_space_name": suggested_new, "best_space_id": None, "best_space_name": None,
             "best_confidence": None, "best_is_stronger": False, "no_confident_existing_match": True,
             "confidence_breakdown": {"semantic_similarity": 0, "topic_overlap": 0, "named_entities": 0, "domain_alignment": 0, "document_type": 0, "penalties": 0},
-            "detected_domains": doc_domains, "project_domains": [], "penalties": [],
+            "detected_domains": doc_domains, "project_domains": [], "penalties": [], "ranked_projects": [],
             "method": "explainable_project_matching_v2",
         }
 
@@ -348,6 +348,32 @@ def assess_document_relevance(database: Session, company_id: int, document_id: i
     if best_is_stronger:
         reasons.append(f"{best_profile.space.name} is a stronger existing match ({best_conf}%) than {selected_profile.space.name} ({target_conf}%).")
 
+    ranked_projects = []
+    for row in scored:
+        profile = row["profile"]
+        score = int(row["score"])
+        row_domains = list(row["profile_domains"])
+        row_reasons: list[str] = []
+        if bool(row["positive_mention"]):
+            row_reasons.append(f"Explicitly referenced in a relevant context.")
+        shared_domains = [domain for domain in doc_domains if domain in row_domains]
+        if shared_domains:
+            row_reasons.append(f"Shared domain: {', '.join(shared_domains)}.")
+        if int(row["overlap_count"]) >= 3:
+            row_reasons.append("Project-specific topics overlap with saved Knowledge.")
+        if float(row["semantic"]) >= 0.64:
+            row_reasons.append("Overall meaning is close to this project's Knowledge.")
+        elif float(row["semantic"]) < 0.52:
+            row_reasons.append("Overall meaning is relatively different.")
+        row_level = "high" if score >= 75 else "medium" if score >= 55 else "low"
+        ranked_projects.append({
+            "space_id": profile.space.id,
+            "space_name": profile.space.name,
+            "confidence": score,
+            "level": row_level,
+            "reasons": row_reasons[:3],
+        })
+
     if best_is_stronger:
         recommendation = f"{selected_profile.space.name} is a {target_conf}% match, but {best_profile.space.name} is stronger at {best_conf}%."
     elif no_confident_existing_match:
@@ -374,5 +400,6 @@ def assess_document_relevance(database: Session, company_id: int, document_id: i
         "detected_domains": doc_domains,
         "project_domains": target_profile_domains,
         "penalties": list(selected_row["penalties"]),
+        "ranked_projects": ranked_projects,
         "method": "explainable_project_matching_v2",
     }
