@@ -397,6 +397,9 @@ function KnowledgeView({
   const [deleteReview, setDeleteReview] = useState<{ document: DocumentRecord; dependencies: DocumentDeleteDependencies } | null>(null);
   const [deleteLoadingId, setDeleteLoadingId] = useState<number | null>(null);
   const [deleteDetailSection, setDeleteDetailSection] = useState<"knowledge" | "graph" | "calendar" | "tasks" | null>(null);
+  const [libraryScope, setLibraryScope] = useState<"project" | "all" | "review">(targetSpaceId === null ? "all" : "project");
+  const [routeReview, setRouteReview] = useState<{ document: DocumentRecord; assessment: IntelligentIngestionAssessment } | null>(null);
+  const [routeLoadingId, setRouteLoadingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (selectedCompanyId === null) {
@@ -413,6 +416,11 @@ function KnowledgeView({
       .catch((error) => onError(error instanceof Error ? error.message : "Knowledge projects could not be loaded."));
   }, [selectedCompanyId, targetSpaceId]);
 
+  useEffect(() => {
+    if (targetSpaceId !== null) setLibraryScope("project");
+    else if (libraryScope === "project") setLibraryScope("all");
+  }, [targetSpaceId]);
+
   const formatDefinitions = [
     { name: "PDF", icon: "PDF", extensions: ".pdf", keys: ["PDF"] },
     { name: "Word", icon: "W", extensions: ".docx · .doc · .rtf · .txt", keys: ["DOCX", "DOC", "RTF", "TXT", "MD"] },
@@ -426,21 +434,60 @@ function KnowledgeView({
     return document.original_filename.split(".").pop()?.toUpperCase() || "FILE";
   }
 
+  const scopedDocuments = useMemo(() => {
+    if (libraryScope === "project" && targetSpaceId !== null) {
+      return documents.filter((document) => document.project_space_id === targetSpaceId);
+    }
+    if (libraryScope === "review") {
+      return documents.filter((document) => document.project_space_id === null);
+    }
+    return documents;
+  }, [documents, libraryScope, targetSpaceId]);
+
   const formatCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const document of documents) {
+    for (const document of scopedDocuments) {
       const type = fileTypeLabel(document);
       counts.set(type, (counts.get(type) ?? 0) + 1);
     }
     return counts;
-  }, [documents]);
+  }, [scopedDocuments]);
 
   const visibleDocuments = useMemo(() => {
-    if (formatFilter === "ALL") return documents;
+    if (formatFilter === "ALL") return scopedDocuments;
     const definition = formatDefinitions.find((format) => format.name === formatFilter);
-    if (!definition) return documents;
-    return documents.filter((document) => definition.keys.includes(fileTypeLabel(document)));
-  }, [documents, formatFilter]);
+    if (!definition) return scopedDocuments;
+    return scopedDocuments.filter((document) => definition.keys.includes(fileTypeLabel(document)));
+  }, [scopedDocuments, formatFilter]);
+
+  async function openProjectRouting(document: DocumentRecord) {
+    if (selectedCompanyId === null || routeLoadingId !== null) return;
+    setRouteLoadingId(document.id);
+    try {
+      const assessment = await getDocumentIngestionAssessment(selectedCompanyId, document.id, document.project_space_id ?? targetSpaceId);
+      setRouteReview({ document, assessment });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "GrowthOS could not rank project destinations.");
+    } finally {
+      setRouteLoadingId(null);
+    }
+  }
+
+  async function moveDocumentProject(spaceId: number) {
+    if (!routeReview || routeLoadingId !== null) return;
+    const document = routeReview.document;
+    setRouteLoadingId(document.id);
+    try {
+      const result = await routeDocumentToProject(document.id, spaceId);
+      onDocumentsChanged(documents.map((candidate) => candidate.id === document.id ? { ...candidate, project_space_id: result.space_id, project_space_name: result.space_name } : candidate));
+      setRouteReview(null);
+      onSuccess(`${document.original_filename} moved to ${result.space_name}.`);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "The asset could not be moved to that project.");
+    } finally {
+      setRouteLoadingId(null);
+    }
+  }
 
   async function openPreview(document: DocumentRecord) {
     setPreviewLoading(true);
@@ -684,14 +731,27 @@ function KnowledgeView({
         </aside>
       </section>
 
+      <section className="library-scope-toolbar" aria-label="Business Intelligence scope">
+        <div>
+          <span>Library scope</span>
+          <strong>{libraryScope === "project" ? (knowledgeSpaces.find((space) => space.id === targetSpaceId)?.name ?? "Current project") : libraryScope === "review" ? "Unassigned / Review" : "All projects"}</strong>
+          <small>This only changes what you see. GrowthOS still compares and routes against the wider workspace.</small>
+        </div>
+        <div className="library-scope-actions">
+          <button type="button" className={cx(libraryScope === "project" && "active")} onClick={() => setLibraryScope("project")} disabled={targetSpaceId === null}>Current project</button>
+          <button type="button" className={cx(libraryScope === "all" && "active")} onClick={() => setLibraryScope("all")}>All projects</button>
+          <button type="button" className={cx(libraryScope === "review" && "active")} onClick={() => setLibraryScope("review")}>Unassigned / Review</button>
+        </div>
+      </section>
+
       <section className="panel asset-library">
         <div className="panel-heading library-heading">
           <span className="panel-icon cyan">▦</span>
           <div><h2>Intelligence library</h2><p>Open, use, ask about, map AI entities, filter, or delete imported assets.</p></div>
-          <small>{visibleDocuments.length} of {documents.length} asset(s)</small>
+          <small>{visibleDocuments.length} shown · {documents.length} total</small>
         </div>
         {visibleDocuments.length === 0 ? (
-          <div className="empty-library asset-empty"><span>▤</span><strong>No matching assets</strong><p>Upload a file or choose another file-type filter.</p></div>
+          <div className="empty-library asset-empty"><span>▤</span><strong>No assets in this view</strong><p>Choose another project scope, clear the file-type filter, or upload a new asset.</p></div>
         ) : (
           <div className="asset-card-grid">
             {visibleDocuments.map((document) => {
@@ -703,6 +763,12 @@ function KnowledgeView({
                   <button type="button" className="asset-title" onClick={() => void openPreview(document)} disabled={!ready || previewLoading}>
                     <span>▤</span><div><strong>{document.original_filename}</strong><small>Uploaded {new Date(document.uploaded_at).toLocaleDateString()}</small></div>
                   </button>
+                  <div className="asset-project-route">
+                    <div><span>Project</span><strong>{document.project_space_name ?? "Unassigned / Review"}</strong></div>
+                    <button type="button" onClick={() => void openProjectRouting(document)} disabled={!ready || routeLoadingId !== null}>
+                      {routeLoadingId === document.id ? "Ranking projects…" : "Change project"}
+                    </button>
+                  </div>
                   <div className="asset-metadata"><div><span>Size</span><strong>{(document.file_size / 1024 / 1024).toFixed(2)} MB</strong></div><div><span>Pages</span><strong>{document.page_count ?? "—"}</strong></div><div><span>Characters</span><strong>{document.character_count ? document.character_count.toLocaleString() : "—"}</strong></div></div>
                   <div className={cx("asset-entity-state", `state-${document.entity_mapping_status ?? "not_mapped"}`)}>
                     <div>
@@ -748,7 +814,7 @@ function KnowledgeView({
                   {document.entity_mapping_error && document.entity_mapping_status === "failed" && <p className="asset-error">{document.entity_mapping_error}</p>}
                   {document.entity_mapping_error && document.entity_mapping_status === "partial" && <p className="asset-entity-notice">{document.entity_mapping_error}</p>}
                   <footer>
-                    <button type="button" onClick={() => void openPreview(document)} disabled={!ready}>Open</button>
+                    <button type="button" onClick={() => void openPreview(document)} disabled={!ready || previewLoading}>{previewLoading ? "Loading…" : "Open"}</button>
                     <button type="button" onClick={() => onAskDocument(document)} disabled={!ready}>✦ Ask AI</button>
                     <button type="button" onClick={() => onSelectDocument(document.id)} disabled={!ready}>{active ? "✓ Active" : "Use source"}</button>
                     <button type="button" className="danger" onClick={() => void removeAsset(document)} disabled={deleteLoadingId !== null}>{deleteLoadingId === document.id ? "Checking…" : "Delete"}</button>
@@ -759,6 +825,38 @@ function KnowledgeView({
           </div>
         )}
       </section>
+
+      {routeReview && (
+        <div className="project-create-backdrop" role="presentation">
+          <section className="project-create-dialog project-move-dialog" role="dialog" aria-modal="true" aria-label="Change project">
+            <header>
+              <div>
+                <span>✦ Project routing</span>
+                <h2>Change project</h2>
+                <p>{routeReview.document.original_filename}</p>
+              </div>
+              <button type="button" aria-label="Close project routing" onClick={() => setRouteReview(null)} disabled={routeLoadingId !== null}>×</button>
+            </header>
+            <div className="project-ranked-list">
+              {(routeReview.assessment.relevance.ranked_projects ?? []).map((project, index) => (
+                <button type="button" key={project.space_id} onClick={() => void moveDocumentProject(project.space_id)} disabled={routeLoadingId !== null}>
+                  <div>
+                    <strong>{project.space_name}</strong>
+                    <span>{project.space_id === routeReview.document.project_space_id ? "Current project" : index === 0 ? "Best match" : project.level === "high" ? "Strong match" : project.level === "medium" ? "Review" : "Low fit"}</span>
+                  </div>
+                  <b>{project.confidence}%</b>
+                  {project.reasons.length > 0 && <small>{project.reasons[0]}</small>}
+                </button>
+              ))}
+            </div>
+            <footer>
+              <span className="routing-helper">AI ranking is advisory. Choosing a project does not limit future company-wide matching.</span>
+              <button type="button" className="secondary-button" onClick={() => setRouteReview(null)} disabled={routeLoadingId !== null}>Cancel</button>
+            </footer>
+            {routeLoadingId !== null && <div className="delete-processing">Moving asset… Please wait.</div>}
+          </section>
+        </div>
+      )}
 
       {deleteReview && (
         <div className="delete-lifecycle-backdrop" role="presentation">

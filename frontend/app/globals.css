@@ -8551,3 +8551,66 @@ button:disabled {
   grid-column: 1 / -1;
   color: #91a7bb;
 }
+
+/* v0.10.5 — project-scoped Business Intelligence + permanent project routing */
+.library-scope-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 18px 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(86, 139, 168, .24);
+  border-radius: 18px;
+  background: rgba(8, 27, 44, .78);
+}
+.library-scope-toolbar > div:first-child { display: grid; gap: 4px; }
+.library-scope-toolbar span { color: #7ea4bb; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+.library-scope-toolbar strong { color: #f3f8fb; font-size: 1rem; }
+.library-scope-toolbar small { color: #90a9bb; max-width: 700px; }
+.library-scope-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.library-scope-actions button {
+  border: 1px solid rgba(86, 139, 168, .28);
+  background: rgba(7, 22, 37, .9);
+  color: #a9bdca;
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.library-scope-actions button.active {
+  border-color: rgba(67, 211, 211, .65);
+  color: #43d3d3;
+  background: rgba(21, 88, 101, .2);
+}
+.library-scope-actions button:disabled { opacity: .42; cursor: not-allowed; }
+.asset-project-route {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(86, 139, 168, .2);
+  border-radius: 12px;
+  background: rgba(5, 20, 34, .45);
+}
+.asset-project-route > div { display: grid; gap: 3px; min-width: 0; }
+.asset-project-route span { color: #7ea4bb; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+.asset-project-route strong { color: #dce9f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-project-route button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(67, 211, 211, .32);
+  color: #43d3d3;
+  background: rgba(13, 58, 68, .28);
+  border-radius: 10px;
+  padding: 8px 11px;
+  cursor: pointer;
+}
+.asset-project-route button:disabled { opacity: .45; cursor: wait; }
+.routing-helper { color: #8ba6b8; font-size: .78rem; margin-right: auto; max-width: 430px; }
+
+@media (max-width: 900px) {
+  .library-scope-toolbar { align-items: flex-start; flex-direction: column; }
+  .library-scope-actions { justify-content: flex-start; }
+  .asset-project-route { align-items: flex-start; flex-direction: column; }
+}
