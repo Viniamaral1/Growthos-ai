@@ -2114,3 +2114,74 @@ export async function queueBusinessEntityRebuild(companyId: number): Promise<Bus
   return response.json();
 }
 
+
+export type OpportunityStatus = "detected" | "confirmed" | "dismissed";
+
+export type OpportunityEvidence = {
+  knowledge_item_id: number | null;
+  document_id: number | null;
+  document_name: string | null;
+  label: string;
+  value: string;
+  source_quality: string | null;
+};
+
+export type OpportunityRecord = {
+  id: number;
+  company_id: number;
+  space_id: number | null;
+  space_name: string | null;
+  status: OpportunityStatus;
+  opportunity_type: string;
+  title: string;
+  summary: string;
+  confidence: number;
+  severity: "info" | "positive" | "warning";
+  current_value: string | null;
+  previous_value: string | null;
+  delta_display: string | null;
+  delta_percent: number | null;
+  explanation: string[];
+  recommended_action: string;
+  entities: string[];
+  evidence: OpportunityEvidence[];
+  detected_at: string;
+  updated_at: string;
+};
+
+export async function getOpportunities(
+  companyId: number,
+  spaceId: number | null = null,
+  status: OpportunityStatus | null = null,
+): Promise<OpportunityRecord[]> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  if (status !== null) query.set("status", status);
+  const response = await fetch(`${API_URL}/opportunities?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function refreshOpportunities(
+  companyId: number,
+  spaceId: number | null = null,
+): Promise<OpportunityRecord[]> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/opportunities/refresh?${query.toString()}`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function updateOpportunityStatus(
+  opportunityId: number,
+  status: OpportunityStatus,
+): Promise<OpportunityRecord> {
+  const response = await fetch(`${API_URL}/opportunities/${opportunityId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

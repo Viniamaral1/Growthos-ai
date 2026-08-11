@@ -34,6 +34,9 @@ from app.api.routes.knowledge_spaces import (
 from app.api.routes.marketing import (
     router as marketing_router,
 )
+from app.api.routes.opportunities import (
+    router as opportunities_router,
+)
 from app.api.routes.research import (
     router as research_router,
 )
@@ -70,6 +73,7 @@ from app.models.executive_memory import ExecutiveMemory
 from app.models.knowledge_space import KnowledgeSpace
 from app.models.knowledge_item import KnowledgeItem
 from app.models.business_entity import BusinessEntity
+from app.models.opportunity import OpportunityRecord
 
 
 def create_app() -> FastAPI:
@@ -154,6 +158,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         marketing_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        opportunities_router,
         prefix="/api/v1",
     )
 

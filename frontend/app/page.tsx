@@ -10,6 +10,7 @@ import StartupStatus from "@/app/components/StartupStatus";
 import Toast from "@/app/components/Toast";
 import SettingsPanel from "@/app/components/SettingsPanel";
 import KnowledgeSpacesPanel from "@/app/components/KnowledgeSpacesPanel";
+import OpportunityIntelligencePanel from "@/app/components/OpportunityIntelligencePanel";
 import { defaultProfile, readProfile, type GrowthOSProfile } from "@/lib/profile";
 
 import {
@@ -72,6 +73,7 @@ import {
 
 type View =
   | "overview"
+  | "opportunities"
   | "graph"
   | "knowledge"
   | "assistant"
@@ -219,6 +221,7 @@ const navItems: Array<{
   icon: string;
 }> = [
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
+  { id: "opportunities", label: "Opportunities", icon: "↗" },
   { id: "graph", label: "Business Graph", icon: "⌘" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "spaces", label: "Knowledge", icon: "▧" },
@@ -2861,7 +2864,7 @@ export default function Home() {
 
   useEffect(() => {
     const allowedViews: View[] = [
-      "overview", "knowledge", "assistant", "marketing", "companies",
+      "overview", "opportunities", "graph", "knowledge", "assistant", "marketing", "companies",
       "plan", "cofounder", "decisions", "research", "memory", "spaces", "settings",
     ];
     const hasLaunched = readStoredBoolean(
@@ -3844,7 +3847,16 @@ async function handleGenerateBusinessPlan(
 
   let activeView;
 
-  if (view === "graph") {
+  if (view === "opportunities") {
+    activeView = (
+      <OpportunityIntelligencePanel
+        company={selectedCompany}
+        activeSpaceId={ingestionTargetSpaceId}
+        onError={(feedback) => { setMessage(""); setError(feedback); }}
+        onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
+      />
+    );
+  } else if (view === "graph") {
     activeView = (
       <BusinessGraphPanel
         company={selectedCompany}
