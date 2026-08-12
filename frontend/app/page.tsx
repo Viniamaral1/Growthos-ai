@@ -11,6 +11,7 @@ import Toast from "@/app/components/Toast";
 import SettingsPanel from "@/app/components/SettingsPanel";
 import KnowledgeSpacesPanel from "@/app/components/KnowledgeSpacesPanel";
 import OpportunityIntelligencePanel from "@/app/components/OpportunityIntelligencePanel";
+import ContradictionIntelligencePanel from "@/app/components/ContradictionIntelligencePanel";
 import { defaultProfile, readProfile, type GrowthOSProfile } from "@/lib/profile";
 
 import {
@@ -76,6 +77,7 @@ import {
 type View =
   | "overview"
   | "opportunities"
+  | "contradictions"
   | "graph"
   | "knowledge"
   | "assistant"
@@ -231,6 +233,7 @@ const navItems: Array<{
 }> = [
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "opportunities", label: "Opportunities", icon: "↗" },
+  { id: "contradictions", label: "Contradictions", icon: "≠" },
   { id: "graph", label: "Business Graph", icon: "⌘" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "spaces", label: "Knowledge", icon: "▧" },
@@ -3877,6 +3880,15 @@ async function handleGenerateBusinessPlan(
         company={selectedCompany}
         activeSpaceId={ingestionTargetSpaceId}
         onActiveSpaceChange={setIngestionTargetSpaceId}
+        onError={(feedback) => { setMessage(""); setError(feedback); }}
+        onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
+      />
+    );
+  } else if (view === "contradictions") {
+    activeView = (
+      <ContradictionIntelligencePanel
+        company={selectedCompany}
+        activeSpaceId={ingestionTargetSpaceId}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
       />

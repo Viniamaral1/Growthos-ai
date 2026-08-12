@@ -2258,3 +2258,60 @@ export async function deleteOpportunity(opportunityId: number): Promise<void> {
   const response = await fetch(`${API_URL}/opportunities/${opportunityId}`, { method: "DELETE" });
   if (!response.ok) throw new Error(await readError(response));
 }
+
+export type ContradictionStatus = "detected" | "confirmed" | "dismissed" | "resolved";
+export type ContradictionEvidence = {
+  knowledge_item_id: number | null;
+  document_id: number | null;
+  document_name: string | null;
+  label: string;
+  value: string;
+  role: "statement_a" | "statement_b" | "supporting";
+  source_quality: string | null;
+};
+export type ContradictionRecord = {
+  id: number;
+  company_id: number;
+  space_id: number | null;
+  space_name: string | null;
+  status: ContradictionStatus;
+  contradiction_type: string;
+  title: string;
+  summary: string;
+  confidence: number;
+  severity: "low" | "medium" | "high" | "critical";
+  statement_a: string;
+  statement_b: string;
+  reason: string;
+  business_impact: string;
+  recommended_verification: string;
+  evidence: ContradictionEvidence[];
+  detected_at: string;
+  updated_at: string;
+};
+
+export async function getContradictions(companyId: number, spaceId: number | null = null): Promise<ContradictionRecord[]> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/contradictions?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function refreshContradictions(companyId: number, spaceId: number | null = null): Promise<ContradictionRecord[]> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/contradictions/refresh?${query.toString()}`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export async function updateContradictionStatus(itemId: number, status: ContradictionStatus): Promise<ContradictionRecord> {
+  const response = await fetch(`${API_URL}/contradictions/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

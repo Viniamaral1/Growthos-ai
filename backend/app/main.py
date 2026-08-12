@@ -37,6 +37,9 @@ from app.api.routes.marketing import (
 from app.api.routes.opportunities import (
     router as opportunities_router,
 )
+from app.api.routes.contradictions import (
+    router as contradictions_router,
+)
 from app.api.routes.research import (
     router as research_router,
 )
@@ -74,6 +77,7 @@ from app.models.knowledge_space import KnowledgeSpace
 from app.models.knowledge_item import KnowledgeItem
 from app.models.business_entity import BusinessEntity
 from app.models.opportunity import OpportunityRecord, OpportunityReviewState
+from app.models.contradiction import ContradictionRecord
 
 
 def create_app() -> FastAPI:
@@ -163,6 +167,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         opportunities_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        contradictions_router,
         prefix="/api/v1",
     )
 
