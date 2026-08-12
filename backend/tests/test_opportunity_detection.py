@@ -1,7 +1,15 @@
 import base64
 import json
 
-from app.services.opportunity_detection_service import _number, _pct, _decode_tag, _parse_business_date, _source_evidence
+from app.services.opportunity_detection_service import (
+    Candidate,
+    _decode_tag,
+    _merge_duplicate_candidates,
+    _number,
+    _parse_business_date,
+    _pct,
+    _source_evidence,
+)
 
 
 def _encode(prefix: str, value: str) -> str:
@@ -51,3 +59,30 @@ def test_source_evidence_preserves_historical_and_current_values():
     assert evidence[0]["value"] == "£5.20 per kg"
     assert evidence[1]["role"] == "current"
     assert evidence[1]["value"] == "£4.78 per kg"
+
+
+def test_duplicate_renewal_candidates_merge_evidence():
+    base = dict(
+        opportunity_type="contract_renewal_review",
+        title="Renewal status check: Contract end",
+        summary="Contract end passed.",
+        confidence=96,
+        confidence_factors=[],
+        severity="warning",
+        space_id=4,
+        space_name="HarborFresh Catering",
+        current_value="31 July 2026",
+        previous_value=None,
+        delta_display="12 days past",
+        delta_percent=None,
+        explanation=["Renewal milestone detected."],
+        business_impact="Status needs confirmation.",
+        recommended_action="Confirm agreement status.",
+        entities=[],
+    )
+    first = Candidate(signature="a", evidence=[{"knowledge_item_id": 1, "document_id": 10, "role": "current", "value": "31 July 2026"}], **base)
+    second = Candidate(signature="b", evidence=[{"knowledge_item_id": 2, "document_id": 11, "role": "current", "value": "31 July 2026"}], **base)
+    merged = _merge_duplicate_candidates([first, second])
+    assert len(merged) == 1
+    assert len(merged[0].evidence) == 2
+    assert merged[0].confidence == 96

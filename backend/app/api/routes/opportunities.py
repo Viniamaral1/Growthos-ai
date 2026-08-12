@@ -8,11 +8,13 @@ from app.database.session import get_db
 from app.models.company import Company
 from app.models.opportunity import OpportunityRecord
 from app.models.knowledge_space import KnowledgeSpace
+from app.models.knowledge_item import KnowledgeItem
 from app.schemas.opportunity import (
     OpportunityResponse,
     OpportunityReviewStateResponse,
     OpportunityStatusUpdate,
     OpportunityPreviewResponse,
+    OpportunityLifecycleImpact,
 )
 from app.services.opportunity_detection_service import (
     detect_opportunities,
@@ -83,6 +85,36 @@ def update_opportunity(opportunity_id: int, payload: OpportunityStatusUpdate, da
     database.commit()
     database.refresh(record)
     return serialize_opportunity(database, record)
+
+
+@router.get("/{opportunity_id}/lifecycle-impact", response_model=OpportunityLifecycleImpact)
+def get_opportunity_lifecycle_impact(opportunity_id: int, database: DatabaseSession):
+    record = database.get(OpportunityRecord, opportunity_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Opportunity not found.")
+    serialized = serialize_opportunity(database, record)
+    evidence = serialized.get("evidence", [])
+    knowledge_ids = sorted({entry.get("knowledge_item_id") for entry in evidence if entry.get("knowledge_item_id")})
+    document_ids = sorted({entry.get("document_id") for entry in evidence if entry.get("document_id")})
+    calendar_candidates = 0
+    for item_id in knowledge_ids:
+        item = database.get(KnowledgeItem, item_id)
+        if item and "calendar-candidate" in (item.tags_json or ""):
+            calendar_candidates += 1
+    return {
+        "opportunity_id": record.id,
+        "title": record.title,
+        "knowledge_facts": len(knowledge_ids),
+        "source_documents": len(document_ids),
+        "calendar_candidates": calendar_candidates,
+        "graph_entities": 0,
+        "sources": evidence,
+        "guidance": [
+            "Deleting this opportunity removes the finding only.",
+            "Captured Knowledge and original Business Intelligence evidence remain available.",
+            "If the same evidence still supports the signal, a future opportunity review may surface it again.",
+        ],
+    }
 
 
 @router.delete("/{opportunity_id}", status_code=204)

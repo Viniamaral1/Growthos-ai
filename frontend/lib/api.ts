@@ -2236,6 +2236,24 @@ export async function updateOpportunityStatus(
 }
 
 
+
+export type OpportunityLifecycleImpact = {
+  opportunity_id: number;
+  title: string;
+  knowledge_facts: number;
+  source_documents: number;
+  calendar_candidates: number;
+  graph_entities: number;
+  sources: OpportunityEvidence[];
+  guidance: string[];
+};
+
+export async function getOpportunityLifecycleImpact(opportunityId: number): Promise<OpportunityLifecycleImpact> {
+  const response = await fetch(`${API_URL}/opportunities/${opportunityId}/lifecycle-impact`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function deleteOpportunity(opportunityId: number): Promise<void> {
   const response = await fetch(`${API_URL}/opportunities/${opportunityId}`, { method: "DELETE" });
   if (!response.ok) throw new Error(await readError(response));

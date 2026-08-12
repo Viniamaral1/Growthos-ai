@@ -217,7 +217,6 @@ export default function KnowledgeSpacesPanel({
   useEffect(() => {
     if (company && active) {
       window.localStorage.setItem(activeSpaceStorageKey(company.id), String(active.id));
-      onActiveSpaceChange?.(active.id);
     }
   }, [company?.id, active?.id]);
 
@@ -276,6 +275,7 @@ export default function KnowledgeSpacesPanel({
       const created = await createKnowledgeSpace({ company_id: company.id, name: name.trim(), description: null, color: "cyan" });
       setSpaces((current) => [created, ...current]);
       setActive(created);
+      onActiveSpaceChange?.(created.id);
       setName("");
       onSuccess("Knowledge space created.");
     } catch (error) {
@@ -325,7 +325,9 @@ export default function KnowledgeSpacesPanel({
       await deleteKnowledgeSpace(active.id);
       const remaining = spaces.filter((space) => space.id !== active.id);
       setSpaces(remaining);
-      setActive(remaining[0] ?? null);
+      const nextActive = remaining[0] ?? null;
+      setActive(nextActive);
+      onActiveSpaceChange?.(nextActive?.id ?? null);
       setItems([]);
       setSelected(null);
       setSearch("");

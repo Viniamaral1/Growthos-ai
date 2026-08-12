@@ -71,3 +71,23 @@ class OpportunityReviewStateResponse(BaseModel):
     needs_review: bool
     latest_knowledge_at: datetime | None = None
     last_reviewed_at: datetime | None = None
+
+
+class OpportunityLifecycleSource(BaseModel):
+    knowledge_item_id: int | None = None
+    document_id: int | None = None
+    document_name: str | None = None
+    label: str
+    value: str
+    role: Literal["current", "historical", "supporting"] = "supporting"
+
+
+class OpportunityLifecycleImpact(BaseModel):
+    opportunity_id: int
+    title: str
+    knowledge_facts: int = 0
+    source_documents: int = 0
+    calendar_candidates: int = 0
+    graph_entities: int = 0
+    sources: list[OpportunityLifecycleSource] = []
+    guidance: list[str] = []

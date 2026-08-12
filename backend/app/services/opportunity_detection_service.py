@@ -410,7 +410,7 @@ def _candidate_for_renewal_fact(database: Session, item: KnowledgeItem, space: K
         severity = "warning"
         delta_display = f"{abs(days)} days past"
 
-    signature_text = f"{item.company_id}|{item.space_id}|renewal-review|{key or item.title}|{value}"
+    signature_text = f"{item.company_id}|{item.space_id}|renewal-review|{key or item.title}"
     signature = hashlib.sha256(signature_text.encode()).hexdigest()[:40]
     return Candidate(
         signature=signature,
@@ -476,6 +476,61 @@ def opportunity_review_state(database: Session, company_id: int, space_id: int |
     }
 
 
+def _merge_duplicate_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    """Collapse repeated findings that describe the same current business event.
+
+    Renewal milestones are grouped by project/type/title. Other findings are only grouped
+    when title and current value also match, so genuine sequential price changes remain
+    separate opportunities. Evidence is merged and de-duplicated by document/item/value.
+    """
+    grouped: dict[tuple, list[Candidate]] = {}
+    for candidate in candidates:
+        title_key = re.sub(r"\s+", " ", candidate.title.strip().lower())
+        if candidate.opportunity_type == "contract_renewal_review":
+            key = (candidate.space_id, candidate.opportunity_type, title_key)
+        else:
+            key = (candidate.space_id, candidate.opportunity_type, title_key, candidate.current_value)
+        grouped.setdefault(key, []).append(candidate)
+
+    merged: list[Candidate] = []
+    for group in grouped.values():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        primary = max(group, key=lambda item: (item.confidence, item.current_value or ""))
+        evidence: list[dict] = []
+        seen: set[tuple] = set()
+        for candidate in group:
+            for source in candidate.evidence:
+                source_key = (source.get("knowledge_item_id"), source.get("document_id"), source.get("role"), source.get("value"))
+                if source_key in seen:
+                    continue
+                seen.add(source_key)
+                evidence.append(source)
+        confidence = max(candidate.confidence for candidate in group)
+        merged.append(Candidate(
+            signature=primary.signature,
+            opportunity_type=primary.opportunity_type,
+            title=primary.title,
+            summary=primary.summary,
+            confidence=confidence,
+            confidence_factors=primary.confidence_factors,
+            severity=primary.severity,
+            space_id=primary.space_id,
+            space_name=primary.space_name,
+            current_value=primary.current_value,
+            previous_value=primary.previous_value,
+            delta_display=primary.delta_display,
+            delta_percent=primary.delta_percent,
+            explanation=list(dict.fromkeys(reason for candidate in group for reason in candidate.explanation)),
+            business_impact=primary.business_impact,
+            recommended_action=primary.recommended_action,
+            entities=list(dict.fromkeys(entity for candidate in group for entity in candidate.entities))[:8],
+            evidence=evidence,
+        ))
+    return merged
+
+
 def _build_opportunity_candidates(
     database: Session,
     company_id: int,
@@ -500,6 +555,8 @@ def _build_opportunity_candidates(
             candidate = _candidate_for_renewal_fact(database, item, spaces.get(item.space_id))
         if candidate is not None:
             candidates.append(candidate)
+
+    candidates = _merge_duplicate_candidates(candidates)
 
     # Cross-fact opportunity: unit price down while volume rises in the same project.
     by_space: dict[int, list[Candidate]] = {}
@@ -630,6 +687,19 @@ def detect_opportunities(database: Session, company_id: int, space_id: int | Non
             record.payload_json = payload
         database.add(record)
         records.append(record)
+
+    # v0.11.7: retire stale unreviewed duplicate renewal cards created by older signatures.
+    active_signatures = {candidate.signature for candidate in candidates}
+    stale_statement = select(OpportunityRecord).where(
+        OpportunityRecord.company_id == company_id,
+        OpportunityRecord.status == "detected",
+        OpportunityRecord.opportunity_type == "contract_renewal_review",
+    )
+    if space_id is not None:
+        stale_statement = stale_statement.where(OpportunityRecord.space_id == space_id)
+    for stale in database.scalars(stale_statement).all():
+        if stale.signature not in active_signatures and stale not in records:
+            database.delete(stale)
     database.commit()
     for record in records:
         database.refresh(record)

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   deleteOpportunity,
+  getOpportunityLifecycleImpact,
   getKnowledgeSpaces,
   getOpportunities,
   getOpportunityReviewState,
@@ -14,6 +15,7 @@ import {
   type OpportunityRecord,
   type OpportunityStatus,
   type OpportunityReviewState,
+  type OpportunityLifecycleImpact,
 } from "@/lib/api";
 
 function statusLabel(status: OpportunityStatus): string {
@@ -42,6 +44,50 @@ function impactLabel(severity: OpportunityRecord["severity"]): string {
   if (severity === "warning") return "High attention";
   if (severity === "positive") return "Positive opportunity";
   return "Review impact";
+}
+
+function impactLevel(item: OpportunityRecord): { label: "Low" | "Medium" | "High" | "Critical"; reason: string } {
+  if (item.opportunity_type === "contract_renewal_review" && item.delta_display?.includes("past")) {
+    const days = Number(item.delta_display.match(/\d+/)?.[0] ?? "0");
+    if (days >= 60) return { label: "Critical", reason: "A contract milestone is substantially overdue and may leave GrowthOS using an outdated agreement." };
+    return { label: "High", reason: "A contract milestone has passed and needs status confirmation." };
+  }
+  if (item.severity === "warning") return { label: "High", reason: "The finding could increase cost, risk, or require a near-term decision." };
+  if (item.severity === "positive") return { label: "Medium", reason: "The finding may create measurable value if the underlying commercial terms are confirmed." };
+  return { label: "Low", reason: "The finding is useful context but does not currently indicate urgent financial or operational exposure." };
+}
+
+function whyThisMatters(item: OpportunityRecord): string {
+  if (item.opportunity_type === "contract_renewal_review") {
+    return "Until the agreement status is confirmed, later pricing, renewal and supplier recommendations may be based on an agreement that is no longer current.";
+  }
+  if (item.opportunity_type === "supplier_price_reduction") {
+    return "A lower unit price can reduce procurement cost, but the saving should be checked against volume, quality, delivery and contract commitments.";
+  }
+  if (item.opportunity_type === "supplier_price_increase") {
+    return "A higher unit price can reduce margin or increase annual spend, so the change may justify negotiation or supplier comparison.";
+  }
+  if (item.opportunity_type === "better_payment_terms") {
+    return "A longer payment window can improve working-capital flexibility if the revised terms are reflected in the final agreement.";
+  }
+  if (item.opportunity_type === "worsening_payment_terms") {
+    return "Earlier payment can create additional cash-flow pressure and may need negotiation before approval.";
+  }
+  if (item.opportunity_type === "superseded_reference") {
+    return "Confirming the latest commercial reference prevents future decisions from linking to an obsolete quotation or contract version.";
+  }
+  if (item.opportunity_type === "volume_price_tradeoff") {
+    return "A lower unit price is not necessarily a lower total cost when committed volume also increases.";
+  }
+  return item.delta_percent !== null
+    ? `The measured change is ${Math.abs(item.delta_percent).toFixed(1)}%, which may affect future commercial decisions.`
+    : "This change can affect later comparisons, planning or decisions if it becomes part of the current business position.";
+}
+
+function lifecycleRoleLabel(role: "current" | "historical" | "supporting") {
+  if (role === "current") return "Current";
+  if (role === "historical") return "Historical";
+  return "Supporting";
 }
 
 function formatWhen(value: string | null | undefined): string {
@@ -79,6 +125,8 @@ export default function OpportunityIntelligencePanel({
   const [impactOpen, setImpactOpen] = useState<Record<number, boolean>>({});
   const [statusOpen, setStatusOpen] = useState<Record<number, boolean>>({});
   const [deleteTarget, setDeleteTarget] = useState<OpportunityRecord | null>(null);
+  const [deleteImpact, setDeleteImpact] = useState<OpportunityLifecycleImpact | null>(null);
+  const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
   const [moveTarget, setMoveTarget] = useState<OpportunityRecord | null>(null);
   const [selectedMoveSpaceId, setSelectedMoveSpaceId] = useState<number | null>(null);
 
@@ -169,6 +217,28 @@ export default function OpportunityIntelligencePanel({
     }
   }
 
+  async function openDeleteWizard(item: OpportunityRecord) {
+    if (workingId !== null) return;
+    setDeleteTarget(item);
+    setDeleteImpact(null);
+    setDeleteImpactLoading(true);
+    try {
+      setDeleteImpact(await getOpportunityLifecycleImpact(item.id));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Opportunity dependencies could not be inspected.");
+    } finally {
+      setDeleteImpactLoading(false);
+    }
+  }
+
+  async function dismissFromDeleteWizard() {
+    if (!deleteTarget || workingId !== null) return;
+    const target = deleteTarget;
+    await changeStatus(target, "dismissed");
+    setDeleteTarget(null);
+    setDeleteImpact(null);
+  }
+
   async function confirmDelete() {
     if (!deleteTarget || workingId !== null) return;
     setWorkingId(deleteTarget.id);
@@ -176,6 +246,7 @@ export default function OpportunityIntelligencePanel({
       await deleteOpportunity(deleteTarget.id);
       setItems((current) => current.filter((item) => item.id !== deleteTarget.id));
       setDeleteTarget(null);
+      setDeleteImpact(null);
       onSuccess("Opportunity deleted. Supporting Knowledge and source documents were preserved.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Opportunity could not be deleted.");
@@ -262,13 +333,14 @@ export default function OpportunityIntelligencePanel({
           const impactExpanded = Boolean(impactOpen[item.id]);
           const statusExpanded = Boolean(statusOpen[item.id]);
           const working = workingId === item.id;
+          const impact = impactLevel(item);
           const groupedEvidence = ["current", "historical", "supporting"].map((role) => ({
             role: role as "current" | "historical" | "supporting",
             sources: item.evidence.filter((source) => source.role === role),
           })).filter((group) => group.sources.length > 0);
 
           return (
-            <article key={item.id} className={`opportunity-card severity-${item.severity}`}>
+            <article key={item.id} className={`opportunity-card severity-${item.severity} impact-${impact.label.toLowerCase()}`}>
               <div className="opportunity-card-head">
                 <div>
                   <div className="opportunity-meta">
@@ -278,7 +350,7 @@ export default function OpportunityIntelligencePanel({
                   </div>
                   <h2>{item.title}</h2>
                   <p>{item.summary}</p>
-                  <small className="opportunity-created">Created {formatWhen(item.detected_at)} · Updated {formatWhen(item.updated_at)}</small>
+                  <small className="opportunity-created">Created {formatWhen(item.detected_at)} · Last analysed {formatWhen(item.updated_at)}</small>
                 </div>
                 {item.delta_display ? <strong className="opportunity-delta">{item.delta_display}</strong> : null}
               </div>
@@ -309,7 +381,7 @@ export default function OpportunityIntelligencePanel({
               ) : null}
 
               <button type="button" className={`opportunity-impact severity-${item.severity}`} onClick={() => setImpactOpen((current) => ({ ...current, [item.id]: !impactExpanded }))}>
-                <span>Business impact · {impactLabel(item.severity)}</span>
+                <span>Business impact · {impact.label}</span>
                 <p>{item.business_impact}</p>
                 <small>{impactExpanded ? "Hide context" : "Show why this matters"}</small>
               </button>
@@ -317,7 +389,8 @@ export default function OpportunityIntelligencePanel({
               {impactExpanded ? (
                 <div className="opportunity-inline-detail">
                   <strong>Why this matters</strong>
-                  <p>{item.business_impact}</p>
+                  <p>{whyThisMatters(item)}</p>
+                  <small>{impact.reason}</small>
                   {item.delta_percent !== null ? <small>Measured change: {item.delta_percent > 0 ? "+" : ""}{item.delta_percent.toFixed(1)}%</small> : null}
                 </div>
               ) : null}
@@ -334,7 +407,7 @@ export default function OpportunityIntelligencePanel({
                 {item.status === "confirmed" ? <button type="button" disabled={working} onClick={() => void changeStatus(item, "resolved")}>{working ? "Saving…" : "Mark resolved"}</button> : null}
                 {item.status !== "detected" ? <button type="button" disabled={working} onClick={() => void changeStatus(item, "detected")}>{working ? "Saving…" : "Return to review"}</button> : null}
                 <button type="button" disabled={working} onClick={() => { setMoveTarget(item); setSelectedMoveSpaceId(item.space_id); }}>Move</button>
-                <button type="button" className="danger-button" disabled={working} onClick={() => setDeleteTarget(item)}>Delete</button>
+                <button type="button" className="danger-button" disabled={working} onClick={() => void openDeleteWizard(item)}>Delete</button>
               </div>
 
               {analysisExpanded ? (
@@ -390,14 +463,38 @@ export default function OpportunityIntelligencePanel({
 
       {deleteTarget ? (
         <div className="opportunity-dialog-backdrop" role="presentation">
-          <section className="opportunity-dialog" role="dialog" aria-modal="true" aria-label="Delete opportunity">
-            <header><div><span className="eyebrow">Opportunity lifecycle</span><h2>Delete this opportunity?</h2></div><button type="button" onClick={() => setDeleteTarget(null)} disabled={workingId !== null}>×</button></header>
-            <div className="opportunity-delete-note">
-              <strong>{deleteTarget.title}</strong>
-              <p>This removes only the opportunity finding. GrowthOS will preserve the original Business Intelligence files, captured Knowledge, supporting evidence and Business Graph relationships.</p>
-              <p>If the underlying evidence still supports the same signal, a future Opportunity Review may surface it again.</p>
-            </div>
-            <footer><button type="button" onClick={() => setDeleteTarget(null)} disabled={workingId !== null}>Cancel</button><button type="button" className="danger-button" onClick={() => void confirmDelete()} disabled={workingId !== null}>{workingId !== null ? "Deleting…" : "Delete opportunity"}</button></footer>
+          <section className="opportunity-dialog opportunity-lifecycle-dialog" role="dialog" aria-modal="true" aria-label="Opportunity lifecycle">
+            <header><div><span className="eyebrow">Opportunity lifecycle</span><h2>Before deleting, check what this finding depends on</h2><p>{deleteTarget.title}</p></div><button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); }} disabled={workingId !== null}>×</button></header>
+            {deleteImpactLoading ? <div className="opportunity-lifecycle-loading">Checking source Knowledge and evidence…</div> : null}
+            {deleteImpact ? (
+              <div className="opportunity-lifecycle-body">
+                <div className="opportunity-lifecycle-stats">
+                  <button type="button"><strong>{deleteImpact.knowledge_facts}</strong><span>Knowledge facts</span></button>
+                  <button type="button"><strong>{deleteImpact.source_documents}</strong><span>Source documents</span></button>
+                  <button type="button"><strong>{deleteImpact.calendar_candidates}</strong><span>Calendar candidates</span></button>
+                  <button type="button"><strong>{deleteImpact.graph_entities}</strong><span>Direct graph links</span></button>
+                </div>
+                <details className="opportunity-lifecycle-sources" open>
+                  <summary>Inspect supporting evidence <span>{deleteImpact.sources.length}</span></summary>
+                  {deleteImpact.sources.map((source, index) => (
+                    <div key={`${deleteTarget.id}-lifecycle-${source.document_id ?? source.knowledge_item_id ?? index}`}>
+                      <strong>{source.document_name ?? "Captured Knowledge"}</strong>
+                      <span>{lifecycleRoleLabel(source.role)} evidence · {source.label}</span>
+                      <p>{source.value}</p>
+                    </div>
+                  ))}
+                </details>
+                <div className="opportunity-lifecycle-guidance">
+                  <strong>What deletion means</strong>
+                  {deleteImpact.guidance.map((line, index) => <p key={`${deleteTarget.id}-guidance-${index}`}>{line}</p>)}
+                </div>
+              </div>
+            ) : null}
+            <footer>
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); }} disabled={workingId !== null}>Cancel</button>
+              <button type="button" onClick={() => void dismissFromDeleteWizard()} disabled={workingId !== null}>{workingId !== null ? "Saving…" : "Dismiss instead"}</button>
+              <button type="button" className="danger-button" onClick={() => void confirmDelete()} disabled={workingId !== null || deleteImpactLoading}>{workingId !== null ? "Deleting…" : "Delete opportunity only"}</button>
+            </footer>
           </section>
         </div>
       ) : null}
