@@ -73,7 +73,7 @@ from app.models.executive_memory import ExecutiveMemory
 from app.models.knowledge_space import KnowledgeSpace
 from app.models.knowledge_item import KnowledgeItem
 from app.models.business_entity import BusinessEntity
-from app.models.opportunity import OpportunityRecord
+from app.models.opportunity import OpportunityRecord, OpportunityReviewState
 
 
 def create_app() -> FastAPI:

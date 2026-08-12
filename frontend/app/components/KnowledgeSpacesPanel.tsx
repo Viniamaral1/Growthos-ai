@@ -198,7 +198,10 @@ export default function KnowledgeSpacesPanel({
         });
       })
       .catch((error) => onError(error instanceof Error ? error.message : "Knowledge spaces could not be loaded."));
-  }, [company?.id, activeSpaceId]);
+  // Load the project list when the workspace changes. activeSpaceId changes are
+  // handled by the lightweight sync effect below so we do not refetch the
+  // whole list twice and visibly flicker the Knowledge page.
+  }, [company?.id]);
 
   useEffect(() => {
     if (!activeSpaceId || spaces.length === 0) return;

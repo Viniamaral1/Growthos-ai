@@ -31,3 +31,19 @@ class OpportunityRecord(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+
+class OpportunityReviewState(Base):
+    """Last completed opportunity review for one company/project scope."""
+
+    __tablename__ = "opportunity_review_states"
+    __table_args__ = (UniqueConstraint("company_id", "scope_key", name="uq_opportunity_review_scope"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scope_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    last_reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )

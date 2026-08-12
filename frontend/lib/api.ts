@@ -2115,7 +2115,7 @@ export async function queueBusinessEntityRebuild(companyId: number): Promise<Bus
 }
 
 
-export type OpportunityStatus = "detected" | "confirmed" | "dismissed";
+export type OpportunityStatus = "detected" | "confirmed" | "dismissed" | "resolved" | "expired";
 
 export type OpportunityEvidence = {
   knowledge_item_id: number | null;
@@ -2124,6 +2124,7 @@ export type OpportunityEvidence = {
   label: string;
   value: string;
   source_quality: string | null;
+  role: "current" | "historical" | "supporting";
 };
 
 export type OpportunityRecord = {
@@ -2136,18 +2137,38 @@ export type OpportunityRecord = {
   title: string;
   summary: string;
   confidence: number;
+  confidence_factors: { label: string; contribution: number; detail: string | null }[];
   severity: "info" | "positive" | "warning";
   current_value: string | null;
   previous_value: string | null;
   delta_display: string | null;
   delta_percent: number | null;
   explanation: string[];
+  business_impact: string;
   recommended_action: string;
   entities: string[];
   evidence: OpportunityEvidence[];
   detected_at: string;
   updated_at: string;
 };
+
+
+export type OpportunityReviewState = {
+  needs_review: boolean;
+  latest_knowledge_at: string | null;
+  last_reviewed_at: string | null;
+};
+
+export async function getOpportunityReviewState(
+  companyId: number,
+  spaceId: number | null = null,
+): Promise<OpportunityReviewState> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/opportunities/review-state?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
 
 export async function getOpportunities(
   companyId: number,
