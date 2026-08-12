@@ -2,14 +2,12 @@
 
 import {
   useEffect,
-  useState,
+  useRef,
 } from "react";
-
 
 export type ToastKind =
   | "success"
   | "error";
-
 
 export default function Toast({
   kind,
@@ -20,27 +18,29 @@ export default function Toast({
   message: string;
   onClose: () => void;
 }) {
-  const [visible, setVisible] = useState(false);
+  const onCloseRef = useRef(onClose);
 
   useEffect(() => {
-    setVisible(true);
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
+  useEffect(() => {
     const dismissTimer = window.setTimeout(
-      onClose,
+      () => onCloseRef.current(),
       kind === "error" ? 7000 : 4500,
     );
 
     return () => {
       window.clearTimeout(dismissTimer);
     };
-  }, [kind, message, onClose]);
+  }, [kind, message]);
 
   return (
     <aside
       className={[
         "growthos-toast",
         `growthos-toast-${kind}`,
-        visible ? "visible" : "",
+        "visible",
       ].join(" ")}
       role={kind === "error" ? "alert" : "status"}
       aria-live={kind === "error" ? "assertive" : "polite"}
@@ -60,7 +60,7 @@ export default function Toast({
 
       <button
         type="button"
-        onClick={onClose}
+        onClick={() => onCloseRef.current()}
         aria-label="Dismiss notification"
       >
         ×

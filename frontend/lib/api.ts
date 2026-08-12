@@ -2159,6 +2159,18 @@ export type OpportunityReviewState = {
   last_reviewed_at: string | null;
 };
 
+export type OpportunityPreview = {
+  potential_count: number;
+  knowledge_count: number;
+  highest_confidence: number | null;
+  reasons: string[];
+  candidates: Array<{
+    title: string;
+    confidence: number;
+    business_impact: string;
+  }>;
+};
+
 export async function getOpportunityReviewState(
   companyId: number,
   spaceId: number | null = null,
@@ -2183,6 +2195,18 @@ export async function getOpportunities(
   return response.json();
 }
 
+
+export async function previewOpportunities(
+  companyId: number,
+  spaceId: number | null = null,
+): Promise<OpportunityPreview> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/opportunities/preview?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function refreshOpportunities(
   companyId: number,
   spaceId: number | null = null,
@@ -2196,13 +2220,23 @@ export async function refreshOpportunities(
 
 export async function updateOpportunityStatus(
   opportunityId: number,
-  status: OpportunityStatus,
+  status: OpportunityStatus | null = null,
+  spaceId: number | null = null,
 ): Promise<OpportunityRecord> {
   const response = await fetch(`${API_URL}/opportunities/${opportunityId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({
+      ...(status !== null ? { status } : {}),
+      ...(spaceId !== null ? { space_id: spaceId } : {}),
+    }),
   });
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
+}
+
+
+export async function deleteOpportunity(opportunityId: number): Promise<void> {
+  const response = await fetch(`${API_URL}/opportunities/${opportunityId}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await readError(response));
 }

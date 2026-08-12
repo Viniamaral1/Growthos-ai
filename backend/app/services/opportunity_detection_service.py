@@ -476,12 +476,22 @@ def opportunity_review_state(database: Session, company_id: int, space_id: int |
     }
 
 
-def detect_opportunities(database: Session, company_id: int, space_id: int | None = None) -> list[OpportunityRecord]:
+def _build_opportunity_candidates(
+    database: Session,
+    company_id: int,
+    space_id: int | None = None,
+) -> tuple[list[Candidate], int]:
+    """Build deterministic opportunity candidates without persisting user-facing records."""
     statement = select(KnowledgeItem).where(KnowledgeItem.company_id == company_id)
     if space_id is not None:
         statement = statement.where(KnowledgeItem.space_id == space_id)
     items = list(database.scalars(statement.order_by(KnowledgeItem.updated_at.desc())).all())
-    spaces = {space.id: space for space in database.scalars(select(KnowledgeSpace).where(KnowledgeSpace.company_id == company_id)).all()}
+    spaces = {
+        space.id: space
+        for space in database.scalars(
+            select(KnowledgeSpace).where(KnowledgeSpace.company_id == company_id)
+        ).all()
+    }
 
     candidates: list[Candidate] = []
     for item in items:
@@ -498,20 +508,28 @@ def detect_opportunities(database: Session, company_id: int, space_id: int | Non
             by_space.setdefault(candidate.space_id, []).append(candidate)
     for sid, group in by_space.items():
         price_down = next((c for c in group if c.opportunity_type == "supplier_price_reduction"), None)
-        volume_up = next((c for c in group if c.opportunity_type == "volume_change" and (c.delta_percent or 0) > 0), None)
+        volume_up = next(
+            (c for c in group if c.opportunity_type == "volume_change" and (c.delta_percent or 0) > 0),
+            None,
+        )
         if price_down and volume_up:
-            signature = hashlib.sha256(f"{company_id}|{sid}|volume-price-tradeoff|{price_down.signature}|{volume_up.signature}".encode()).hexdigest()[:40]
+            signature = hashlib.sha256(
+                f"{company_id}|{sid}|volume-price-tradeoff|{price_down.signature}|{volume_up.signature}".encode()
+            ).hexdigest()[:40]
             candidates.append(Candidate(
                 signature=signature,
                 opportunity_type="volume_price_tradeoff",
                 title="Lower unit price is paired with a higher volume commitment",
-                summary="The unit price fell while committed volume increased in the same project.",
+                summary=(
+                    "The supplier lowered the unit price while the same project increased "
+                    "its committed volume. The unit saving should be checked against total spend."
+                ),
                 confidence=min(price_down.confidence, volume_up.confidence),
                 confidence_factors=[
-                    {"label": "Same project", "contribution": 20, "detail": "Both changes belong to the same project."},
-                    {"label": "Price history", "contribution": 25, "detail": "A lower historical-to-current unit price was detected."},
-                    {"label": "Volume history", "contribution": 25, "detail": "Committed volume increased in the same Knowledge set."},
-                    {"label": "Evidence quality", "contribution": max(0, min(price_down.confidence, volume_up.confidence) - 70), "detail": "The underlying facts retain source evidence."},
+                    {"label": "Same project", "contribution": 20, "detail": "Both commercial changes belong to the same project."},
+                    {"label": "Price history", "contribution": 25, "detail": "Historical evidence shows a lower current unit price."},
+                    {"label": "Volume history", "contribution": 25, "detail": "The committed volume increased in the same Knowledge set."},
+                    {"label": "Evidence quality", "contribution": max(0, min(price_down.confidence, volume_up.confidence) - 70), "detail": "The underlying facts remain linked to source evidence."},
                 ],
                 severity="info",
                 space_id=sid,
@@ -523,13 +541,69 @@ def detect_opportunities(database: Session, company_id: int, space_id: int | Non
                 explanation=[
                     "The newer evidence lowers the unit price.",
                     "The same project also contains a higher volume commitment.",
-                    "A lower unit price is not automatically a total saving when committed volume increases.",
+                    "A lower unit price does not automatically mean lower total spend when committed volume increases.",
                 ],
-                business_impact="The unit-price saving may be real, but total annual spend can still rise if the committed volume increases enough.",
-                recommended_action="Compare expected total spend, demand and service terms before accepting the apparent unit-price saving.",
+                business_impact=(
+                    "The unit-price saving may be valuable, but total annual spend can still rise "
+                    "if the higher committed volume outweighs the saving."
+                ),
+                recommended_action=(
+                    "Compare expected total spend, demand, service quality and contract terms "
+                    "before accepting the apparent unit-price saving."
+                ),
                 entities=list(dict.fromkeys(price_down.entities + volume_up.entities))[:8],
                 evidence=price_down.evidence + volume_up.evidence,
             ))
+
+    return candidates, len(items)
+
+
+def preview_opportunities(
+    database: Session,
+    company_id: int,
+    space_id: int | None = None,
+) -> dict:
+    """Explain whether current Knowledge can support an opportunity without saving one."""
+    candidates, knowledge_count = _build_opportunity_candidates(database, company_id, space_id)
+    if candidates:
+        ordered = sorted(candidates, key=lambda candidate: candidate.confidence, reverse=True)
+        return {
+            "potential_count": len(ordered),
+            "knowledge_count": knowledge_count,
+            "highest_confidence": ordered[0].confidence,
+            "reasons": [
+                f"GrowthOS found {len(ordered)} supported business change{'s' if len(ordered) != 1 else ''} worth reviewing.",
+                "The findings are based on captured Knowledge and historical evidence in the selected project.",
+            ],
+            "candidates": [
+                {
+                    "title": candidate.title,
+                    "confidence": candidate.confidence,
+                    "business_impact": candidate.business_impact,
+                }
+                for candidate in ordered[:5]
+            ],
+        }
+
+    reasons: list[str] = []
+    if knowledge_count == 0:
+        reasons.append("There is no captured Knowledge in this project yet.")
+    else:
+        reasons.extend([
+            "No meaningful historical value change or renewal milestone was supported by the current Knowledge.",
+            "GrowthOS did not create a finding simply because a document was uploaded or captured.",
+        ])
+    return {
+        "potential_count": 0,
+        "knowledge_count": knowledge_count,
+        "highest_confidence": None,
+        "reasons": reasons,
+        "candidates": [],
+    }
+
+
+def detect_opportunities(database: Session, company_id: int, space_id: int | None = None) -> list[OpportunityRecord]:
+    candidates, _ = _build_opportunity_candidates(database, company_id, space_id)
 
     records: list[OpportunityRecord] = []
     for candidate in candidates:

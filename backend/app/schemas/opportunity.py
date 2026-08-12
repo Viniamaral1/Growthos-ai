@@ -49,7 +49,22 @@ class OpportunityResponse(BaseModel):
 
 
 class OpportunityStatusUpdate(BaseModel):
-    status: OpportunityStatus
+    status: OpportunityStatus | None = None
+    space_id: int | None = None
+
+
+class OpportunityPreviewCandidate(BaseModel):
+    title: str
+    confidence: int
+    business_impact: str
+
+
+class OpportunityPreviewResponse(BaseModel):
+    potential_count: int
+    knowledge_count: int
+    highest_confidence: int | None = None
+    reasons: list[str] = []
+    candidates: list[OpportunityPreviewCandidate] = []
 
 
 class OpportunityReviewStateResponse(BaseModel):

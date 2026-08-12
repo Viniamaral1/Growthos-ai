@@ -48,6 +48,7 @@ import {
   captureDocumentToKnowledge,
   previewDocumentKnowledge,
   captureDocumentKnowledgeFacts,
+  previewOpportunities,
   moveDocumentToWorkspace,
   deleteDocument,
   getDocumentDeleteDependencies,
@@ -69,6 +70,7 @@ import {
   type MarketingCampaign,
   type MarketingObjective,
   type MarketingPlatform,
+  type OpportunityPreview,
 } from "@/lib/api";
 
 type View =
@@ -108,6 +110,13 @@ type KnowledgeBridgeReview = {
   spaceName: string;
   facts: Array<KnowledgeFactProposal & { selected: boolean; draftTitle: string; draftValue: string; action: "create" | "update" }>;
   aiEnriched: boolean;
+};
+
+
+type OpportunityHandoff = {
+  preview: OpportunityPreview;
+  spaceId: number;
+  spaceName: string;
 };
 
 type ProjectCreationDialog = {
@@ -2755,6 +2764,7 @@ export default function Home() {
   const [ingestionTrayFilter, setIngestionTrayFilter] = useState<"all" | "strong_match" | "review" | "unrelated">("all");
   const [ingestionTargetSpaceId, setIngestionTargetSpaceId] = useState<number | null>(null);
   const [knowledgeBridgeReview, setKnowledgeBridgeReview] = useState<KnowledgeBridgeReview | null>(null);
+  const [opportunityHandoff, setOpportunityHandoff] = useState<OpportunityHandoff | null>(null);
   const [projectCreationDialog, setProjectCreationDialog] = useState<ProjectCreationDialog | null>(null);
   const [projectCreationName, setProjectCreationName] = useState("");
   const [projectCreationBusy, setProjectCreationBusy] = useState(false);
@@ -3482,8 +3492,22 @@ async function handleGenerateBusinessPlan(
         })),
       );
       updateIngestionTrayItem(knowledgeBridgeReview.document.id, { status: "done", note: result.message });
-      if (selectedCompanyId !== null) setDocuments(await getDocuments(selectedCompanyId));
-      setMessage(`✓ ${result.message} Source evidence remains in Business Intelligence.`);
+      if (selectedCompanyId !== null) {
+        setDocuments(await getDocuments(selectedCompanyId));
+        try {
+          const preview = await previewOpportunities(selectedCompanyId, knowledgeBridgeReview.spaceId);
+          setOpportunityHandoff({
+            preview,
+            spaceId: knowledgeBridgeReview.spaceId,
+            spaceName: knowledgeBridgeReview.spaceName,
+          });
+          setMessage(preview.potential_count > 0
+            ? `✓ ${result.message} GrowthOS found ${preview.potential_count} possible opportunity signal${preview.potential_count === 1 ? "" : "s"} ready for review.`
+            : `✓ ${result.message} GrowthOS checked the new Knowledge and did not find a supported opportunity to save.`);
+        } catch {
+          setMessage(`✓ ${result.message} Knowledge was saved. Opportunity review is still available from Opportunity Intelligence.`);
+        }
+      }
       setKnowledgeBridgeReview(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Knowledge facts could not be saved.");
@@ -3852,6 +3876,7 @@ async function handleGenerateBusinessPlan(
       <OpportunityIntelligencePanel
         company={selectedCompany}
         activeSpaceId={ingestionTargetSpaceId}
+        onActiveSpaceChange={setIngestionTargetSpaceId}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
       />
@@ -4468,6 +4493,58 @@ async function handleGenerateBusinessPlan(
                 </div>
               )}
             </aside>
+          )}
+
+          {opportunityHandoff && (
+            <div className="opportunity-handoff-backdrop" role="presentation">
+              <section className="opportunity-handoff-dialog" role="dialog" aria-modal="true" aria-label="Knowledge opportunity review">
+                <header>
+                  <div>
+                    <span className="eyebrow">Knowledge → Opportunity Intelligence</span>
+                    <h2>{opportunityHandoff.preview.potential_count > 0 ? "Possible opportunity found" : "Knowledge captured — no opportunity saved"}</h2>
+                    <p>Project: {opportunityHandoff.spaceName}</p>
+                  </div>
+                  <button type="button" aria-label="Close opportunity handoff" onClick={() => setOpportunityHandoff(null)}>×</button>
+                </header>
+                <div className="opportunity-handoff-body">
+                  {opportunityHandoff.preview.potential_count > 0 ? (
+                    <>
+                      <div className="opportunity-handoff-summary positive">
+                        <strong>{opportunityHandoff.preview.potential_count} possible signal{opportunityHandoff.preview.potential_count === 1 ? "" : "s"}</strong>
+                        <span>Highest confidence: {opportunityHandoff.preview.highest_confidence ?? "—"}%</span>
+                      </div>
+                      {opportunityHandoff.preview.candidates.map((candidate, index) => (
+                        <article key={`${candidate.title}-${index}`}>
+                          <div><strong>{candidate.title}</strong><span>{candidate.confidence}% confidence</span></div>
+                          <p>{candidate.business_impact}</p>
+                        </article>
+                      ))}
+                      <p className="opportunity-handoff-note">Nothing has been silently confirmed. Open Opportunity Intelligence and run the full review when you want GrowthOS to save/update supported findings.</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="opportunity-handoff-summary neutral">
+                        <strong>No opportunity was saved</strong>
+                        <span>{opportunityHandoff.preview.knowledge_count} Knowledge item{opportunityHandoff.preview.knowledge_count === 1 ? "" : "s"} checked</span>
+                      </div>
+                      <div className="opportunity-handoff-reasons">
+                        <strong>Why?</strong>
+                        <ul>{opportunityHandoff.preview.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+                      </div>
+                      <p className="opportunity-handoff-note">This does not mean the Knowledge is unimportant. It means GrowthOS does not currently have enough evidence for a meaningful opportunity signal.</p>
+                    </>
+                  )}
+                </div>
+                <footer>
+                  <button type="button" onClick={() => setOpportunityHandoff(null)}>Keep as Knowledge only</button>
+                  <button type="button" className="primary-button" onClick={() => {
+                    setIngestionTargetSpaceId(opportunityHandoff.spaceId);
+                    setView("opportunities");
+                    setOpportunityHandoff(null);
+                  }}>{opportunityHandoff.preview.potential_count > 0 ? "Open Opportunities" : "Review Opportunities"}</button>
+                </footer>
+              </section>
+            </div>
           )}
 
           {knowledgeBridgeReview && (

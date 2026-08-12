@@ -8900,3 +8900,81 @@ button:disabled {
   .opportunity-review-reminder { align-items: stretch; flex-direction: column; }
   .opportunity-review-reminder button { width: 100%; }
 }
+
+/* Opportunity Intelligence v1.6 polish */
+.opportunity-hero-actions { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.opportunity-hero-actions label { display:grid; gap:5px; min-width:220px; }
+.opportunity-hero-actions label > span { font-size:11px; text-transform:uppercase; letter-spacing:.08em; opacity:.62; }
+.opportunity-hero-actions select,
+.opportunity-dialog select { width:100%; min-height:42px; border:1px solid rgba(148,163,184,.24); border-radius:12px; background:rgba(15,23,42,.62); color:inherit; padding:0 12px; }
+
+.opportunity-review-state { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 12px; }
+.opportunity-review-state > div { border:1px solid rgba(148,163,184,.16); border-radius:14px; padding:12px 14px; display:grid; gap:4px; background:rgba(15,23,42,.28); }
+.opportunity-review-state span { font-size:10px; opacity:.58; text-transform:uppercase; letter-spacing:.08em; }
+.opportunity-review-state strong { font-size:13px; }
+
+.opportunity-chip-button { font:inherit; color:inherit; font-size:11px; padding:4px 7px; border-radius:999px; border:1px solid transparent; background:rgba(148,163,184,.1); cursor:pointer; }
+.opportunity-chip-button:hover { border-color:rgba(45,212,191,.45); }
+.opportunity-created { display:block; margin-top:7px; opacity:.52; }
+
+.opportunity-impact { width:100%; text-align:left; border:1px solid rgba(148,163,184,.18); border-radius:14px; padding:13px 15px; margin-top:14px; color:inherit; cursor:pointer; background:rgba(15,23,42,.35); }
+.opportunity-impact.severity-positive { border-color:rgba(34,197,94,.38); background:rgba(34,197,94,.055); }
+.opportunity-impact.severity-warning { border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.06); }
+.opportunity-impact.severity-info { border-color:rgba(99,102,241,.34); background:rgba(99,102,241,.05); }
+.opportunity-impact small { display:block; margin-top:6px; opacity:.52; }
+
+.opportunity-inline-detail { margin-top:10px; border:1px solid rgba(45,212,191,.2); background:rgba(15,23,42,.42); border-radius:14px; padding:12px 14px; }
+.opportunity-inline-detail > strong { display:block; margin-bottom:7px; }
+.opportunity-inline-detail > p { margin:5px 0; display:grid; grid-template-columns:minmax(120px,1fr) auto; gap:8px; }
+.opportunity-inline-detail > p small { grid-column:1/-1; opacity:.62; }
+.opportunity-inline-detail > small { opacity:.6; }
+
+.opportunity-confidence-box summary { list-style:none; cursor:pointer; }
+.opportunity-confidence-box summary::-webkit-details-marker { display:none; }
+.opportunity-evidence-group > summary { cursor:pointer; list-style:none; }
+.opportunity-evidence-group > summary::-webkit-details-marker { display:none; }
+.opportunity-evidence-group > summary h4 { display:flex; justify-content:space-between; align-items:center; margin:0; }
+.opportunity-evidence-group > summary h4 span { font-size:11px; opacity:.6; }
+
+.opportunity-empty-rich { display:grid; gap:12px; }
+.opportunity-empty-details { display:flex; gap:10px; flex-wrap:wrap; }
+.opportunity-empty-details span { border:1px solid rgba(148,163,184,.14); border-radius:999px; padding:6px 9px; font-size:11px; }
+
+.opportunity-dialog-backdrop,
+.opportunity-handoff-backdrop { position:fixed; inset:0; z-index:1200; display:grid; place-items:center; background:rgba(2,6,23,.72); backdrop-filter:blur(7px); padding:22px; }
+.opportunity-dialog,
+.opportunity-handoff-dialog { width:min(720px,96vw); max-height:88vh; overflow:auto; background:var(--panel, #0b1d2d); border:1px solid rgba(45,212,191,.32); border-radius:22px; box-shadow:0 28px 90px rgba(0,0,0,.42); }
+.opportunity-dialog > header,
+.opportunity-handoff-dialog > header { display:flex; justify-content:space-between; gap:20px; padding:22px 24px; border-bottom:1px solid rgba(148,163,184,.14); }
+.opportunity-dialog h2,
+.opportunity-handoff-dialog h2 { margin:4px 0 0; }
+.opportunity-dialog header p,
+.opportunity-handoff-dialog header p { margin:5px 0 0; opacity:.65; }
+.opportunity-dialog header > button,
+.opportunity-handoff-dialog header > button { width:42px; height:42px; border-radius:12px; }
+.opportunity-dialog > p,
+.opportunity-dialog > label,
+.opportunity-delete-note { margin:18px 24px 0; }
+.opportunity-dialog > label { display:grid; gap:6px; }
+.opportunity-dialog > footer,
+.opportunity-handoff-dialog > footer { display:flex; justify-content:flex-end; gap:10px; padding:18px 24px; border-top:1px solid rgba(148,163,184,.14); }
+.opportunity-delete-note { padding:16px; border-radius:14px; background:rgba(245,158,11,.055); border:1px solid rgba(245,158,11,.25); }
+.opportunity-delete-note p { line-height:1.5; opacity:.78; }
+
+.opportunity-handoff-body { padding:20px 24px; display:grid; gap:12px; }
+.opportunity-handoff-summary { display:flex; justify-content:space-between; gap:16px; padding:14px 16px; border-radius:14px; }
+.opportunity-handoff-summary.positive { background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.3); }
+.opportunity-handoff-summary.neutral { background:rgba(148,163,184,.07); border:1px solid rgba(148,163,184,.2); }
+.opportunity-handoff-body article { border:1px solid rgba(148,163,184,.15); border-radius:14px; padding:13px 15px; }
+.opportunity-handoff-body article > div { display:flex; justify-content:space-between; gap:12px; }
+.opportunity-handoff-body article p { margin:7px 0 0; opacity:.75; line-height:1.45; }
+.opportunity-handoff-reasons { padding:14px 16px; border-radius:14px; background:rgba(15,23,42,.35); }
+.opportunity-handoff-reasons ul { margin:8px 0 0; padding-left:20px; }
+.opportunity-handoff-reasons li { margin:5px 0; }
+.opportunity-handoff-note { margin:0; opacity:.66; line-height:1.5; }
+
+@media (max-width: 760px) {
+  .opportunity-review-state { grid-template-columns:1fr; }
+  .opportunity-hero-actions, .opportunity-hero-actions label { width:100%; }
+  .opportunity-dialog > footer, .opportunity-handoff-dialog > footer { flex-direction:column-reverse; }
+}
