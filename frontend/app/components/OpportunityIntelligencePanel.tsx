@@ -129,6 +129,7 @@ export default function OpportunityIntelligencePanel({
   const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
   const [moveTarget, setMoveTarget] = useState<OpportunityRecord | null>(null);
   const [selectedMoveSpaceId, setSelectedMoveSpaceId] = useState<number | null>(null);
+  const [lifecycleInspect, setLifecycleInspect] = useState<OpportunityLifecycleImpact["sources"][number] | null>(null);
 
   const companyId = company?.id ?? null;
 
@@ -221,6 +222,7 @@ export default function OpportunityIntelligencePanel({
     if (workingId !== null) return;
     setDeleteTarget(item);
     setDeleteImpact(null);
+    setLifecycleInspect(null);
     setDeleteImpactLoading(true);
     try {
       setDeleteImpact(await getOpportunityLifecycleImpact(item.id));
@@ -247,6 +249,7 @@ export default function OpportunityIntelligencePanel({
       setItems((current) => current.filter((item) => item.id !== deleteTarget.id));
       setDeleteTarget(null);
       setDeleteImpact(null);
+      setLifecycleInspect(null);
       onSuccess("Opportunity deleted. Supporting Knowledge and source documents were preserved.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Opportunity could not be deleted.");
@@ -433,7 +436,7 @@ export default function OpportunityIntelligencePanel({
                       <details className="opportunity-evidence-group" key={`${item.id}-${group.role}`} open={group.role === "current"}>
                         <summary><h4>{evidenceRoleLabel(group.role)} <span>{group.sources.length}</span></h4></summary>
                         {group.sources.map((source, index) => (
-                          <div className="opportunity-source" key={`${item.id}-${group.role}-${source.document_id ?? index}`}>
+                          <div className="opportunity-source" key={`${item.id}-${group.role}-${source.document_id ?? "no-doc"}-${source.knowledge_item_id ?? "no-fact"}-${index}`}>
                             <strong>{source.document_name ?? "Captured Knowledge"}</strong>
                             <span>{source.label}</span>
                             <p>{source.value}</p>
@@ -464,26 +467,55 @@ export default function OpportunityIntelligencePanel({
       {deleteTarget ? (
         <div className="opportunity-dialog-backdrop" role="presentation">
           <section className="opportunity-dialog opportunity-lifecycle-dialog" role="dialog" aria-modal="true" aria-label="Opportunity lifecycle">
-            <header><div><span className="eyebrow">Opportunity lifecycle</span><h2>Before deleting, check what this finding depends on</h2><p>{deleteTarget.title}</p></div><button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); }} disabled={workingId !== null}>×</button></header>
+            <header><div><span className="eyebrow">Opportunity lifecycle</span><h2>Before deleting, check what this finding depends on</h2><p>{deleteTarget.title}</p></div><button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); setLifecycleInspect(null); }} disabled={workingId !== null}>×</button></header>
             {deleteImpactLoading ? <div className="opportunity-lifecycle-loading">Checking source Knowledge and evidence…</div> : null}
             {deleteImpact ? (
               <div className="opportunity-lifecycle-body">
                 <div className="opportunity-lifecycle-stats">
-                  <button type="button"><strong>{deleteImpact.knowledge_facts}</strong><span>Knowledge facts</span></button>
-                  <button type="button"><strong>{deleteImpact.source_documents}</strong><span>Source documents</span></button>
-                  <button type="button"><strong>{deleteImpact.calendar_candidates}</strong><span>Calendar candidates</span></button>
-                  <button type="button"><strong>{deleteImpact.graph_entities}</strong><span>Direct graph links</span></button>
+                  <button type="button" onClick={() => document.getElementById("opportunity-lifecycle-evidence")?.scrollIntoView({ behavior: "smooth", block: "start" })}><strong>{deleteImpact.knowledge_facts}</strong><span>Knowledge facts</span><small>Inspect</small></button>
+                  <button type="button" onClick={() => document.getElementById("opportunity-lifecycle-evidence")?.scrollIntoView({ behavior: "smooth", block: "start" })}><strong>{deleteImpact.source_documents}</strong><span>Source documents</span><small>Inspect</small></button>
+                  <button type="button" onClick={() => document.getElementById("opportunity-lifecycle-dependencies")?.scrollIntoView({ behavior: "smooth", block: "start" })}><strong>{deleteImpact.calendar_candidates}</strong><span>Calendar candidates</span><small>Inspect</small></button>
+                  <button type="button" onClick={() => document.getElementById("opportunity-lifecycle-dependencies")?.scrollIntoView({ behavior: "smooth", block: "start" })}><strong>{deleteImpact.graph_entities}</strong><span>Direct graph links</span><small>Inspect</small></button>
                 </div>
-                <details className="opportunity-lifecycle-sources" open>
+                <details id="opportunity-lifecycle-evidence" className="opportunity-lifecycle-sources" open>
                   <summary>Inspect supporting evidence <span>{deleteImpact.sources.length}</span></summary>
                   {deleteImpact.sources.map((source, index) => (
-                    <div key={`${deleteTarget.id}-lifecycle-${source.document_id ?? source.knowledge_item_id ?? index}`}>
+                    <button
+                      type="button"
+                      className="opportunity-lifecycle-source-button"
+                      key={`${deleteTarget.id}-lifecycle-${source.role}-${source.document_id ?? "no-doc"}-${source.knowledge_item_id ?? "no-fact"}-${index}`}
+                      onClick={() => setLifecycleInspect(source)}
+                    >
                       <strong>{source.document_name ?? "Captured Knowledge"}</strong>
                       <span>{lifecycleRoleLabel(source.role)} evidence · {source.label}</span>
                       <p>{source.value}</p>
-                    </div>
+                      <small>Open evidence details</small>
+                    </button>
                   ))}
                 </details>
+                {lifecycleInspect ? (
+                  <section className="opportunity-lifecycle-inspector" aria-live="polite">
+                    <div>
+                      <span className="eyebrow">Evidence inspection</span>
+                      <h3>{lifecycleInspect.document_name ?? "Captured Knowledge"}</h3>
+                    </div>
+                    <button type="button" onClick={() => setLifecycleInspect(null)}>Close details</button>
+                    <dl>
+                      <div><dt>Evidence role</dt><dd>{lifecycleRoleLabel(lifecycleInspect.role)}</dd></div>
+                      <div><dt>Business fact</dt><dd>{lifecycleInspect.label}</dd></div>
+                      <div><dt>Captured value</dt><dd>{lifecycleInspect.value}</dd></div>
+                      <div><dt>Project</dt><dd>{deleteTarget.space_name ?? "Workspace"}</dd></div>
+                      <div><dt>Document ID</dt><dd>{lifecycleInspect.document_id ?? "Not linked"}</dd></div>
+                      <div><dt>Knowledge fact ID</dt><dd>{lifecycleInspect.knowledge_item_id ?? "Not linked"}</dd></div>
+                    </dl>
+                    <p>This preview shows exactly which evidence supports the opportunity. Deleting the opportunity does not delete this source or captured Knowledge.</p>
+                  </section>
+                ) : null}
+                <div id="opportunity-lifecycle-dependencies" className="opportunity-lifecycle-dependency-summary">
+                  <strong>Other linked dependencies</strong>
+                  <p>{deleteImpact.calendar_candidates} calendar candidate{deleteImpact.calendar_candidates === 1 ? "" : "s"} and {deleteImpact.graph_entities} direct graph link{deleteImpact.graph_entities === 1 ? "" : "s"} are associated with this finding.</p>
+                  <small>These remain preserved when you delete the opportunity only.</small>
+                </div>
                 <div className="opportunity-lifecycle-guidance">
                   <strong>What deletion means</strong>
                   {deleteImpact.guidance.map((line, index) => <p key={`${deleteTarget.id}-guidance-${index}`}>{line}</p>)}
@@ -491,7 +523,7 @@ export default function OpportunityIntelligencePanel({
               </div>
             ) : null}
             <footer>
-              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); }} disabled={workingId !== null}>Cancel</button>
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteImpact(null); setLifecycleInspect(null); }} disabled={workingId !== null}>Cancel</button>
               <button type="button" onClick={() => void dismissFromDeleteWizard()} disabled={workingId !== null}>{workingId !== null ? "Saving…" : "Dismiss instead"}</button>
               <button type="button" className="danger-button" onClick={() => void confirmDelete()} disabled={workingId !== null || deleteImpactLoading}>{workingId !== null ? "Deleting…" : "Delete opportunity only"}</button>
             </footer>

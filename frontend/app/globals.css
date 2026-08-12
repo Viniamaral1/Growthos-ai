@@ -9001,3 +9001,25 @@ button:disabled {
 .opportunity-lifecycle-guidance { padding:15px 16px; border-radius:14px; background:rgba(245,158,11,.055); border:1px solid rgba(245,158,11,.22); }
 .opportunity-lifecycle-guidance p { margin:7px 0 0; opacity:.78; line-height:1.45; }
 @media (max-width:800px) { .opportunity-lifecycle-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Opportunity v0.11.8: stable evidence identities + lifecycle inspection */
+.opportunity-lifecycle-stats button { cursor:pointer; transition:border-color .15s ease, background .15s ease, transform .15s ease; }
+.opportunity-lifecycle-stats button:hover { border-color:rgba(45,212,191,.45); background:rgba(15,118,110,.09); transform:translateY(-1px); }
+.opportunity-lifecycle-stats button small { opacity:.55; font-size:11px; }
+.opportunity-lifecycle-source-button { width:100%; text-align:left; color:inherit; border:0; border-top:1px solid rgba(148,163,184,.12); background:transparent; padding:13px 16px; display:grid; gap:4px; cursor:pointer; }
+.opportunity-lifecycle-source-button:hover { background:rgba(45,212,191,.055); }
+.opportunity-lifecycle-source-button span { opacity:.68; font-size:12px; }
+.opportunity-lifecycle-source-button p { margin:2px 0 0; font-size:16px; }
+.opportunity-lifecycle-source-button small { color:rgb(94,234,212); opacity:.8; font-size:11px; }
+.opportunity-lifecycle-inspector { display:grid; grid-template-columns:1fr auto; gap:14px; padding:16px; border-radius:14px; border:1px solid rgba(45,212,191,.28); background:rgba(15,118,110,.075); }
+.opportunity-lifecycle-inspector h3 { margin:4px 0 0; }
+.opportunity-lifecycle-inspector > button { align-self:start; }
+.opportunity-lifecycle-inspector dl { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:0; }
+.opportunity-lifecycle-inspector dl div { padding:10px 12px; border-radius:10px; background:rgba(15,23,42,.36); }
+.opportunity-lifecycle-inspector dt { font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.04em; }
+.opportunity-lifecycle-inspector dd { margin:4px 0 0; font-weight:700; overflow-wrap:anywhere; }
+.opportunity-lifecycle-inspector > p { grid-column:1 / -1; margin:0; opacity:.72; line-height:1.45; }
+.opportunity-lifecycle-dependency-summary { padding:14px 16px; border-radius:14px; border:1px solid rgba(148,163,184,.16); background:rgba(15,23,42,.28); }
+.opportunity-lifecycle-dependency-summary p { margin:6px 0 3px; }
+.opportunity-lifecycle-dependency-summary small { opacity:.62; }
+@media (max-width:700px) { .opportunity-lifecycle-inspector dl { grid-template-columns:1fr; } }
