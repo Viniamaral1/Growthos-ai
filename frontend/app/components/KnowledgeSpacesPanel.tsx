@@ -1,5 +1,7 @@
 "use client";
 
+import ConfidenceRing from "@/app/components/ConfidenceRing";
+
 import { useEffect, useMemo, useState } from "react";
 import SemanticWorkspaceSearch from "@/app/components/SemanticWorkspaceSearch";
 import {
@@ -826,7 +828,7 @@ export default function KnowledgeSpacesPanel({
                           </details>
                         </div>
                         <div>
-                          {confidenceFromItem(item) !== null && <span className="calendar-chip">Confidence {confidenceFromItem(item)}%</span>}
+                          {confidenceFromItem(item) !== null && <ConfidenceRing value={confidenceFromItem(item) ?? 0} size={48} />}
                           <details className="knowledge-supporting-sources">
                             <summary className={`calendar-chip evidence-health ${evidenceHealthFromItem(item).status}`}>{evidenceHealthFromItem(item).label}</summary>
                             <div>

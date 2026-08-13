@@ -9393,3 +9393,11 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0,1fr));
   }
 }
+
+
+/* GrowthOS v0.12.3 — final UX cleanup */
+.confidence-ring{position:relative;width:58px;min-width:58px;height:58px;display:inline-grid;place-items:center;padding:0;border:0;background:transparent;color:var(--text);cursor:pointer}.confidence-ring svg{grid-area:1/1}.confidence-ring-track{stroke:rgba(148,163,184,.22)}.confidence-ring-progress{stroke:var(--cyan)}.confidence-ring-value{grid-area:1/1;font-size:11px;font-weight:800;line-height:1}.confidence-ring small{position:absolute;top:calc(100% - 4px);font-size:7px;white-space:nowrap;color:var(--muted);font-weight:700}.confidence-ring:hover .confidence-ring-track,.confidence-ring:focus-visible .confidence-ring-track{stroke:rgba(59,214,208,.35)}
+.contradiction-badges{align-items:center}.contradiction-review-toggle{align-self:flex-start;min-height:36px;padding:8px 13px;border:1px solid rgba(59,214,208,.28);border-radius:10px;background:rgba(59,214,208,.055);color:var(--cyan);font-weight:800;cursor:pointer}.contradiction-review-toggle:disabled{opacity:.55;cursor:wait}.contradiction-confidence-explanation{display:grid;gap:6px;padding:0 12px 12px;color:var(--text-soft)}.contradiction-confidence-explanation strong{color:var(--cyan)}
+.intelligence-review-knowledge-list{display:grid;gap:10px}.knowledge-review-card p{font-weight:700;color:var(--text)}.knowledge-review-card span{text-transform:capitalize;color:var(--muted);font-size:9px}
+.contradiction-wizard>footer{position:sticky;bottom:0;z-index:3;background:rgba(7,20,34,.995);box-shadow:0 -10px 24px rgba(2,8,16,.22)}.contradiction-delete-wizard .contradiction-wizard-body{padding-bottom:28px}
+@media(max-width:760px){.confidence-ring{width:52px;min-width:52px;height:52px}.contradiction-review-toggle{width:max-content}}

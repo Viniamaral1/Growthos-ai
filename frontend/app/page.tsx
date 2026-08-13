@@ -43,6 +43,7 @@ import {
   getDocumentRelevance,
   getDocumentIngestionAssessment,
   getKnowledgeSpaces,
+  getKnowledgeItems,
   createKnowledgeSpace,
   checkDocumentDuplicate,
   routeDocumentToProject,
@@ -69,6 +70,7 @@ import {
   type DocumentRelevance,
   type IntelligentIngestionAssessment,
   type KnowledgeSpace,
+  type KnowledgeItem,
   type KnowledgeFactProposal,
   type GroundedAnswer,
   type DevelopmentStage,
@@ -127,6 +129,7 @@ type OpportunityHandoff = {
   spaceName: string;
   activeTab: "knowledge" | "opportunities" | "contradictions";
   savedKnowledgeCount: number;
+  savedKnowledge: KnowledgeItem[];
   opportunities: OpportunityRecord[];
   contradictions: ContradictionRecord[];
   opportunityReviewed: boolean;
@@ -3507,6 +3510,8 @@ async function handleGenerateBusinessPlan(
           action: fact.action,
         })),
       );
+      const savedKnowledge = (await getKnowledgeItems(knowledgeBridgeReview.spaceId))
+        .filter((item) => result.knowledge_item_ids.includes(item.id));
       updateIngestionTrayItem(knowledgeBridgeReview.document.id, { status: "done", note: result.message });
       if (selectedCompanyId !== null) {
         setDocuments(await getDocuments(selectedCompanyId));
@@ -3518,6 +3523,7 @@ async function handleGenerateBusinessPlan(
             spaceName: knowledgeBridgeReview.spaceName,
             activeTab: "knowledge",
             savedKnowledgeCount: selected.length,
+            savedKnowledge,
             opportunities: [],
             contradictions: [],
             opportunityReviewed: false,
@@ -3540,6 +3546,7 @@ async function handleGenerateBusinessPlan(
             spaceName: knowledgeBridgeReview.spaceName,
             activeTab: "knowledge",
             savedKnowledgeCount: selected.length,
+            savedKnowledge,
             opportunities: [],
             contradictions: [],
             opportunityReviewed: false,
@@ -4657,9 +4664,19 @@ async function handleGenerateBusinessPlan(
                         <strong>{opportunityHandoff.savedKnowledgeCount} reusable Knowledge fact{opportunityHandoff.savedKnowledgeCount === 1 ? "" : "s"} saved</strong>
                         <span>The original Business Intelligence evidence remains linked.</span>
                       </div>
-                      <p className="opportunity-handoff-note">
-                        Knowledge is now available to Opportunities and Contradictions. You can review either intelligence layer here without leaving the capture flow.
-                      </p>
+                      {opportunityHandoff.savedKnowledge.length > 0 ? (
+                        <div className="intelligence-review-knowledge-list">
+                          {opportunityHandoff.savedKnowledge.map((item) => (
+                            <article key={item.id} className="intelligence-review-card knowledge-review-card">
+                              <div><strong>{item.title}</strong><span>{item.item_type.replaceAll("_", " ")}</span></div>
+                              <p>{item.content || item.summary}</p>
+                              {item.summary && item.summary !== item.content ? <small>{item.summary}</small> : null}
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="opportunity-handoff-note">Knowledge was saved successfully. Open the full Knowledge project to inspect older/merged records.</p>
+                      )}
                       <div className="intelligence-review-actions">
                         <button type="button" className="secondary-button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "opportunities" }) : current)}>Review opportunities</button>
                         <button type="button" className="secondary-button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "contradictions" }) : current)}>Analyse contradictions</button>

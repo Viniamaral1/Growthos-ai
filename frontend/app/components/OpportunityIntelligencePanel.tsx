@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfidenceRing from "@/app/components/ConfidenceRing";
 
 import {
   deleteOpportunity,
@@ -155,7 +156,10 @@ export default function OpportunityIntelligencePanel({
     } finally {
       setLoading(false);
     }
-  }, [activeSpaceId, companyId, onError]);
+  // Keep this callback scoped to project/company only. Parent notification callbacks
+  // can change identity during renders and should not trigger a full data reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSpaceId, companyId]);
 
   useEffect(() => {
     void load();
@@ -348,7 +352,7 @@ export default function OpportunityIntelligencePanel({
                 <div>
                   <div className="opportunity-meta">
                     <span>{item.space_name ?? "Workspace"}</span>
-                    <button type="button" className="opportunity-chip-button" onClick={() => setConfidenceOpen((current) => ({ ...current, [item.id]: !confidenceExpanded }))}>{item.confidence}% confidence</button>
+                    <ConfidenceRing value={item.confidence} size={48} onClick={() => setConfidenceOpen((current) => ({ ...current, [item.id]: !confidenceExpanded }))} />
                     <button type="button" className="opportunity-chip-button" onClick={() => setStatusOpen((current) => ({ ...current, [item.id]: !statusExpanded }))}>{statusLabel(item.status)}</button>
                   </div>
                   <h2>{item.title}</h2>

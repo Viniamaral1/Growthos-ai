@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ConfidenceRing from "@/app/components/ConfidenceRing";
 import {
   deleteContradiction,
   getContradictionLifecycleImpact,
@@ -271,7 +272,14 @@ export default function ContradictionIntelligencePanel({
                   <div>
                     <div className="contradiction-badges">
                       <span className={`impact-badge ${item.severity}`}>{severityLabel(item.severity)}</span>
-                      <span className="confidence-badge">{item.confidence}% confidence</span>
+                      <ConfidenceRing
+                        value={item.confidence}
+                        size={48}
+                        onClick={() => {
+                          setExpanded((current) => ({ ...current, [item.id]: true }));
+                          setOpenSections((current) => ({ ...current, [`${item.id}:confidence`]: !current[`${item.id}:confidence`] }));
+                        }}
+                      />
                       <span className="status-badge">{item.status.replace("detected", "Needs review")}</span>
                     </div>
                     <h2>{item.title}</h2>
@@ -314,6 +322,20 @@ export default function ContradictionIntelligencePanel({
                         </section>
                       );
                     })}
+
+                    <section className="contradiction-collapsible-section">
+                      <button type="button" onClick={() => toggleSection(item.id, "confidence")} aria-expanded={Boolean(openSections[`${item.id}:confidence`])}>
+                        <span>Why this confidence?</span><b>{openSections[`${item.id}:confidence`] ? "−" : "+"}</b>
+                      </button>
+                      {openSections[`${item.id}:confidence`] && (
+                        <div className="contradiction-confidence-explanation">
+                          <strong>{item.confidence}% confidence</strong>
+                          <span>GrowthOS matched the same business fact across {item.evidence.length} evidence source{item.evidence.length === 1 ? "" : "s"}.</span>
+                          <span>Active-source status, source quality and authority signals support this conflict score.</span>
+                          <span>Confidence describes how strongly the evidence supports the detected conflict; it is separate from business severity.</span>
+                        </div>
+                      )}
+                    </section>
 
                     <section className="contradiction-collapsible-section">
                       <button type="button" onClick={() => toggleSection(item.id, "evidence")} aria-expanded={Boolean(openSections[`${item.id}:evidence`])}>
