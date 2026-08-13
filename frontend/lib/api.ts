@@ -2384,3 +2384,64 @@ export async function deleteContradiction(
   });
   if (!response.ok) throw new Error(await readError(response));
 }
+
+export type EvidenceScoreFactor = {
+  key: string;
+  label: string;
+  score: number;
+  maximum: number;
+  detail: string;
+};
+
+export type EvidenceSourceSummary = {
+  document_id: number | null;
+  document_name: string | null;
+  source_type: string;
+  authority_score: number;
+  is_current: boolean;
+  is_superseded: boolean;
+};
+
+export type EvidenceScoreItem = {
+  knowledge_item_id: number;
+  space_id: number;
+  title: string;
+  value: string;
+  overall_score: number;
+  level: "strong" | "moderate" | "weak";
+  source_count: number;
+  active_contradictions: number;
+  resolved_contradictions: number;
+  age_days: number | null;
+  factors: EvidenceScoreFactor[];
+  sources: EvidenceSourceSummary[];
+  strengths: string[];
+  cautions: string[];
+  recommendation: string;
+};
+
+export type EvidenceScoreSummary = {
+  company_id: number;
+  space_id: number | null;
+  total_items: number;
+  strong_items: number;
+  moderate_items: number;
+  weak_items: number;
+  average_score: number | null;
+  active_contradictions: number;
+  multi_source_items: number;
+  stale_items: number;
+  items: EvidenceScoreItem[];
+  explanation: string;
+};
+
+export async function getEvidenceScoring(
+  companyId: number,
+  spaceId: number | null = null,
+): Promise<EvidenceScoreSummary> {
+  const query = new URLSearchParams({ company_id: String(companyId) });
+  if (spaceId !== null) query.set("space_id", String(spaceId));
+  const response = await fetch(`${API_URL}/evidence-scoring?${query.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}

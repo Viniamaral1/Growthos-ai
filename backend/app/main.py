@@ -40,6 +40,9 @@ from app.api.routes.opportunities import (
 from app.api.routes.contradictions import (
     router as contradictions_router,
 )
+from app.api.routes.evidence_scoring import (
+    router as evidence_scoring_router,
+)
 from app.api.routes.research import (
     router as research_router,
 )
@@ -172,6 +175,11 @@ def create_app() -> FastAPI:
 
     application.include_router(
         contradictions_router,
+        prefix="/api/v1",
+    )
+
+    application.include_router(
+        evidence_scoring_router,
         prefix="/api/v1",
     )
 

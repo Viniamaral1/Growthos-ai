@@ -12,6 +12,7 @@ import SettingsPanel from "@/app/components/SettingsPanel";
 import KnowledgeSpacesPanel from "@/app/components/KnowledgeSpacesPanel";
 import OpportunityIntelligencePanel from "@/app/components/OpportunityIntelligencePanel";
 import ContradictionIntelligencePanel from "@/app/components/ContradictionIntelligencePanel";
+import EvidenceScoringPanel from "@/app/components/EvidenceScoringPanel";
 import { defaultProfile, readProfile, type GrowthOSProfile } from "@/lib/profile";
 
 import {
@@ -86,6 +87,7 @@ type View =
   | "overview"
   | "opportunities"
   | "contradictions"
+  | "evidence"
   | "graph"
   | "knowledge"
   | "assistant"
@@ -250,6 +252,7 @@ const navItems: Array<{
   { id: "overview", label: "Intelligence Dashboard", icon: "◫" },
   { id: "opportunities", label: "Opportunities", icon: "↗" },
   { id: "contradictions", label: "Contradictions", icon: "≠" },
+  { id: "evidence", label: "Evidence Intelligence", icon: "◎" },
   { id: "graph", label: "Business Graph", icon: "⌘" },
   { id: "knowledge", label: "Business Intelligence", icon: "▤" },
   { id: "spaces", label: "Knowledge", icon: "▧" },
@@ -2893,7 +2896,7 @@ export default function Home() {
 
   useEffect(() => {
     const allowedViews: View[] = [
-      "overview", "opportunities", "graph", "knowledge", "assistant", "marketing", "companies",
+      "overview", "opportunities", "contradictions", "evidence", "graph", "knowledge", "assistant", "marketing", "companies",
       "plan", "cofounder", "decisions", "research", "memory", "spaces", "settings",
     ];
     const hasLaunched = readStoredBoolean(
@@ -4014,6 +4017,15 @@ async function handleGenerateBusinessPlan(
         onActiveSpaceChange={setIngestionTargetSpaceId}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
+      />
+    );
+  } else if (view === "evidence") {
+    activeView = (
+      <EvidenceScoringPanel
+        company={selectedCompany}
+        activeSpaceId={ingestionTargetSpaceId}
+        onActiveSpaceChange={setIngestionTargetSpaceId}
+        onError={(feedback) => { setMessage(""); setError(feedback); }}
       />
     );
   } else if (view === "graph") {
