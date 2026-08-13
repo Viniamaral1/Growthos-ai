@@ -172,6 +172,8 @@ export default function KnowledgeSpacesPanel({
   const [editType, setEditType] = useState("note");
   const [editSpaceId, setEditSpaceId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeItem | null>(null);
+  const [deletingItem, setDeletingItem] = useState(false);
   const [spaceAction, setSpaceAction] = useState<"rename" | "delete" | null>(null);
   const [spaceName, setSpaceName] = useState("");
   const [spaceItemCount, setSpaceItemCount] = useState(0);
@@ -376,15 +378,24 @@ export default function KnowledgeSpacesPanel({
     }
   }
 
-  async function removeItem() {
-    if (!selected || !window.confirm(`Delete “${selected.title}”? This cannot be undone.`)) return;
+  function removeItem() {
+    if (!selected) return;
+    setDeleteTarget(selected);
+  }
+
+  async function confirmRemoveItem() {
+    if (!deleteTarget || deletingItem) return;
+    setDeletingItem(true);
     try {
-      await deleteKnowledgeItem(selected.id);
-      setItems((current) => current.filter((item) => item.id !== selected.id));
-      setSelected(null);
-      onSuccess("Knowledge item deleted.");
+      await deleteKnowledgeItem(deleteTarget.id);
+      setItems((current) => current.filter((item) => item.id !== deleteTarget.id));
+      if (selected?.id === deleteTarget.id) setSelected(null);
+      setDeleteTarget(null);
+      onSuccess("Knowledge item deleted. Its Business Intelligence source was preserved.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Knowledge item could not be deleted.");
+    } finally {
+      setDeletingItem(false);
     }
   }
 
@@ -838,6 +849,53 @@ export default function KnowledgeSpacesPanel({
             <footer>
               <div><button type="button" onClick={() => navigator.clipboard.writeText(selected.content)}>Copy</button><button type="button" onClick={() => downloadWord(selected)}>Word</button><button type="button" onClick={() => printItem(selected)}>Print / PDF</button><button type="button" onClick={() => emailItem(selected)}>Email</button></div>
               <div>{editing ? <><button type="button" className="subtle" onClick={() => setEditing(false)}>Cancel</button><button type="button" onClick={() => void saveItem()} disabled={saving}>{saving ? "Saving…" : "Save"}</button></> : <><button type="button" className="danger" onClick={() => void removeItem()}>Delete</button><button type="button" onClick={() => setEditing(true)}>Edit / Move</button></>}</div>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="knowledge-preview-backdrop" role="presentation" onMouseDown={() => !deletingItem && setDeleteTarget(null)}>
+          <section className="knowledge-preview knowledge-delete-wizard" role="dialog" aria-modal="true" aria-label="Knowledge lifecycle deletion" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <span>⌁</span>
+                <div>
+                  <small>Knowledge lifecycle</small>
+                  <h2>Remove this captured Knowledge?</h2>
+                </div>
+              </div>
+              <button type="button" disabled={deletingItem} onClick={() => setDeleteTarget(null)}>×</button>
+            </header>
+            <div className="knowledge-preview-content">
+              <p><strong>{deleteTarget.title}</strong></p>
+              <p>This removes the captured Knowledge item only. The original Business Intelligence document remains stored and can be captured again later.</p>
+              <div className="knowledge-delete-impact">
+                <div><strong>1</strong><span>Knowledge item</span></div>
+                <div><strong>{sourceDocumentMetas(deleteTarget).length}</strong><span>Supporting source{sourceDocumentMetas(deleteTarget).length === 1 ? "" : "s"}</span></div>
+                <div><strong>{active?.name ?? "Current project"}</strong><span>Stored project</span></div>
+              </div>
+              <details open>
+                <summary>Inspect supporting evidence</summary>
+                <div className="knowledge-delete-sources">
+                  {sourceDocumentMetas(deleteTarget).length > 0 ? sourceDocumentMetas(deleteTarget).map((source) => (
+                    <div key={`${deleteTarget.id}-delete-source-${source.id}`}>
+                      <strong>{source.filename ?? `Document #${source.id}`}</strong>
+                      <span>Business Intelligence source #{source.id}</span>
+                    </div>
+                  )) : <p>No active Business Intelligence source is linked to this item.</p>}
+                </div>
+              </details>
+              <p className="knowledge-delete-note">Deleting this Knowledge item does not delete its uploaded document, Business Graph data, Opportunities or Contradictions. Those records keep their own lifecycle.</p>
+            </div>
+            <footer>
+              <div />
+              <div>
+                <button type="button" className="subtle" disabled={deletingItem} onClick={() => setDeleteTarget(null)}>Cancel</button>
+                <button type="button" className="danger" disabled={deletingItem} onClick={() => void confirmRemoveItem()}>
+                  {deletingItem ? "Removing Knowledge…" : "Remove Knowledge only"}
+                </button>
+              </div>
             </footer>
           </section>
         </div>

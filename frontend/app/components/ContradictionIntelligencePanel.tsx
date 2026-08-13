@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import {
   getContradictions,
+  getKnowledgeSpaces,
   refreshContradictions,
   updateContradictionStatus,
   type Company,
+  type KnowledgeSpace,
   type ContradictionRecord,
   type ContradictionStatus,
 } from "@/lib/api";
@@ -13,6 +15,7 @@ import {
 type Props = {
   company: Company | null;
   activeSpaceId: number | null;
+  onActiveSpaceChange: (spaceId: number | null) => void;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
 };
@@ -21,8 +24,10 @@ function severityLabel(value: ContradictionRecord["severity"]) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export default function ContradictionIntelligencePanel({ company, activeSpaceId, onError, onSuccess }: Props) {
+export default function ContradictionIntelligencePanel({ company, activeSpaceId, onActiveSpaceChange, onError, onSuccess }: Props) {
   const [items, setItems] = useState<ContradictionRecord[]>([]);
+  const [spaces, setSpaces] = useState<KnowledgeSpace[]>([]);
+  const [lastReviewedAt, setLastReviewedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
@@ -32,7 +37,12 @@ export default function ContradictionIntelligencePanel({ company, activeSpaceId,
     if (!company) return;
     setLoading(true);
     try {
-      setItems(await getContradictions(company.id, activeSpaceId));
+      const [contradictions, projectSpaces] = await Promise.all([
+        getContradictions(company.id, activeSpaceId),
+        getKnowledgeSpaces(company.id),
+      ]);
+      setItems(contradictions);
+      setSpaces(projectSpaces.filter((space) => !space.is_archived));
     } catch (error) {
       onError?.(error instanceof Error ? error.message : "Contradictions could not be loaded.");
     } finally {
@@ -46,9 +56,12 @@ export default function ContradictionIntelligencePanel({ company, activeSpaceId,
     if (!company || refreshing) return;
     setRefreshing(true);
     try {
-      await refreshContradictions(company.id, activeSpaceId);
+      const reviewed = await refreshContradictions(company.id, activeSpaceId);
       await load();
-      onSuccess?.("Contradiction review completed.");
+      setLastReviewedAt(new Date().toISOString());
+      onSuccess?.(reviewed.length === 0
+        ? "Contradiction review completed. No supported active conflicts were detected."
+        : `Contradiction review completed. GrowthOS found ${reviewed.length} supported conflict${reviewed.length === 1 ? "" : "s"}.`);
     } catch (error) {
       onError?.(error instanceof Error ? error.message : "Contradiction review failed.");
     } finally {
@@ -75,17 +88,34 @@ export default function ContradictionIntelligencePanel({ company, activeSpaceId,
         <div>
           <p className="eyebrow">Contradiction Intelligence</p>
           <h1>Conflicting business evidence</h1>
-          <p>GrowthOS checks whether two business sources describe the same fact with incompatible values.</p>
+          <p>GrowthOS checks whether two active business sources describe the same fact with incompatible values.</p>
         </div>
-        <button type="button" className="primary-button" disabled={!company || refreshing} onClick={() => void runReview()}>
-          {refreshing ? "Checking evidence..." : "Run contradiction review"}
-        </button>
+        <div className="contradiction-controls">
+          <label>
+            <span>Project</span>
+            <select
+              value={activeSpaceId ?? "all"}
+              onChange={(event) => onActiveSpaceChange(event.target.value === "all" ? null : Number(event.target.value))}
+              disabled={!company || loading || refreshing}
+            >
+              <option value="all">All projects</option>
+              {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+            </select>
+          </label>
+          <button type="button" className="primary-button" disabled={!company || refreshing} onClick={() => void runReview()}>
+            {refreshing ? "Checking evidence..." : "Run contradiction review"}
+          </button>
+        </div>
       </header>
 
       {!company ? <div className="empty-state">Select a workspace first.</div> : loading ? <div className="empty-state">Loading contradictions...</div> : items.length === 0 ? (
         <div className="contradiction-empty">
-          <strong>No contradictions detected.</strong>
-          <p>Run a review after capturing new Knowledge. GrowthOS will only surface supported conflicts; ordinary historical changes stay out of this list.</p>
+          <strong>No supported contradictions detected.</strong>
+          <p>
+            Project reviewed: <b>{activeSpaceId === null ? "All projects" : spaces.find((space) => space.id === activeSpaceId)?.name ?? "Current project"}</b>.
+            GrowthOS only surfaces supported active conflicts; proposals and superseded historical changes stay out of this list.
+          </p>
+          {lastReviewedAt && <small>Last reviewed {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(lastReviewedAt))}</small>}
         </div>
       ) : (
         <div className="contradiction-list">

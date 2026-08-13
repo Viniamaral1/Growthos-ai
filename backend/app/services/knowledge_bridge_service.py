@@ -236,26 +236,115 @@ def _deterministic_facts(text: str) -> list[KnowledgeFact]:
             ),
         ))
 
-    # Payment terms written in prose.
-    for match in re.finditer(r"\b(?:payable|payment(?:s)?(?: are)?(?: due)?|invoice(?:s)?(?: are)? payable)\s+(?:within\s+)?(\d{1,3})\s+days\b", text, re.I):
-        add(_fact(
-            "commercial-payment-terms", "Payment terms", f"{match.group(1)} days", match.group(0),
-            item_type="commercial", confidence=97,
-            rationale=("Payment timing affects cash flow and supplier terms.", "This can be compared with contracts and later quotations."),
-        ))
+    # Payment terms written in prose. Normalise variants such as
+    # "Payment is due 30 calendar days", "payment due 14 days" and "Net 30".
+    payment_patterns = (
+        r"\b(?:payment(?:s)?(?:\s+is|\s+are)?\s+due|payment\s+terms?|payable|invoice(?:s)?(?:\s+are)?\s+payable)\s*(?:within|in|:|-)?\s*(\d{1,3})\s*(?:calendar\s+|business\s+)?days\b",
+        r"\bnet\s*(\d{1,3})\b",
+    )
+    for pattern in payment_patterns:
+        for match in re.finditer(pattern, text, re.I):
+            add(_fact(
+                "commercial-payment-terms", "Payment terms", f"{match.group(1)} days", match.group(0),
+                item_type="commercial", confidence=98,
+                rationale=(
+                    "The source states a payment window.",
+                    "Payment timing affects cash flow and can be checked against contracts, invoices and quotations.",
+                ),
+            ))
 
-    # Explicit contract/reference identifiers.
-    for match in re.finditer(r"\b(?:contract|agreement|quotation|quote|reference|ref(?:erence)?)\s*(?:id|no\.?|number|#|:)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
+    # Explicit contract/reference identifiers, including "Agreement ref XYZ".
+    for match in re.finditer(r"\b(?:contract|agreement|quotation|quote|reference)\s*(?:id|no\.?|number|ref(?:erence)?|#|:)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
         if any(fact.item_type == "contract" and _normalise(fact.value) == _normalise(match.group(1)) for fact in facts):
             continue
+        reference_value = match.group(1).rstrip(".,;:")
         add(_fact(
-            "contract-reference", "Contract / quotation reference", match.group(1), match.group(0),
+            "contract-reference", "Contract / quotation reference", reference_value, match.group(0),
             item_type="contract", confidence=99,
             rationale=("A stable reference helps link future documents to the same commercial record.",),
         ))
 
+    # Unit prices written in prose. Accept ISO currency codes as well as symbols.
+    unit_price_patterns = (
+        r"(?P<subject>[A-Za-z][A-Za-z0-9 &/'().,-]{2,90}?)\s+is\s+(?:supplied|priced|charged|offered)\s+at\s+(?P<currency>GBP|USD|EUR|£|\$|€)\s*(?P<amount>\d[\d,]*(?:\.\d{1,4})?)\s*(?:per|/)\s*(?P<unit>cartons?|boxes?|packs?|cases?|kg|kilograms?|units?|items?|litres?|liters?|months?|years?)\b",
+        r"(?P<subject>[A-Za-z][A-Za-z0-9 &/'().,-]{2,90}?)\s*[-–—]\s*\d[\d,]*\s+(?:cartons?|boxes?|packs?|cases?|kg|kilograms?|units?|items?|litres?|liters?)\s+at\s+(?P<currency>GBP|USD|EUR|£|\$|€)\s*(?P<amount>\d[\d,]*(?:\.\d{1,4})?)\s*(?:per|/)\s*(?P<unit>cartons?|boxes?|packs?|cases?|kg|kilograms?|units?|items?|litres?|liters?|months?|years?)\b",
+    )
+    currency_names = {"£": "GBP", "$": "USD", "€": "EUR"}
+    for pattern in unit_price_patterns:
+        for match in re.finditer(pattern, text, re.I):
+            subject = _clean(match.group("subject"), 180)
+            # PDF extraction can flatten table rows into one line. Prefer the text after
+            # the last known business-field marker so document metadata does not become
+            # part of the product identity.
+            marker_match = list(re.finditer(r"(?i)(?:invoice\s+line|commercial\s+terms|product|service)\s*[:\-]?\s*", subject))
+            if marker_match:
+                subject = subject[marker_match[-1].end():]
+            subject = re.sub(r"(?i)^(?:invoice\s+line|commercial\s+terms|price|pricing)\s*[:\-]?\s*", "", subject).strip(" -:")
+            # If flattened metadata still precedes the product, keep the final noun phrase
+            # after common reference/date fields.
+            subject = re.sub(r"(?i)^.*?(?:agreement\s+ref\s+[A-Z0-9._/-]+|effective\s+date\s+\d{1,2}\s+\w+\s+\d{4}|invoice\s+date\s+\d{1,2}\s+\w+\s+\d{4})\s+", "", subject).strip()
+            subject = _clean(subject, 90)
+            unit = match.group("unit").lower()
+            unit = {
+                "cartons": "carton", "boxes": "box", "packs": "pack", "cases": "case",
+                "kilograms": "kg", "units": "unit", "items": "item",
+                "litres": "litre", "liters": "litre", "months": "month", "years": "year",
+            }.get(unit, unit)
+            currency = currency_names.get(match.group("currency"), match.group("currency").upper())
+            amount = match.group("amount").replace(",", "")
+            value = f"{currency} {amount} per {unit}"
+            add(_fact(
+                f"finance-unit-price-{_normalise(subject)}-{_normalise(unit)}",
+                f"{subject} price",
+                value,
+                _clean(text[max(0, match.start()-70):min(len(text), match.end()+70)], 300),
+                item_type="finance",
+                confidence=99,
+                rationale=(
+                    f"The source states a unit price for {subject}.",
+                    "The currency, numeric value and unit were normalised so equivalent prices can be compared across documents.",
+                ),
+            ))
+
+    # Durable quantity/volume commitments written in prose.
+    quantity_patterns = (
+        r"\b(?:expected\s+annual\s+volume|annual\s+(?:volume|quantity)|approved\s+annual\s+quantity|committed\s+annual\s+(?:volume|quantity))\s*(?:is|of|:|-)?\s*(\d[\d,]*)\s*(cartons?|boxes?|packs?|cases?|kg|kilograms?|units?|items?|litres?|liters?)\b",
+        r"\b(?:plan|forecast|budget)\s+(?:assumes|uses|expects)\s*(\d[\d,]*)\s*(cartons?|boxes?|packs?|cases?|kg|kilograms?|units?|items?|litres?|liters?)\b",
+    )
+    for pattern in quantity_patterns:
+        for match in re.finditer(pattern, text, re.I):
+            unit = match.group(2).lower()
+            unit = {
+                "cartons": "carton", "boxes": "box", "packs": "pack", "cases": "case",
+                "kilograms": "kg", "units": "unit", "items": "item",
+                "litres": "litre", "liters": "litre",
+            }.get(unit, unit)
+            number = int(match.group(1).replace(",", ""))
+            suffix = "" if unit == "kg" else "s"
+            add(_fact(
+                f"commercial-annual-quantity-{_normalise(unit)}",
+                "Annual quantity",
+                f"{number:,} {unit}{suffix}",
+                _clean(text[max(0, match.start()-80):min(len(text), match.end()+80)], 300),
+                item_type="commercial",
+                confidence=98,
+                rationale=(
+                    "The source states an annual quantity or planning volume.",
+                    "The quantity and unit were normalised for scope and commitment comparison.",
+                ),
+            ))
+
+    # Document/source status is useful context for contradiction reasoning.
+    for match in re.finditer(r"\b(?:document\s+status|status)\s*[:\-]?\s*(SIGNED\s*-?\s*CURRENT|SUPERSEDED|DRAFT|CURRENT|FINAL|APPROVED|INTERNAL\s+DISCUSSION\s*-?\s*NOT\s+AGREED)\b", text, re.I):
+        status_value = _clean(match.group(1), 80)
+        add(_fact(
+            "document-status", "Document status", status_value, match.group(0),
+            item_type="status", confidence=99,
+            rationale=("Document status helps GrowthOS distinguish current authority from historical, draft or proposed evidence.",),
+        ))
+
     # Commercial values. Keep a context-derived key so unit price is not confused with annual value.
-    for match in re.finditer(r"(?<!\w)(?:£|\$|€)\s?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:per|/)\s*(?:kg|unit|month|year|litre|liter|l))?", text, re.I):
+    for match in re.finditer(r"(?<!\w)(?:GBP|USD|EUR|£|\$|€)\s?\d[\d,]*(?:\.\d{1,4})?(?:\s*(?:per|/)\s*(?:carton|box|pack|case|kg|unit|item|month|year|litre|liter|l))?", text, re.I):
         if any(fact.item_type == "finance" and _normalise(fact.value) == _normalise(match.group(0)) for fact in facts):
             continue
         context_label = _context_label(text, match.start())

@@ -3889,6 +3889,7 @@ async function handleGenerateBusinessPlan(
       <ContradictionIntelligencePanel
         company={selectedCompany}
         activeSpaceId={ingestionTargetSpaceId}
+        onActiveSpaceChange={setIngestionTargetSpaceId}
         onError={(feedback) => { setMessage(""); setError(feedback); }}
         onSuccess={(feedback) => { setError(""); setMessage(feedback); }}
       />

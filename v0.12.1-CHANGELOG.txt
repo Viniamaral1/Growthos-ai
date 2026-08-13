@@ -1,0 +1,22 @@
+GrowthOS v0.12.1
+Knowledge Extraction + Contradiction Input Quality
+
+Backend
+- Expanded deterministic commercial extraction for ISO currency codes and per-unit prices.
+- Added payment term normalisation including calendar-day wording and Net-N terms.
+- Added annual quantity extraction.
+- Improved agreement/reference parsing.
+- Added source/document status extraction.
+- Reworked contradiction candidate generation to compare compatible facts across separate Knowledge records and history.
+- Added proposal/request and superseded-source guards.
+- Added source authority signals to contradiction explanations.
+
+Frontend
+- Added Contradiction project selector.
+- Improved no-contradiction empty state and review feedback.
+- Added lifecycle-style Knowledge item delete confirmation with supporting-source inspection and explicit source preservation.
+
+Validation
+- 20 focused backend tests passed.
+- Python application compilation passed.
+- TypeScript parser check reached only expected missing-dependency/module-resolution errors because the clean source archive excludes node_modules; no TS/TSX syntax errors were reported.
