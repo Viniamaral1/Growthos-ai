@@ -50,6 +50,10 @@ import {
   previewDocumentKnowledge,
   captureDocumentKnowledgeFacts,
   previewOpportunities,
+  refreshOpportunities,
+  refreshContradictions,
+  updateOpportunityStatus,
+  updateContradictionStatus,
   moveDocumentToWorkspace,
   deleteDocument,
   getDocumentDeleteDependencies,
@@ -72,6 +76,8 @@ import {
   type MarketingObjective,
   type MarketingPlatform,
   type OpportunityPreview,
+  type OpportunityRecord,
+  type ContradictionRecord,
 } from "@/lib/api";
 
 type View =
@@ -119,6 +125,13 @@ type OpportunityHandoff = {
   preview: OpportunityPreview;
   spaceId: number;
   spaceName: string;
+  activeTab: "knowledge" | "opportunities" | "contradictions";
+  savedKnowledgeCount: number;
+  opportunities: OpportunityRecord[];
+  contradictions: ContradictionRecord[];
+  opportunityReviewed: boolean;
+  contradictionReviewed: boolean;
+  busyAction: "opportunity" | "contradiction" | null;
 };
 
 type ProjectCreationDialog = {
@@ -3503,12 +3516,37 @@ async function handleGenerateBusinessPlan(
             preview,
             spaceId: knowledgeBridgeReview.spaceId,
             spaceName: knowledgeBridgeReview.spaceName,
+            activeTab: "knowledge",
+            savedKnowledgeCount: selected.length,
+            opportunities: [],
+            contradictions: [],
+            opportunityReviewed: false,
+            contradictionReviewed: false,
+            busyAction: null,
           });
           setMessage(preview.potential_count > 0
             ? `✓ ${result.message} GrowthOS found ${preview.potential_count} possible opportunity signal${preview.potential_count === 1 ? "" : "s"} ready for review.`
             : `✓ ${result.message} GrowthOS checked the new Knowledge and did not find a supported opportunity to save.`);
         } catch {
-          setMessage(`✓ ${result.message} Knowledge was saved. Opportunity review is still available from Opportunity Intelligence.`);
+          setOpportunityHandoff({
+            preview: {
+              potential_count: 0,
+              knowledge_count: selected.length,
+              highest_confidence: null,
+              reasons: ["Opportunity preview was unavailable. You can still run the full Opportunity review from this screen."],
+              candidates: [],
+            },
+            spaceId: knowledgeBridgeReview.spaceId,
+            spaceName: knowledgeBridgeReview.spaceName,
+            activeTab: "knowledge",
+            savedKnowledgeCount: selected.length,
+            opportunities: [],
+            contradictions: [],
+            opportunityReviewed: false,
+            contradictionReviewed: false,
+            busyAction: null,
+          });
+          setMessage(`✓ ${result.message} Knowledge was saved. Intelligence review is ready.`);
         }
       }
       setKnowledgeBridgeReview(null);
@@ -3516,6 +3554,83 @@ async function handleGenerateBusinessPlan(
       setError(requestError instanceof Error ? requestError.message : "Knowledge facts could not be saved.");
     } finally {
       setKnowledgeBridgeSaving(false);
+    }
+  }
+
+
+  async function reviewHandoffOpportunities() {
+    if (!opportunityHandoff || selectedCompanyId === null || opportunityHandoff.busyAction) return;
+    setOpportunityHandoff((current) => current ? ({ ...current, busyAction: "opportunity" }) : current);
+    try {
+      const records = await refreshOpportunities(selectedCompanyId, opportunityHandoff.spaceId);
+      setOpportunityHandoff((current) => current ? ({
+        ...current,
+        opportunities: records,
+        opportunityReviewed: true,
+        busyAction: null,
+        activeTab: "opportunities",
+      }) : current);
+      setMessage(records.length > 0
+        ? `✓ Opportunity review saved ${records.length} finding${records.length === 1 ? "" : "s"} for review.`
+        : "✓ Opportunity review completed. No supported opportunities were saved.");
+    } catch (requestError) {
+      setOpportunityHandoff((current) => current ? ({ ...current, busyAction: null }) : current);
+      setError(requestError instanceof Error ? requestError.message : "Opportunity review failed.");
+    }
+  }
+
+  async function reviewHandoffContradictions() {
+    if (!opportunityHandoff || selectedCompanyId === null || opportunityHandoff.busyAction) return;
+    setOpportunityHandoff((current) => current ? ({ ...current, busyAction: "contradiction" }) : current);
+    try {
+      const records = await refreshContradictions(selectedCompanyId, opportunityHandoff.spaceId);
+      setOpportunityHandoff((current) => current ? ({
+        ...current,
+        contradictions: records,
+        contradictionReviewed: true,
+        busyAction: null,
+        activeTab: "contradictions",
+      }) : current);
+      setMessage(records.length > 0
+        ? `✓ Contradiction review found ${records.length} supported conflict${records.length === 1 ? "" : "s"}.`
+        : "✓ Contradiction review completed. No supported active conflicts were found.");
+    } catch (requestError) {
+      setOpportunityHandoff((current) => current ? ({ ...current, busyAction: null }) : current);
+      setError(requestError instanceof Error ? requestError.message : "Contradiction review failed.");
+    }
+  }
+
+  async function setHandoffOpportunityStatus(item: OpportunityRecord, status: "confirmed" | "dismissed") {
+    if (!opportunityHandoff || opportunityHandoff.busyAction) return;
+    setOpportunityHandoff((current) => current ? ({ ...current, busyAction: "opportunity" }) : current);
+    try {
+      const updated = await updateOpportunityStatus(item.id, status);
+      setOpportunityHandoff((current) => current ? ({
+        ...current,
+        opportunities: current.opportunities.map((entry) => entry.id === updated.id ? updated : entry),
+        busyAction: null,
+      }) : current);
+      setMessage(`✓ Opportunity ${status}.`);
+    } catch (requestError) {
+      setOpportunityHandoff((current) => current ? ({ ...current, busyAction: null }) : current);
+      setError(requestError instanceof Error ? requestError.message : "Opportunity status could not be updated.");
+    }
+  }
+
+  async function setHandoffContradictionStatus(item: ContradictionRecord, status: "confirmed" | "dismissed") {
+    if (!opportunityHandoff || opportunityHandoff.busyAction) return;
+    setOpportunityHandoff((current) => current ? ({ ...current, busyAction: "contradiction" }) : current);
+    try {
+      const updated = await updateContradictionStatus(item.id, status);
+      setOpportunityHandoff((current) => current ? ({
+        ...current,
+        contradictions: current.contradictions.map((entry) => entry.id === updated.id ? updated : entry),
+        busyAction: null,
+      }) : current);
+      setMessage(`✓ Contradiction ${status}.`);
+    } catch (requestError) {
+      setOpportunityHandoff((current) => current ? ({ ...current, busyAction: null }) : current);
+      setError(requestError instanceof Error ? requestError.message : "Contradiction status could not be updated.");
     }
   }
 
@@ -4510,51 +4625,152 @@ async function handleGenerateBusinessPlan(
 
           {opportunityHandoff && (
             <div className="opportunity-handoff-backdrop" role="presentation">
-              <section className="opportunity-handoff-dialog" role="dialog" aria-modal="true" aria-label="Knowledge opportunity review">
+              <section className="opportunity-handoff-dialog intelligence-review-dialog" role="dialog" aria-modal="true" aria-label="Unified intelligence review">
                 <header>
                   <div>
-                    <span className="eyebrow">Knowledge → Opportunity Intelligence</span>
-                    <h2>{opportunityHandoff.preview.potential_count > 0 ? "Possible opportunity found" : "Knowledge captured — no opportunity saved"}</h2>
-                    <p>Project: {opportunityHandoff.spaceName}</p>
+                    <span className="eyebrow">GrowthOS Intelligence Review</span>
+                    <h2>Analysis complete</h2>
+                    <p>{opportunityHandoff.spaceName} · Review what GrowthOS found before taking action.</p>
                   </div>
-                  <button type="button" aria-label="Close opportunity handoff" onClick={() => setOpportunityHandoff(null)}>×</button>
+                  <button type="button" aria-label="Close intelligence review" onClick={() => setOpportunityHandoff(null)} disabled={opportunityHandoff.busyAction !== null}>×</button>
                 </header>
-                <div className="opportunity-handoff-body">
-                  {opportunityHandoff.preview.potential_count > 0 ? (
-                    <>
+
+                <div className="intelligence-review-summary">
+                  <button type="button" className={opportunityHandoff.activeTab === "knowledge" ? "active" : ""} onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "knowledge" }) : current)}>
+                    <strong>{opportunityHandoff.savedKnowledgeCount}</strong>
+                    <span>Knowledge</span>
+                  </button>
+                  <button type="button" className={opportunityHandoff.activeTab === "opportunities" ? "active" : ""} onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "opportunities" }) : current)}>
+                    <strong>{opportunityHandoff.opportunityReviewed ? opportunityHandoff.opportunities.length : opportunityHandoff.preview.potential_count}</strong>
+                    <span>Opportunities</span>
+                  </button>
+                  <button type="button" className={opportunityHandoff.activeTab === "contradictions" ? "active" : ""} onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "contradictions" }) : current)}>
+                    <strong>{opportunityHandoff.contradictionReviewed ? opportunityHandoff.contradictions.length : "?"}</strong>
+                    <span>Contradictions</span>
+                  </button>
+                </div>
+
+                <div className="opportunity-handoff-body intelligence-review-body">
+                  {opportunityHandoff.activeTab === "knowledge" && (
+                    <section className="intelligence-review-tab">
                       <div className="opportunity-handoff-summary positive">
-                        <strong>{opportunityHandoff.preview.potential_count} possible signal{opportunityHandoff.preview.potential_count === 1 ? "" : "s"}</strong>
-                        <span>Highest confidence: {opportunityHandoff.preview.highest_confidence ?? "—"}%</span>
+                        <strong>{opportunityHandoff.savedKnowledgeCount} reusable Knowledge fact{opportunityHandoff.savedKnowledgeCount === 1 ? "" : "s"} saved</strong>
+                        <span>The original Business Intelligence evidence remains linked.</span>
                       </div>
-                      {opportunityHandoff.preview.candidates.map((candidate, index) => (
-                        <article key={`${candidate.title}-${index}`}>
-                          <div><strong>{candidate.title}</strong><span>{candidate.confidence}% confidence</span></div>
-                          <p>{candidate.business_impact}</p>
-                        </article>
-                      ))}
-                      <p className="opportunity-handoff-note">Nothing has been silently confirmed. Open Opportunity Intelligence and run the full review when you want GrowthOS to save/update supported findings.</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="opportunity-handoff-summary neutral">
-                        <strong>No opportunity was saved</strong>
-                        <span>{opportunityHandoff.preview.knowledge_count} Knowledge item{opportunityHandoff.preview.knowledge_count === 1 ? "" : "s"} checked</span>
+                      <p className="opportunity-handoff-note">
+                        Knowledge is now available to Opportunities and Contradictions. You can review either intelligence layer here without leaving the capture flow.
+                      </p>
+                      <div className="intelligence-review-actions">
+                        <button type="button" className="secondary-button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "opportunities" }) : current)}>Review opportunities</button>
+                        <button type="button" className="secondary-button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "contradictions" }) : current)}>Analyse contradictions</button>
                       </div>
-                      <div className="opportunity-handoff-reasons">
-                        <strong>Why?</strong>
-                        <ul>{opportunityHandoff.preview.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
-                      </div>
-                      <p className="opportunity-handoff-note">This does not mean the Knowledge is unimportant. It means GrowthOS does not currently have enough evidence for a meaningful opportunity signal.</p>
-                    </>
+                    </section>
+                  )}
+
+                  {opportunityHandoff.activeTab === "opportunities" && (
+                    <section className="intelligence-review-tab">
+                      {!opportunityHandoff.opportunityReviewed ? (
+                        <>
+                          {opportunityHandoff.preview.potential_count > 0 ? (
+                            <>
+                              <div className="opportunity-handoff-summary positive">
+                                <strong>{opportunityHandoff.preview.potential_count} possible opportunity signal{opportunityHandoff.preview.potential_count === 1 ? "" : "s"}</strong>
+                                <span>Highest confidence: {opportunityHandoff.preview.highest_confidence ?? "—"}%</span>
+                              </div>
+                              {opportunityHandoff.preview.candidates.map((candidate, index) => (
+                                <article key={`${candidate.title}-${index}`} className="intelligence-review-card">
+                                  <div><strong>{candidate.title}</strong><span>{candidate.confidence}% confidence</span></div>
+                                  <p>{candidate.business_impact}</p>
+                                </article>
+                              ))}
+                              <p className="opportunity-handoff-note">These are previews only. Nothing is confirmed until you save the review and decide what to keep.</p>
+                            </>
+                          ) : (
+                            <div className="opportunity-handoff-summary neutral">
+                              <strong>No supported opportunity preview</strong>
+                              <span>{opportunityHandoff.preview.knowledge_count} Knowledge item{opportunityHandoff.preview.knowledge_count === 1 ? "" : "s"} checked</span>
+                            </div>
+                          )}
+                          <div className="opportunity-handoff-reasons">
+                            <strong>Why?</strong>
+                            <ul>{opportunityHandoff.preview.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+                          </div>
+                          <div className="intelligence-review-actions">
+                            <button type="button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "knowledge" }) : current)} disabled={opportunityHandoff.busyAction !== null}>Not now</button>
+                            <button type="button" className="primary-button" onClick={() => void reviewHandoffOpportunities()} disabled={opportunityHandoff.busyAction !== null}>
+                              {opportunityHandoff.busyAction === "opportunity" ? "Reviewing opportunities…" : "Save opportunity review"}
+                            </button>
+                          </div>
+                        </>
+                      ) : opportunityHandoff.opportunities.length === 0 ? (
+                        <>
+                          <div className="opportunity-handoff-summary neutral">
+                            <strong>No opportunity was saved</strong>
+                            <span>GrowthOS found no supported opportunity after the full review.</span>
+                          </div>
+                          <button type="button" className="secondary-button" onClick={() => { setIngestionTargetSpaceId(opportunityHandoff.spaceId); setView("opportunities"); setOpportunityHandoff(null); }}>Open Opportunity Intelligence</button>
+                        </>
+                      ) : (
+                        <>
+                          {opportunityHandoff.opportunities.map((item) => (
+                            <article key={item.id} className="intelligence-review-card">
+                              <div><strong>{item.title}</strong><span>{item.confidence}% · {item.status}</span></div>
+                              <p>{item.business_impact}</p>
+                              <div className="intelligence-review-inline-actions">
+                                <button type="button" onClick={() => void setHandoffOpportunityStatus(item, "confirmed")} disabled={opportunityHandoff.busyAction !== null}>Confirm</button>
+                                <button type="button" onClick={() => void setHandoffOpportunityStatus(item, "dismissed")} disabled={opportunityHandoff.busyAction !== null}>Dismiss</button>
+                              </div>
+                            </article>
+                          ))}
+                          <button type="button" className="secondary-button" onClick={() => { setIngestionTargetSpaceId(opportunityHandoff.spaceId); setView("opportunities"); setOpportunityHandoff(null); }}>Open full Opportunities</button>
+                        </>
+                      )}
+                    </section>
+                  )}
+
+                  {opportunityHandoff.activeTab === "contradictions" && (
+                    <section className="intelligence-review-tab">
+                      {!opportunityHandoff.contradictionReviewed ? (
+                        <>
+                          <div className="opportunity-handoff-summary neutral">
+                            <strong>Contradictions have not been analysed yet</strong>
+                            <span>GrowthOS can compare the newly captured Knowledge against active project evidence.</span>
+                          </div>
+                          <p className="opportunity-handoff-note">A difference is not automatically a contradiction. GrowthOS filters out proposals and superseded historical evidence where possible.</p>
+                          <div className="intelligence-review-actions">
+                            <button type="button" onClick={() => setOpportunityHandoff((current) => current ? ({ ...current, activeTab: "knowledge" }) : current)} disabled={opportunityHandoff.busyAction !== null}>Not now</button>
+                            <button type="button" className="primary-button" onClick={() => void reviewHandoffContradictions()} disabled={opportunityHandoff.busyAction !== null}>
+                              {opportunityHandoff.busyAction === "contradiction" ? "Analysing contradictions…" : "Analyse contradictions"}
+                            </button>
+                          </div>
+                        </>
+                      ) : opportunityHandoff.contradictions.length === 0 ? (
+                        <div className="opportunity-handoff-summary neutral">
+                          <strong>No supported contradiction detected</strong>
+                          <span>The captured Knowledge appears compatible with the currently active evidence for this project.</span>
+                        </div>
+                      ) : (
+                        <>
+                          {opportunityHandoff.contradictions.map((item) => (
+                            <article key={item.id} className="intelligence-review-card contradiction-preview">
+                              <div><strong>{item.title}</strong><span>{item.confidence}% · {item.severity}</span></div>
+                              <p>{item.statement_a} ≠ {item.statement_b}</p>
+                              <small>{item.reason}</small>
+                              <div className="intelligence-review-inline-actions">
+                                <button type="button" onClick={() => void setHandoffContradictionStatus(item, "confirmed")} disabled={opportunityHandoff.busyAction !== null}>Confirm</button>
+                                <button type="button" onClick={() => void setHandoffContradictionStatus(item, "dismissed")} disabled={opportunityHandoff.busyAction !== null}>Dismiss</button>
+                              </div>
+                            </article>
+                          ))}
+                          <button type="button" className="secondary-button" onClick={() => { setIngestionTargetSpaceId(opportunityHandoff.spaceId); setView("contradictions"); setOpportunityHandoff(null); }}>Open full Contradictions</button>
+                        </>
+                      )}
+                    </section>
                   )}
                 </div>
+
                 <footer>
-                  <button type="button" onClick={() => setOpportunityHandoff(null)}>Keep as Knowledge only</button>
-                  <button type="button" className="primary-button" onClick={() => {
-                    setIngestionTargetSpaceId(opportunityHandoff.spaceId);
-                    setView("opportunities");
-                    setOpportunityHandoff(null);
-                  }}>{opportunityHandoff.preview.potential_count > 0 ? "Open Opportunities" : "Review Opportunities"}</button>
+                  <button type="button" onClick={() => setOpportunityHandoff(null)} disabled={opportunityHandoff.busyAction !== null}>Close review</button>
                 </footer>
               </section>
             </div>

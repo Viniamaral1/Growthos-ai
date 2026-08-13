@@ -1856,6 +1856,25 @@ export async function updateKnowledgeItem(itemId: number, payload: {
   return response.json();
 }
 
+export type KnowledgeLifecycleImpact = {
+  knowledge_item_id: number;
+  title: string;
+  supporting_sources: number;
+  source_document_ids: number[];
+  source_files: string[];
+  linked_opportunities: number;
+  linked_contradictions: number;
+  calendar_candidates: number;
+  graph_entities: number;
+  guidance: string[];
+};
+
+export async function getKnowledgeLifecycleImpact(itemId: number): Promise<KnowledgeLifecycleImpact> {
+  const response = await fetch(`${API_URL}/knowledge-spaces/items/${itemId}/lifecycle-impact`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
 export async function deleteKnowledgeItem(itemId: number): Promise<void> {
   const response = await fetch(`${API_URL}/knowledge-spaces/items/${itemId}`, {
     method: "DELETE",
@@ -2286,6 +2305,7 @@ export type ContradictionRecord = {
   business_impact: string;
   recommended_verification: string;
   evidence: ContradictionEvidence[];
+  resolution: { choice?: string | null; note?: string | null } | null;
   detected_at: string;
   updated_at: string;
 };
@@ -2306,12 +2326,61 @@ export async function refreshContradictions(companyId: number, spaceId: number |
   return response.json();
 }
 
-export async function updateContradictionStatus(itemId: number, status: ContradictionStatus): Promise<ContradictionRecord> {
+export async function updateContradictionStatus(
+  itemId: number,
+  status: ContradictionStatus,
+  resolutionChoice: string | null = null,
+  note: string | null = null,
+): Promise<ContradictionRecord> {
   const response = await fetch(`${API_URL}/contradictions/${itemId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({
+      status,
+      ...(resolutionChoice ? { resolution_choice: resolutionChoice } : {}),
+      ...(note ? { note } : {}),
+    }),
   });
   if (!response.ok) throw new Error(await readError(response));
   return response.json();
+}
+
+export type ContradictionLifecycleImpact = {
+  contradiction_id: number;
+  title: string;
+  knowledge_facts: number;
+  source_documents: number;
+  calendar_candidates: number;
+  graph_entities: number;
+  linked_opportunities: number;
+  evidence: ContradictionEvidence[];
+  guidance: string[];
+};
+
+export async function getContradictionLifecycleImpact(itemId: number): Promise<ContradictionLifecycleImpact> {
+  const response = await fetch(`${API_URL}/contradictions/${itemId}/lifecycle-impact`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await readError(response));
+  return response.json();
+}
+
+export type ContradictionDeleteMode = "contradiction_only" | "contradiction_and_knowledge" | "remove_evidence";
+
+export async function deleteContradiction(
+  itemId: number,
+  mode: ContradictionDeleteMode,
+  knowledgeItemIds: number[] = [],
+  reason: string | null = null,
+  note: string | null = null,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/contradictions/${itemId}/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode,
+      knowledge_item_ids: knowledgeItemIds,
+      ...(reason ? { reason } : {}),
+      ...(note ? { note } : {}),
+    }),
+  });
+  if (!response.ok) throw new Error(await readError(response));
 }

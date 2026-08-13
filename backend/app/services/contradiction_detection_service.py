@@ -471,6 +471,7 @@ def serialize_contradiction(db: Session, record: ContradictionRecord) -> dict:
                 "evidence",
             ]
         },
+        "resolution": payload.get("resolution"),
         "detected_at": record.detected_at,
         "updated_at": record.updated_at,
     }

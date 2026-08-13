@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.company import Company
 from app.models.knowledge_item import KnowledgeItem
+from app.models.opportunity import OpportunityRecord
+from app.models.contradiction import ContradictionRecord
 from app.models.knowledge_space import KnowledgeSpace
 from app.services.capture_recommendation_service import recommend_capture_destination
 from app.schemas.knowledge import (
@@ -201,6 +203,65 @@ def update_item(item_id: int, payload: KnowledgeItemUpdate, database: DatabaseSe
     database.commit()
     database.refresh(item)
     return item
+
+
+
+
+@router.get("/items/{item_id}/lifecycle-impact")
+def knowledge_item_lifecycle_impact(item_id: int, database: DatabaseSession):
+    item = database.get(KnowledgeItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+
+    try:
+        tags = [tag for tag in json.loads(item.tags_json or "[]") if isinstance(tag, str)]
+    except Exception:
+        tags = []
+
+    source_ids: list[int] = []
+    source_files: list[str] = []
+    for tag in tags:
+        if tag.startswith("source-document:"):
+            try:
+                source_id = int(tag.split(":", 1)[1])
+            except ValueError:
+                continue
+            if source_id not in source_ids:
+                source_ids.append(source_id)
+        elif tag.startswith("source-file:"):
+            filename = tag.split(":", 1)[1]
+            if filename and filename not in source_files:
+                source_files.append(filename)
+
+    linked_opportunities = 0
+    for opportunity in database.scalars(
+        select(OpportunityRecord).where(OpportunityRecord.company_id == item.company_id)
+    ).all():
+        if f'"knowledge_item_id": {item.id}' in (opportunity.payload_json or ""):
+            linked_opportunities += 1
+
+    linked_contradictions = 0
+    for contradiction in database.scalars(
+        select(ContradictionRecord).where(ContradictionRecord.company_id == item.company_id)
+    ).all():
+        if f'"knowledge_item_id": {item.id}' in (contradiction.payload_json or ""):
+            linked_contradictions += 1
+
+    return {
+        "knowledge_item_id": item.id,
+        "title": item.title,
+        "supporting_sources": len(source_ids),
+        "source_document_ids": source_ids,
+        "source_files": source_files,
+        "linked_opportunities": linked_opportunities,
+        "linked_contradictions": linked_contradictions,
+        "calendar_candidates": 1 if "calendar-candidate" in tags else 0,
+        "graph_entities": 0,
+        "guidance": [
+            "Removing this Knowledge item does not delete its original Business Intelligence document.",
+            "Linked Opportunities and Contradictions keep their own lifecycle records but may be reconsidered on the next review.",
+        ],
+    }
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
